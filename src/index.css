@@ -1,0 +1,52 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Assistant Variable', 'Assistant', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* Design tokens — light, warm-neutral (see plan §design language) */
+  --color-canvas: #f6f5f2;
+  --color-venue: #ffffff;
+  --color-chrome: #fbfaf8;
+  --color-panel: #ffffff;
+  --color-line: #e7e4de;
+  --color-ink: #211e1b;
+  --color-ink-soft: #6e6862;
+  --color-accent: #3056d3;
+  --color-accent-hover: #274bbe;
+  --color-accent-tint: #ebf0ff;
+  --color-success: #1f8a50;
+  --color-warning: #b7791f;
+  --color-danger: #d64545;
+  --color-grid-minor: #ebe9e4;
+  --color-grid-major: #dad7d0;
+  --color-wall: #44403c;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  background: var(--color-chrome);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+/* Focus visibility (accessibility) */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Numeric runs stay LTR inside RTL text */
+.ltr-nums {
+  direction: ltr;
+  unicode-bidi: isolate;
+  font-family: var(--font-mono);
+}

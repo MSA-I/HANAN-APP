@@ -1,0 +1,16 @@
+/**
+ * Hebrew UI strings owned by the 3D viewer. Kept local so this module stays
+ * self-contained; the app lead may fold these into ui/strings.ts later.
+ */
+export const strings3d = {
+  presets: {
+    overview: 'מבט כללי',
+    top: 'מבט עליון',
+    eye: 'גובה עיניים',
+    reset: 'איפוס מבט',
+  },
+  fallback: {
+    title: 'לא ניתן להציג תצוגת תלת-ממד',
+    body: 'הדפדפן או המכשיר אינם תומכים ב-WebGL, או שהאצת החומרה כבויה. נסו דפדפן עדכני או הפעילו האצת גרפיקה בהגדרות.',
+  },
+} as const
