@@ -16,7 +16,8 @@ import type {
   Vec2,
 } from '../core/model/types'
 import { composeTransform, rotateVec } from '../core/space'
-import type { AABB } from '../core/layout/bounds'
+import { aabbUnion, type AABB } from '../core/layout/bounds'
+import { getVenuePack, type RestrictedZone } from '../core/venuePacks'
 import { objectAABB as objectAABBOf } from './selectors'
 import { temporalStore, useEditorStore, type EditorState, type ViewMode } from './store'
 
@@ -46,6 +47,86 @@ function clampSize(catalogId: string, size: Size3D): Size3D {
 /** ids expanded so that locked objects are filtered out */
 function editable(scene: SceneState, ids: Id[]): SceneObject[] {
   return ids.map((id) => scene.objects[id]).filter((o): o is SceneObject => !!o && !o.flags.locked)
+}
+
+/** Footprint of a top-level object including its attached chairs (world/plan). */
+function subtreeAABB(scene: SceneState, id: Id): AABB | null {
+  const boxes: AABB[] = []
+  const self = objectAABBOf(scene, id)
+  if (self) boxes.push(self)
+  for (const chair of attachedChairs(scene, id)) {
+    const b = objectAABBOf(scene, chair.id)
+    if (b) boxes.push(b)
+  }
+  return boxes.length ? aabbUnion(boxes) : null
+}
+
+/** Shift needed to bring a box back onto the floor [0,width]×[0,depth]. */
+function floorShift(box: AABB, width: number, depth: number): Vec2 {
+  let x = 0
+  let y = 0
+  if (box.minX < 0) x = -box.minX
+  else if (box.maxX > width) x = width - box.maxX
+  if (box.minY < 0) y = -box.minY
+  else if (box.maxY > depth) y = depth - box.maxY
+  return { x, y }
+}
+
+/**
+ * Shift to push a box out of a restricted zone. Prefers the smallest exit that
+ * still leaves the box on the floor — so an object dropped near the pool's short
+ * edge exits toward the open side instead of jamming against the wall.
+ */
+function zonePush(box: AABB, z: RestrictedZone, width: number, depth: number): Vec2 {
+  const zx1 = z.x + z.width
+  const zy1 = z.y + z.depth
+  if (!(box.minX < zx1 && box.maxX > z.x && box.minY < zy1 && box.maxY > z.y)) return { x: 0, y: 0 }
+  const exits: Vec2[] = [
+    { x: -(box.maxX - z.x), y: 0 }, // left
+    { x: zx1 - box.minX, y: 0 }, // right
+    { x: 0, y: -(box.maxY - z.y) }, // up
+    { x: 0, y: zy1 - box.minY }, // down
+  ]
+  const onFloor = (s: Vec2) =>
+    box.minX + s.x >= -0.01 && box.maxX + s.x <= width + 0.01 &&
+    box.minY + s.y >= -0.01 && box.maxY + s.y <= depth + 0.01
+  const mag = (s: Vec2) => Math.abs(s.x) + Math.abs(s.y)
+  const fitting = exits.filter(onFloor)
+  return (fitting.length ? fitting : exits).reduce((a, b) => (mag(b) < mag(a) ? b : a))
+}
+
+/**
+ * HARD bounds enforcement. Shifts each touched TOP-LEVEL object so its footprint
+ * (table + chairs) stays on the venue floor and off any restricted zone (pool…).
+ * The single write path means this catches drag, paste, duplicate, arrow-nudge,
+ * resize and rotate in one place. Attached chairs follow their clamped table, so
+ * we skip them here. Objects larger than the venue align to the near edge.
+ */
+function clampToVenue(scene: SceneState, ids: Iterable<Id>): void {
+  const { width, depth } = scene.venue.size
+  const zones = getVenuePack(scene.venue.venuePackId)?.restricted ?? []
+  const done = new Set<Id>()
+  const shift = (obj: SceneObject, box: AABB, d: Vec2): AABB => {
+    obj.transform.position.x += d.x
+    obj.transform.position.y += d.y
+    return { minX: box.minX + d.x, minY: box.minY + d.y, maxX: box.maxX + d.x, maxY: box.maxY + d.y }
+  }
+  for (const id of ids) {
+    const obj = scene.objects[id]
+    if (!obj || obj.parentId || obj.flags.locked || done.has(id)) continue
+    done.add(id)
+    let box = subtreeAABB(scene, id)
+    if (!box) continue
+    let d = floorShift(box, width, depth)
+    if (d.x || d.y) box = shift(obj, box, d)
+    for (const z of zones) {
+      const p = zonePush(box, z, width, depth)
+      if (!p.x && !p.y) continue
+      box = shift(obj, box, p)
+      d = floorShift(box, width, depth) // re-seat on the floor if the push crossed an edge
+      if (d.x || d.y) box = shift(obj, box, d)
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +185,7 @@ export function addObject(catalogId: string, position: Vec2): Id {
     scene.objects[obj.id] = obj
     scene.objectOrder.push(obj.id)
     if (obj.seating) reconcileSeats(scene, obj.id)
+    clampToVenue(scene, [obj.id])
   })
   select([obj.id])
   return obj.id
@@ -164,6 +246,7 @@ export function duplicateObjects(ids: Id[], offset: Vec2 = { x: 50, y: 50 }): Id
       }
       newIds.push(copy.id)
     }
+    clampToVenue(scene, newIds)
   })
   if (newIds.length) select(newIds)
   return newIds
@@ -205,6 +288,7 @@ export function pasteSubtrees(subtrees: Subtree[], target?: Vec2): Id[] {
       }
       newIds.push(root.id)
     }
+    clampToVenue(scene, newIds)
   })
   select(newIds)
   return newIds
@@ -228,6 +312,7 @@ export function moveObjectsBy(ids: Id[], delta: Vec2): void {
         obj.transform.position.y += delta.y
       }
     }
+    clampToVenue(scene, ids)
   })
 }
 
@@ -237,6 +322,7 @@ export function setPosition(id: Id, position: Vec2): void {
     if (!obj || obj.flags.locked) return
     obj.transform.position = { ...position }
     if (obj.attachment) obj.attachment.manual = true
+    clampToVenue(scene, [id])
   })
 }
 
@@ -246,6 +332,7 @@ export function setRotation(id: Id, rotation: number): void {
     if (!obj || obj.flags.locked) return
     obj.transform.rotation = rotation
     if (obj.attachment) obj.attachment.manual = true
+    clampToVenue(scene, [id])
   })
 }
 
@@ -255,6 +342,7 @@ export function rotateObjectsBy(ids: Id[], delta: number): void {
       obj.transform.rotation += delta
       if (obj.attachment) obj.attachment.manual = true
     }
+    clampToVenue(scene, ids)
   })
 }
 
@@ -264,6 +352,7 @@ export function setSize(id: Id, size: Partial<Size3D>): void {
     if (!obj || obj.flags.locked) return
     obj.size = clampSize(obj.catalogId, { ...obj.size, ...size })
     if (obj.seating) reconcileSeats(scene, id)
+    clampToVenue(scene, [id])
   })
 }
 
@@ -418,6 +507,7 @@ export function alignObjects(ids: Id[], edge: AlignEdge): void {
       obj.transform.position.x += dx
       obj.transform.position.y += dy
     }
+    clampToVenue(scene, ids)
   })
 }
 
@@ -446,6 +536,7 @@ export function distributeObjects(ids: Id[], axis: 'x' | 'y'): void {
       if (axis === 'x') obj.transform.position.x += target - c
       else obj.transform.position.y += target - c
     })
+    clampToVenue(scene, ids)
   })
 }
 

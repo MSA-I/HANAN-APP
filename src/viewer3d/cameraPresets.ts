@@ -4,10 +4,28 @@
  * room. Applied via camera-controls setLookAt (optionally animated).
  */
 import type CameraControls from 'camera-controls'
+import type { PerspectiveCamera } from 'three'
 import type { Venue } from '../core/model/types'
+import type { SealedCamera } from '../core/venuePacks'
 import { cmToM } from '../core/space'
 
 export type CameraPreset = 'overview' | 'top' | 'eye'
+
+/** Jump to a sealed venue angle (from a SketchUp Scene): exact eye, target, fov. */
+export function applySealedCamera(
+  controls: CameraControls,
+  cam: SealedCamera,
+  transition = true,
+): void {
+  const camera = controls.camera as PerspectiveCamera
+  if (camera && typeof camera.fov === 'number') {
+    camera.fov = cam.fov
+    camera.updateProjectionMatrix()
+  }
+  const [px, py, pz] = cam.position
+  const [tx, ty, tz] = cam.target
+  controls.setLookAt(px, py, pz, tx, ty, tz, transition)
+}
 
 export function applyCameraPreset(
   controls: CameraControls,

@@ -110,6 +110,8 @@ const venue = z.object({
   wallHeight: z.number(),
   floor: z.object({ color: z.string() }),
   elements: z.array(z.never()),
+  // optional — old projects have none (procedural room). nullish so it survives load.
+  venuePackId: z.string().nullish(),
 })
 
 const sceneSettings = z.object({

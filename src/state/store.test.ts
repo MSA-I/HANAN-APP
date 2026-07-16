@@ -14,6 +14,7 @@ import {
   setSize,
   undo,
 } from './actions'
+import { objectAABB } from './selectors'
 import { projectFromState, temporalStore, useEditorStore } from './store'
 
 const scene = () => useEditorStore.getState().scene
@@ -130,6 +131,44 @@ describe('seating reconciliation', () => {
     setSeatCount(id, 99)
     expect(scene().objects[id].seating?.count).toBe(13)
     expect(attachedChairs(scene(), id)).toHaveLength(13)
+  })
+})
+
+describe('hard venue bounds', () => {
+  it('clamps an object shoved past every venue edge', () => {
+    const id = addObject('table.round', { x: 500, y: 500 })
+    moveObjectsBy([id], { x: -9999, y: -9999 })
+    let box = objectAABB(scene(), id)!
+    expect(box.minX).toBeGreaterThanOrEqual(-0.01)
+    expect(box.minY).toBeGreaterThanOrEqual(-0.01)
+    moveObjectsBy([id], { x: 9999, y: 9999 })
+    box = objectAABB(scene(), id)!
+    expect(box.maxX).toBeLessThanOrEqual(2400.01)
+    expect(box.maxY).toBeLessThanOrEqual(1600.01)
+  })
+
+  it('keeps attached chairs on the floor, not just the table', () => {
+    const id = addObject('table.round', { x: 500, y: 500 })
+    moveObjectsBy([id], { x: -9999, y: 0 })
+    const minChairX = Math.min(
+      ...attachedChairs(scene(), id).map((c) => objectAABB(scene(), c.id)!.minX),
+    )
+    expect(minChairX).toBeGreaterThanOrEqual(-0.01)
+  })
+
+  it('pushes furniture out of a restricted zone (resort pool)', () => {
+    newProject({ name: 'resort', venuePackId: 'resort' })
+    // pool zone x[766,3962] y[1408,2544] reaches the far wall (venue depth 2544),
+    // so a table dropped in it must exit upward where there is room.
+    const id = addObject('table.round', { x: 2500, y: 2000 })
+    const b = objectAABB(scene(), id)!
+    const overlapsPool = b.minX < 3962 && b.maxX > 766 && b.minY < 2544 && b.maxY > 1408
+    expect(overlapsPool).toBe(false)
+    // and it stays on the floor (venue 4423×2544)
+    expect(b.minX).toBeGreaterThanOrEqual(-0.01)
+    expect(b.minY).toBeGreaterThanOrEqual(-0.01)
+    expect(b.maxX).toBeLessThanOrEqual(4423.01)
+    expect(b.maxY).toBeLessThanOrEqual(2544.01)
   })
 })
 

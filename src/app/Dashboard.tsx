@@ -10,6 +10,7 @@ import { CalendarDays, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
 import { createObject, createProject } from '../core/model/factory'
 import { reconcileSeats } from '../core/model/seatingReconciler'
 import type { Project, SceneObject } from '../core/model/types'
+import { VENUE_PACKS } from '../core/venuePacks'
 import { makeProjectFile } from '../persistence/autosave'
 import { indexedDbRepository } from '../persistence/indexedDbRepository'
 import { stringsPersist as S } from '../persistence/stringsPersist'
@@ -96,6 +97,7 @@ interface NewProjectResult {
   widthM: number
   depthM: number
   sample: boolean
+  venuePackId: string | null
 }
 
 // --- preview card ----------------------------------------------------------
@@ -319,6 +321,7 @@ function NewProjectModal({
   const [width, setWidth] = useState('24')
   const [depth, setDepth] = useState('16')
   const [sample, setSample] = useState(false)
+  const [venuePackId, setVenuePackId] = useState<string | null>(null)
   const [submitted, setSubmitted] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
 
@@ -348,6 +351,7 @@ function NewProjectModal({
       widthM: toMeters(width, 24),
       depthM: toMeters(depth, 16),
       sample,
+      venuePackId,
     })
   }
 
@@ -388,32 +392,53 @@ function NewProjectModal({
             className={inputClass}
           />
         </label>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block">
-            {fieldLabel(S.newModal.venueWidth)}
-            <input
-              type="number"
-              dir="ltr"
-              min={2}
-              step={0.5}
-              value={width}
-              onChange={(e) => setWidth(e.target.value)}
-              className={`${inputClass} ltr-nums`}
-            />
-          </label>
-          <label className="block">
-            {fieldLabel(S.newModal.venueDepth)}
-            <input
-              type="number"
-              dir="ltr"
-              min={2}
-              step={0.5}
-              value={depth}
-              onChange={(e) => setDepth(e.target.value)}
-              className={`${inputClass} ltr-nums`}
-            />
-          </label>
+        <div>
+          {fieldLabel('אולם')}
+          <div className="grid grid-cols-2 gap-2">
+            {[{ id: null, name: 'ריק (מידות ידניות)' }, ...VENUE_PACKS].map((opt) => (
+              <button
+                key={opt.id ?? 'blank'}
+                type="button"
+                onClick={() => setVenuePackId(opt.id)}
+                className={`rounded-md border px-3 py-2 text-[13px] transition-colors ${
+                  venuePackId === opt.id
+                    ? 'border-accent bg-accent-tint text-accent'
+                    : 'border-line bg-panel text-ink-soft hover:border-accent/40'
+                }`}
+              >
+                {opt.name}
+              </button>
+            ))}
+          </div>
         </div>
+        {venuePackId === null && (
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              {fieldLabel(S.newModal.venueWidth)}
+              <input
+                type="number"
+                dir="ltr"
+                min={2}
+                step={0.5}
+                value={width}
+                onChange={(e) => setWidth(e.target.value)}
+                className={`${inputClass} ltr-nums`}
+              />
+            </label>
+            <label className="block">
+              {fieldLabel(S.newModal.venueDepth)}
+              <input
+                type="number"
+                dir="ltr"
+                min={2}
+                step={0.5}
+                value={depth}
+                onChange={(e) => setDepth(e.target.value)}
+                className={`${inputClass} ltr-nums`}
+              />
+            </label>
+          </div>
+        )}
         <div>
           {fieldLabel(S.newModal.layoutLabel)}
           <div className="grid grid-cols-2 gap-2">
@@ -539,6 +564,7 @@ export function Dashboard({ onOpen }: { onOpen: (project: Project) => void }) {
         eventDate: r.eventDate,
         venueWidth: Math.round(r.widthM * 100),
         venueDepth: Math.round(r.depthM * 100),
+        venuePackId: r.venuePackId,
       })
       if (r.sample) buildSampleScene(project)
       await repo.save(makeProjectFile(project))

@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid'
 import { getCatalogEntry } from '../catalog/registry'
+import { getVenuePack } from '../venuePacks'
 import type { Id, Project, SceneObject, SceneState, Vec2 } from './types'
 import { SCHEMA_VERSION } from './types'
 
@@ -7,14 +8,28 @@ export function newId(): Id {
   return nanoid(10)
 }
 
-export function createDefaultScene(venueWidth = 2400, venueDepth = 1600): SceneState {
+export function createDefaultScene(
+  venueWidth = 2400,
+  venueDepth = 1600,
+  venuePackId?: string | null,
+): SceneState {
+  const pack = getVenuePack(venuePackId)
+  const venue = pack
+    ? {
+        size: { ...pack.size },
+        wallHeight: pack.wallHeight,
+        floor: { color: '#efebe4' },
+        elements: [] as never[],
+        venuePackId: pack.id,
+      }
+    : {
+        size: { width: venueWidth, depth: venueDepth },
+        wallHeight: 350,
+        floor: { color: '#efebe4' },
+        elements: [] as never[],
+      }
   return {
-    venue: {
-      size: { width: venueWidth, depth: venueDepth },
-      wallHeight: 350,
-      floor: { color: '#efebe4' },
-      elements: [],
-    },
+    venue,
     objects: {},
     objectOrder: [],
     settings: { gridSize: 10, snapEnabled: true, showGrid: true, showLabels: true },
@@ -27,6 +42,7 @@ export interface NewProjectOptions {
   eventDate?: string
   venueWidth?: number
   venueDepth?: number
+  venuePackId?: string | null
 }
 
 export function createProject(opts: NewProjectOptions): Project {
@@ -39,7 +55,7 @@ export function createProject(opts: NewProjectOptions): Project {
     eventDate: opts.eventDate,
     createdAt: now,
     updatedAt: now,
-    scene: createDefaultScene(opts.venueWidth, opts.venueDepth),
+    scene: createDefaultScene(opts.venueWidth, opts.venueDepth, opts.venuePackId),
   }
 }
 

@@ -70,6 +70,8 @@ export interface Venue {
   floor: { color: string }
   /** seam for walls/doors/windows/columns/restricted zones (v1.1) */
   elements: never[]
+  /** id of a static venue pack (public/venue-packs/<id>/); null = procedural room */
+  venuePackId?: string | null
 }
 
 export interface SceneSettings {

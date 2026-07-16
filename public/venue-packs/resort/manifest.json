@@ -1,0 +1,29 @@
+{
+  "id": "resort",
+  "name": "אולם הריזורט",
+  "schemaVersion": 1,
+  "type": "indoor-outdoor",
+  "model": "venue.glb",
+  "units": "meters",
+  "upAxis": "y",
+  "boundsMeters": { "min": [-8.546, -1.45, -32.392], "max": [75.65, 11.623, 1.139] },
+  "floorPlan": {
+    "note": "Aligned to user-marked ZONE_FLOOR (SketchUp face painted with ZONE_FLOOR material). Origin = its min corner. Zones extracted via tools/extract-zones.mjs.",
+    "offset": [0, 0, 24.861],
+    "planSizeCm": { "width": 4423, "depth": 2544 },
+    "wallHeightCm": 1160,
+    "restrictedZones": ["בריכה (כולל מרחק ביטחון)", "בר", "רחבת ריקודים", "עמדת DJ", "חופה", "מסדרון"],
+    "placeableAreas": "2 polygons (green) from ZONE_FLOOR = size-rectangle minus restricted zones; furniture confined here",
+    "note2": "Real floor is non-rectangular & disconnected (left L + right rectangle). Room outline unions to a clean rectangle 4420×2540."
+  },
+  "fixedElements": ["chuppah", "pool", "structure", "desert-backdrop"],
+  "heroFacing": "desert",
+  "source": {
+    "skp": "HANAN-APP-DOCS/SKP/ריסורט גאמוס.skp",
+    "pipeline": "SketchUp -> SimLab (SKP->GLB) -> tools/glb-prep --mode venue",
+    "preparedOn": "2026-07-15",
+    "originalSizeMB": 58.7,
+    "optimizedSizeMB": 3.6
+  },
+  "todo": ["footprint.json", "cameras.json", "refs/", "lighting.json"]
+}
