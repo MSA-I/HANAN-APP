@@ -3,7 +3,8 @@ import { Circle, Group, Rect, Text } from 'react-konva'
 import { useShallow } from 'zustand/react/shallow'
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import { slotColor } from '../core/catalog/types'
-import type { Id } from '../core/model/types'
+import { childSortKey, type Id } from '../core/model/types'
+import { isEffectivelyLocked, isObjectVisible } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { strings } from '../ui/strings'
 import {
@@ -25,8 +26,8 @@ const SELECTED_STROKE = '#3056d3'
 function childIdsSelector(id: Id) {
   return (s: ReturnType<typeof useEditorStore.getState>) =>
     Object.values(s.scene.objects)
-      .filter((o) => o.parentId === id)
-      .sort((a, b) => (a.attachment?.seatIndex ?? 0) - (b.attachment?.seatIndex ?? 0))
+      .filter((o) => o.parentId === id && isObjectVisible(s.scene, o.id))
+      .sort((a, b) => childSortKey(a) - childSortKey(b))
       .map((o) => o.id)
 }
 
@@ -47,6 +48,10 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
   const obj = useEditorStore((s) => s.scene.objects[id])
   const isSelected = useEditorStore((s) => s.selection.includes(id))
   const showLabels = useEditorStore((s) => s.scene.settings.showLabels)
+  const effectiveLocked = useEditorStore((s) => {
+    const o = s.scene.objects[id]
+    return !!o && isEffectivelyLocked(s.scene, o)
+  })
   const childIds = useEditorStore(useShallow(useMemo(() => childIdsSelector(id), [id])))
 
   const entry = obj && hasCatalogEntry(obj.catalogId) ? getCatalogEntry(obj.catalogId) : null
@@ -72,8 +77,8 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
       x={obj.transform.position.x}
       y={obj.transform.position.y}
       rotation={obj.transform.rotation}
-      listening={isChild ? true : !obj.flags.locked}
-      draggable={isChild ? childSelected : !obj.flags.locked}
+      listening={isChild ? true : !effectiveLocked}
+      draggable={isChild ? childSelected : !effectiveLocked}
       onMouseDown={(e) => (isChild ? onChildMouseDown(id, childSelected, e) : onObjectMouseDown(id, e))}
       onClick={isChild ? undefined : (e) => onObjectClick(id, e)}
       onDblClick={isChild ? (e) => onChildDblClick(id, e) : undefined}

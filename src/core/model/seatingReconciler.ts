@@ -9,12 +9,12 @@
 import { getCatalogEntry } from '../catalog/registry'
 import { computeMaxSeats, computeSeatTransforms } from '../layout/seatLayout'
 import { newId } from './factory'
-import type { Id, SceneObject, SceneState } from './types'
+import { childSortKey, type Id, type SceneObject, type SceneState } from './types'
 
 export function attachedChairs(scene: SceneState, tableId: Id): SceneObject[] {
   return Object.values(scene.objects)
     .filter((o) => o.parentId === tableId && o.attachment?.kind === 'seat')
-    .sort((a, b) => (a.attachment?.seatIndex ?? 0) - (b.attachment?.seatIndex ?? 0))
+    .sort((a, b) => childSortKey(a) - childSortKey(b))
 }
 
 export function reconcileSeats(scene: SceneState, tableId: Id): void {
@@ -39,13 +39,13 @@ export function reconcileSeats(scene: SceneState, tableId: Id): void {
 
   const kept = existing.slice(0, target)
   kept.forEach((chair, i) => {
-    if (chair.attachment) chair.attachment.seatIndex = i
+    if (chair.attachment?.kind === 'seat') chair.attachment.seatIndex = i
     if (chair.catalogId !== seating.chairCatalogId) {
       chair.catalogId = seating.chairCatalogId
       chair.size = { ...chairEntry.defaultSize }
       chair.appearance = {}
     }
-    if (!chair.attachment?.manual) chair.transform = seats[i]
+    if (chair.attachment?.kind === 'seat' && !chair.attachment.manual) chair.transform = seats[i]
   })
 
   // new chairs inherit the appearance of the last existing chair (recolored sets stay uniform)

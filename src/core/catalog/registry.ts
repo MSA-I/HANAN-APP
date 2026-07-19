@@ -1,15 +1,15 @@
 import type { CatalogEntry, Category } from './types'
 import { tableEntries } from './entries/tables'
 import { seatingEntries } from './entries/seating'
-import { stagingEntries } from './entries/staging'
 import { barEntries } from './entries/bars'
+import { tableDecorEntries } from './entries/tableDecor'
 import { decorEntries } from './entries/decor'
 
 const all: CatalogEntry[] = [
   ...tableEntries,
   ...seatingEntries,
-  ...stagingEntries,
   ...barEntries,
+  ...tableDecorEntries,
   ...decorEntries,
 ]
 
@@ -33,4 +33,4 @@ export function listByCategory(category: Category): CatalogEntry[] {
   return all.filter((e) => e.category === category)
 }
 
-export const CATEGORY_ORDER: Category[] = ['tables', 'seating', 'staging', 'bars', 'decor', 'structure']
+export const CATEGORY_ORDER: Category[] = ['tables', 'seating', 'bars', 'tableDecor', 'decor', 'structure']

@@ -12,10 +12,12 @@ export function createDefaultScene(
   venueWidth = 2400,
   venueDepth = 1600,
   venuePackId?: string | null,
+  floorColor = '#efebe4',
 ): SceneState {
   const pack = getVenuePack(venuePackId)
   const venue = pack
     ? {
+        // pack halls are fixed: the GLB floor is baked, so the color option does not apply
         size: { ...pack.size },
         wallHeight: pack.wallHeight,
         floor: { color: '#efebe4' },
@@ -25,14 +27,14 @@ export function createDefaultScene(
     : {
         size: { width: venueWidth, depth: venueDepth },
         wallHeight: 350,
-        floor: { color: '#efebe4' },
+        floor: { color: floorColor },
         elements: [] as never[],
       }
   return {
     venue,
     objects: {},
     objectOrder: [],
-    settings: { gridSize: 10, snapEnabled: true, showGrid: true, showLabels: true },
+    settings: { gridSize: 10, snapEnabled: true, showGrid: true, showLabels: true, layers: {} },
   }
 }
 
@@ -43,6 +45,8 @@ export interface NewProjectOptions {
   venueWidth?: number
   venueDepth?: number
   venuePackId?: string | null
+  /** procedural rooms only — pack halls have a baked GLB floor */
+  floorColor?: string
 }
 
 export function createProject(opts: NewProjectOptions): Project {
@@ -55,7 +59,7 @@ export function createProject(opts: NewProjectOptions): Project {
     eventDate: opts.eventDate,
     createdAt: now,
     updatedAt: now,
-    scene: createDefaultScene(opts.venueWidth, opts.venueDepth, opts.venuePackId),
+    scene: createDefaultScene(opts.venueWidth, opts.venueDepth, opts.venuePackId, opts.floorColor),
   }
 }
 

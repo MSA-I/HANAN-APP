@@ -11,7 +11,7 @@ import { collectSnapLines, snapAABB, type SnapLines } from '../core/layout/snapp
 import type { Id } from '../core/model/types'
 import { rotateVec } from '../core/space'
 import { beginGesture, endGesture, moveObjectsBy, select } from '../state/actions'
-import { objectAABB } from '../state/selectors'
+import { isEffectivelyLocked, objectAABB, visibleTopLevelIds } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { overlay } from './overlayStore'
 import { useViewportStore } from './viewportStore'
@@ -49,9 +49,10 @@ export function onObjectDragStart(id: Id, e: KonvaEventObject<DragEvent>): void 
   }
   const ids = sel.filter((sid) => {
     const o = state.scene.objects[sid]
-    return o && !o.parentId && !o.flags.locked
+    return o && !o.parentId && !isEffectivelyLocked(state.scene, o)
   })
-  const staticBoxes = state.scene.objectOrder
+  // hidden objects are not snap targets — only what the user can see guides them
+  const staticBoxes = visibleTopLevelIds(state.scene)
     .filter((oid) => !ids.includes(oid))
     .map((oid) => objectAABB(state.scene, oid))
     .filter((b): b is AABB => !!b)

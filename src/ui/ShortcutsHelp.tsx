@@ -39,17 +39,25 @@ export function ShortcutsHelp() {
             <X size={16} />
           </button>
         </div>
-        <table className="w-full text-[12px]">
-          <tbody>
-            {strings.help.rows.map(([keys, label]) => (
-              <tr key={keys} className="border-b border-line/60 last:border-0">
-                <td className="py-1.5 pe-3 text-ink-soft">{label}</td>
-                <td className="ltr-nums py-1.5 text-end font-mono text-[11px] text-ink">{keys}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Rows rows={strings.help.rows} />
+        <h3 className="mt-4 mb-1 text-[13px] font-semibold">{strings.help.title3d}</h3>
+        <Rows rows={strings.help.rows3d} />
       </div>
     </div>
+  )
+}
+
+function Rows({ rows }: { rows: ReadonlyArray<readonly [string, string]> }) {
+  return (
+    <table className="w-full text-[12px]">
+      <tbody>
+        {rows.map(([keys, label]) => (
+          <tr key={keys} className="border-b border-line/60 last:border-0">
+            <td className="py-1.5 pe-3 text-ink-soft">{label}</td>
+            <td className="ltr-nums py-1.5 text-end font-mono text-[11px] text-ink">{keys}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   )
 }

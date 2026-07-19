@@ -3,11 +3,12 @@ import type { KonvaEventObject } from 'konva/lib/Node'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Stage } from 'react-konva'
 import { getCatalogEntry } from '../core/catalog/registry'
-import { aabbIntersects, aabbUnion, type AABB } from '../core/layout/bounds'
+import { aabbIntersects, aabbUnion, pointInOutline, type AABB } from '../core/layout/bounds'
 import { snapValue } from '../core/layout/snapping'
 import type { Id, Vec2 } from '../core/model/types'
 import {
   addObject,
+  addObjectToSurface,
   clearSelection,
   detachChair,
   duplicateObjects,
@@ -17,7 +18,7 @@ import {
   select,
   setLocked,
 } from '../state/actions'
-import { objectAABB } from '../state/selectors'
+import { isEffectivelyLocked, isObjectVisible, objectAABB, visibleTopLevelIds } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { useElementSize } from '../lib/useElementSize'
 import { ContextMenu, type MenuEntry } from '../ui/ContextMenu'
@@ -42,14 +43,22 @@ interface MenuState {
   targetId: Id | null
 }
 
-/** Chip shown while a chair is drilled into, naming its table and the way out. */
+/** Chip shown while an attached child is drilled into, naming its table and the way out. */
 function DrillBreadcrumb() {
   const tableName = useEditorStore((s) => {
     if (s.selection.length !== 1) return null
-    const chair = s.scene.objects[s.selection[0]]
-    if (!chair?.parentId) return null
-    const parent = s.scene.objects[chair.parentId]
+    const child = s.scene.objects[s.selection[0]]
+    if (!child?.parentId) return null
+    const parent = s.scene.objects[child.parentId]
     return parent ? displayName(parent.name, parent.catalogId, parent.meta.number) : null
+  })
+  const childLabel = useEditorStore((s) => {
+    if (s.selection.length !== 1) return null
+    const child = s.scene.objects[s.selection[0]]
+    if (!child?.parentId) return null
+    return child.attachment?.kind === 'surface'
+      ? displayName(child.name, child.catalogId, undefined)
+      : strings.drill.chair
   })
   if (!tableName) return null
   return (
@@ -57,7 +66,7 @@ function DrillBreadcrumb() {
       <div className="flex items-center gap-2 rounded-full border border-line bg-panel px-3 py-1 text-[11px] shadow-sm">
         <span className="font-semibold">{tableName}</span>
         <span className="text-ink-soft">◂</span>
-        <span>{strings.drill.chair}</span>
+        <span>{childLabel}</span>
         <span className="text-ink-soft">·</span>
         <span className="ltr-nums text-ink-soft">{strings.drill.escHint}</span>
       </div>
@@ -256,8 +265,23 @@ export function Stage2D() {
     return stage ? (stage.getRelativePointerPosition() as Vec2 | null) : null
   }
 
+  /** Topmost table whose outline contains the point — the drop target for surface decor. */
+  const surfaceTargetAt = (world: Vec2): Id | null => {
+    const { scene } = useEditorStore.getState()
+    for (let i = scene.objectOrder.length - 1; i >= 0; i--) {
+      const id = scene.objectOrder[i]
+      const obj = scene.objects[id]
+      if (!obj || !isObjectVisible(scene, id)) continue
+      const entry = getCatalogEntry(obj.catalogId)
+      if (entry.category !== 'tables') continue
+      if (pointInOutline(world, obj.transform, entry.footprint(obj.size).outline)) return id
+    }
+    return null
+  }
+
   const ghostValidity = (catalogId: string, world: Vec2): boolean => {
     const entry = getCatalogEntry(catalogId)
+    if (entry.placement === 'surface') return surfaceTargetAt(world) !== null
     const outline = entry.footprint(entry.defaultSize).outline
     const hw = outline.kind === 'circle' ? outline.r : outline.w / 2
     const hh = outline.kind === 'circle' ? outline.r : outline.h / 2
@@ -321,11 +345,17 @@ export function Stage2D() {
     if (placing) {
       const world = worldPointer()
       if (world && ghostValidity(placing, world)) {
-        const { settings } = useEditorStore.getState().scene
-        const pos = settings.snapEnabled
-          ? { x: snapValue(world.x, settings.gridSize), y: snapValue(world.y, settings.gridSize) }
-          : world
-        addObject(placing, pos)
+        if (getCatalogEntry(placing).placement === 'surface') {
+          // drop exactly at the pointer — grid snap is meaningless on a table top
+          const target = surfaceTargetAt(world)
+          if (target) addObjectToSurface(placing, target, world)
+        } else {
+          const { settings } = useEditorStore.getState().scene
+          const pos = settings.snapEnabled
+            ? { x: snapValue(world.x, settings.gridSize), y: snapValue(world.y, settings.gridSize) }
+            : world
+          addObject(placing, pos)
+        }
         if (!e.evt.altKey) {
           overlay.setPlacing(null)
         }
@@ -351,9 +381,10 @@ export function Stage2D() {
       maxY: Math.max(start.y, world.y),
     }
     const state = useEditorStore.getState()
-    const hits = state.scene.objectOrder.filter((id) => {
+    const hits = visibleTopLevelIds(state.scene).filter((id) => {
       const b = objectAABB(state.scene, id)
-      return b && aabbIntersects(box, b) && !state.scene.objects[id]?.flags.locked
+      const obj = state.scene.objects[id]
+      return b && aabbIntersects(box, b) && !!obj && !isEffectivelyLocked(state.scene, obj)
     })
     select(e.evt.shiftKey ? [...new Set([...state.selection, ...hits])] : hits)
   }
@@ -386,11 +417,17 @@ export function Stage2D() {
     if (menu.targetId) {
       const target = state.scene.objects[menu.targetId]
       if (target?.parentId) {
+        const childId = target.id
+        if (target.attachment?.kind === 'surface') {
+          // table-top decor: it lives on the table only — delete, never detach
+          return [
+            { label: strings.menu.delete, shortcut: 'Del', danger: true, onClick: () => removeObjects([childId]) },
+          ]
+        }
         // drilled-in attached chair
-        const chairId = target.id
         return [
-          { label: strings.menu.detachChair, onClick: () => detachChair(chairId) },
-          { label: strings.menu.deleteChair, danger: true, onClick: () => removeObjects([chairId]) },
+          { label: strings.menu.detachChair, onClick: () => detachChair(childId) },
+          { label: strings.menu.deleteChair, danger: true, onClick: () => removeObjects([childId]) },
         ]
       }
       const sel = state.selection
@@ -421,7 +458,7 @@ export function Stage2D() {
         disabled: !clipboardHasContent(),
         onClick: () => pasteClipboard(menu.world),
       },
-      { label: strings.menu.selectAll, shortcut: 'Ctrl+A', onClick: () => select([...state.scene.objectOrder]) },
+      { label: strings.menu.selectAll, shortcut: 'Ctrl+A', onClick: () => select(visibleTopLevelIds(state.scene)) },
       'separator',
       { label: strings.menu.fitVenue, shortcut: 'Shift+1', onClick: () => zoomApi.fitVenue() },
       { label: strings.menu.zoom100, shortcut: 'Ctrl+0', onClick: () => zoomApi.zoom100() },

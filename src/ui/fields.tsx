@@ -114,6 +114,9 @@ export function ColorField({ label, value, onChange }: ColorFieldProps) {
         {EVENT_SWATCHES.map((c) => (
           <button
             key={c}
+            // explicit type — inside a form (new-project dialog) a default
+            // submit-button swatch would submit on pick
+            type="button"
             className={`h-5 w-5 rounded-full border ${
               value.toLowerCase() === c ? 'border-accent ring-1 ring-accent' : 'border-line'
             }`}

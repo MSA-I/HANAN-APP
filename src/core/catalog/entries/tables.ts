@@ -1,17 +1,29 @@
+/**
+ * The venue's real tables. Sizes are the measured inventory (furniture-library-spec.md
+ * §1), and each carries the resort's own Tripo GLB with the linen baked in — so the
+ * `cloth`/`legs` slots below only colour the 2D footprint and the procedural fallback.
+ *
+ * ponytail: the ⌀380 is a separate entry rather than a resize of table.round. Both
+ * have their own scanned model and their own seat count (12 vs 22); one resizable
+ * entry would stretch the wrong drape over the wrong table.
+ */
 import type { CatalogEntry } from '../types'
 import { leggedTable, pedestalTable } from '../builders'
 
 const CLOTH = { name: 'cloth', labelKey: 'cloth', defaultColor: '#f5f0e8' }
 const LEGS = { name: 'legs', labelKey: 'legs', defaultColor: '#a67b5b' }
 
+/** The house chair — what a freshly-dropped table seats until the user picks another. */
+const DEFAULT_CHAIR = 'chair.x-white'
+
 export const roundTable: CatalogEntry = {
   id: 'table.round',
   category: 'tables',
   labelKey: 'tableRound',
   defaultSize: { width: 180, depth: 180, height: 75 },
-  resizable: ['width'],
-  minSize: { width: 60 },
-  maxSize: { width: 300 },
+  resizable: [],
+  minSize: {},
+  maxSize: {},
   linkWidthDepth: true,
   materialSlots: [CLOTH, LEGS],
   footprint: (s) => ({
@@ -19,25 +31,32 @@ export const roundTable: CatalogEntry = {
     outline: { kind: 'circle', r: s.width / 2 },
   }),
   buildMesh: (s) => pedestalTable(s.width, s.height, 'cloth', 'legs'),
-  seating: { min: 0, max: 20, defaultCount: 10, defaultChair: 'chair.banquet', defaultGap: 10, defaultOffset: 6 },
+  // real resort table: "מעוגל-בינוני-ריזורט+אולם-מפה" (Tripo), cloth baked in.
+  model: '/props/table-round-180.glb',
+  thumbnail: '/thumbs/table-round.webp',
+  seating: { min: 0, max: 20, defaultCount: 12, defaultChair: DEFAULT_CHAIR, defaultGap: 10, defaultOffset: 6 },
   labelByDefault: true,
 }
 
-export const rectTable: CatalogEntry = {
-  id: 'table.rect',
+export const roundTableLarge: CatalogEntry = {
+  id: 'table.round-large',
   category: 'tables',
-  labelKey: 'tableRect',
-  defaultSize: { width: 180, depth: 90, height: 75 },
-  resizable: ['width', 'depth'],
-  minSize: { width: 60, depth: 50 },
-  maxSize: { width: 400, depth: 200 },
+  labelKey: 'tableRoundLarge',
+  defaultSize: { width: 380, depth: 380, height: 75 },
+  resizable: [],
+  minSize: {},
+  maxSize: {},
+  linkWidthDepth: true,
   materialSlots: [CLOTH, LEGS],
   footprint: (s) => ({
-    parts: [{ kind: 'rect', w: s.width, h: s.depth, cornerRadius: 3, slot: 'cloth' }],
-    outline: { kind: 'rect', w: s.width, h: s.depth },
+    parts: [{ kind: 'circle', r: s.width / 2, slot: 'cloth' }],
+    outline: { kind: 'circle', r: s.width / 2 },
   }),
-  buildMesh: (s) => leggedTable(s.width, s.depth, s.height, 'cloth', 'legs'),
-  seating: { min: 0, max: 24, defaultCount: 6, defaultChair: 'chair.banquet', defaultGap: 10, defaultOffset: 6 },
+  buildMesh: (s) => pedestalTable(s.width, s.height, 'cloth', 'legs'),
+  // real resort table: "מעוגל-גדול-ריזורט+אולם-מפה" (Tripo).
+  model: '/props/table-round-380.glb',
+  thumbnail: '/thumbs/table-round-large.webp',
+  seating: { min: 0, max: 30, defaultCount: 22, defaultChair: DEFAULT_CHAIR, defaultGap: 10, defaultOffset: 6 },
   labelByDefault: true,
 }
 
@@ -45,10 +64,10 @@ export const squareTable: CatalogEntry = {
   id: 'table.square',
   category: 'tables',
   labelKey: 'tableSquare',
-  defaultSize: { width: 90, depth: 90, height: 75 },
-  resizable: ['width'],
-  minSize: { width: 60 },
-  maxSize: { width: 200 },
+  defaultSize: { width: 160, depth: 160, height: 75 },
+  resizable: [],
+  minSize: {},
+  maxSize: {},
   linkWidthDepth: true,
   materialSlots: [CLOTH, LEGS],
   footprint: (s) => ({
@@ -56,43 +75,42 @@ export const squareTable: CatalogEntry = {
     outline: { kind: 'rect', w: s.width, h: s.depth },
   }),
   buildMesh: (s) => leggedTable(s.width, s.depth, s.height, 'cloth', 'legs'),
-  seating: { min: 0, max: 12, defaultCount: 4, defaultChair: 'chair.banquet', defaultGap: 10, defaultOffset: 6 },
+  // real resort table: "מרובע-ריזורט-מפה" (Tripo).
+  model: '/props/table-square-160.glb',
+  thumbnail: '/thumbs/table-square.webp',
+  seating: { min: 0, max: 16, defaultCount: 12, defaultChair: DEFAULT_CHAIR, defaultGap: 10, defaultOffset: 6 },
   labelByDefault: true,
 }
 
+/**
+ * "שולחן אבירים" — the 120×240 rectangle. Per the user, these are BUTTED END-TO-END
+ * to build a longer table, so the model must tile: its length is prepped to exactly
+ * 240cm and the drape stops at the edge. Not resizable for that reason — a stretched
+ * 300cm one would not line up with its neighbour.
+ */
 export const banquetTable: CatalogEntry = {
   id: 'table.banquet',
   category: 'tables',
   labelKey: 'tableBanquet',
-  defaultSize: { width: 240, depth: 76, height: 75 },
-  resizable: ['width', 'depth'],
-  minSize: { width: 120, depth: 60 },
-  maxSize: { width: 600, depth: 120 },
+  defaultSize: { width: 240, depth: 120, height: 75 },
+  resizable: [],
+  minSize: {},
+  maxSize: {},
   materialSlots: [CLOTH, LEGS],
   footprint: (s) => ({
     parts: [{ kind: 'rect', w: s.width, h: s.depth, cornerRadius: 2, slot: 'cloth' }],
     outline: { kind: 'rect', w: s.width, h: s.depth },
   }),
   buildMesh: (s) => leggedTable(s.width, s.depth, s.height, 'cloth', 'legs'),
-  seating: { min: 0, max: 40, defaultCount: 10, defaultChair: 'chair.banquet', defaultGap: 8, defaultOffset: 6 },
+  // real resort table: "מלבן-ריזורט-מפה" (Tripo).
+  model: '/props/table-banquet-240.glb',
+  thumbnail: '/thumbs/table-banquet.webp',
+  seating: { min: 0, max: 40, defaultCount: 12, defaultChair: DEFAULT_CHAIR, defaultGap: 8, defaultOffset: 6 },
   labelByDefault: true,
 }
 
-export const cocktailTable: CatalogEntry = {
-  id: 'table.cocktail',
-  category: 'tables',
-  labelKey: 'tableCocktail',
-  defaultSize: { width: 70, depth: 70, height: 110 },
-  resizable: ['width'],
-  minSize: { width: 50 },
-  maxSize: { width: 100 },
-  linkWidthDepth: true,
-  materialSlots: [CLOTH, LEGS],
-  footprint: (s) => ({
-    parts: [{ kind: 'circle', r: s.width / 2, slot: 'cloth' }],
-    outline: { kind: 'circle', r: s.width / 2 },
-  }),
-  buildMesh: (s) => pedestalTable(s.width, s.height, 'cloth', 'legs'),
-}
-
-export const tableEntries = [roundTable, rectTable, squareTable, banquetTable, cocktailTable]
+// table.rect (180×90) and table.cocktail (⌀70) were generic placeholders with no
+// counterpart in the venue's inventory and no scanned model — they would have gone
+// into an AI frame as invented grey furniture. Dropped; migration v1→v2 remaps any
+// stored ones onto the real tables.
+export const tableEntries = [roundTable, roundTableLarge, squareTable, banquetTable]

@@ -13,7 +13,7 @@
  * - A table's chairs render as one InstancedMesh per material slot, so 10 chairs
  *   cost 2 draw calls and follow the table for free (they live in its group).
  */
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { Component, Suspense, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import * as THREE from 'three'
 import { useThree, type ThreeEvent } from '@react-three/fiber'
 import { useShallow } from 'zustand/react/shallow'
@@ -21,9 +21,10 @@ import { shallow } from 'zustand/shallow'
 import { getCatalogEntry } from '../core/catalog/registry'
 import { slotColor, type Outline } from '../core/catalog/types'
 import { attachedChairs } from '../core/model/seatingReconciler'
-import type { Id } from '../core/model/types'
+import type { Id, Size3D } from '../core/model/types'
 import { cmToM } from '../core/space'
 import { select } from '../state/actions'
+import { isLayerHidden, isObjectVisible } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import {
   instancedChairMaterial,
@@ -33,6 +34,7 @@ import {
   slotMaterial,
 } from './meshCache'
 import { applyPlanTransform, planTransformMatrix } from './planTransform'
+import { useModelParts } from './propModel'
 
 const SELECT_COLOR = new THREE.Color(SELECT_TINT)
 
@@ -46,6 +48,7 @@ export function ObjectGroup({ id }: { id: Id }) {
   const size = useEditorStore((s) => s.scene.objects[id]?.size)
   const appearance = useEditorStore((s) => s.scene.objects[id]?.appearance)
   const hasSeating = useEditorStore((s) => !!s.scene.objects[id]?.seating)
+  const seatingHidden = useEditorStore((s) => isLayerHidden(s.scene, 'seating'))
   const isSelected = useEditorStore((s) => s.selection.includes(id))
 
   // Transient transform sync — the hot path. fireImmediately seeds the initial
@@ -76,23 +79,158 @@ export function ObjectGroup({ id }: { id: Id }) {
     select([id])
   }
 
+  const procedural = geometries.map(({ slot, geometry }) => {
+    const color = slotColor(entry, appearance, slot)
+    return (
+      <mesh
+        key={slot}
+        geometry={geometry}
+        material={isSelected ? selectedSlotMaterial(color) : slotMaterial(color)}
+        castShadow
+        receiveShadow
+      />
+    )
+  })
+
   return (
     <group ref={groupRef} onClick={handleClick}>
-      {geometries.map(({ slot, geometry }) => {
-        const color = slotColor(entry, appearance, slot)
-        return (
-          <mesh
-            key={slot}
-            geometry={geometry}
-            material={isSelected ? selectedSlotMaterial(color) : slotMaterial(color)}
-            castShadow
-            receiveShadow
-          />
-        )
-      })}
+      {entry.model ? (
+        <ModelFallback fallback={procedural}>
+          <ModelParts catalogId={catalogId} url={entry.model} size={size} />
+        </ModelFallback>
+      ) : (
+        procedural
+      )}
       {isSelected && <SelectionOutline outline={entry.footprint(size).outline} />}
-      {hasSeating && <ChairInstances tableId={id} />}
+      {hasSeating && !seatingHidden && <ChairInstances tableId={id} />}
+      <SurfaceChildren parentId={id} />
     </group>
+  )
+}
+
+/** Decor standing on this object's top — each child in its own local group. */
+function SurfaceChildren({ parentId }: { parentId: Id }) {
+  const ids = useEditorStore(
+    useShallow((s) =>
+      Object.values(s.scene.objects)
+        .filter(
+          (o) =>
+            o.parentId === parentId &&
+            o.attachment?.kind === 'surface' &&
+            isObjectVisible(s.scene, o.id),
+        )
+        .map((o) => o.id),
+    ),
+  )
+  return (
+    <>
+      {ids.map((id) => (
+        <SurfaceChild key={id} id={id} parentId={parentId} />
+      ))}
+    </>
+  )
+}
+
+/**
+ * One surface decor. Mirrors ObjectGroup's shape (transient transform, GLB with
+ * procedural fallback) but lives INSIDE the parent's group, so its transform is
+ * parent-local with elevation = the parent's height (set by the actions layer).
+ */
+function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
+  const groupRef = useRef<THREE.Group>(null)
+  const invalidate = useThree((s) => s.invalidate)
+  const catalogId = useEditorStore((s) => s.scene.objects[id]?.catalogId)
+  const size = useEditorStore((s) => s.scene.objects[id]?.size)
+  const appearance = useEditorStore((s) => s.scene.objects[id]?.appearance)
+  const isSelected = useEditorStore((s) => s.selection.includes(id))
+
+  useLayoutEffect(() => {
+    return useEditorStore.subscribe(
+      (s) => s.scene.objects[id]?.transform,
+      (t) => {
+        if (t && groupRef.current) {
+          applyPlanTransform(groupRef.current, t)
+          invalidate()
+        }
+      },
+      { equalityFn: shallow, fireImmediately: true },
+    )
+  }, [id, invalidate])
+
+  const geometries = useMemo(
+    () => (catalogId && size ? objectSlotGeometries(catalogId, size) : []),
+    [catalogId, size],
+  )
+
+  if (!catalogId || !size || !appearance) return null
+  const entry = getCatalogEntry(catalogId)
+
+  const handleClick = (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation()
+    // mirror chairs: a click selects the TABLE, unless this decor is already selected
+    const sel = useEditorStore.getState().selection
+    select(sel.includes(id) ? [id] : [parentId])
+  }
+
+  const procedural = geometries.map(({ slot, geometry }) => {
+    const color = slotColor(entry, appearance, slot)
+    return (
+      <mesh
+        key={slot}
+        geometry={geometry}
+        material={isSelected ? selectedSlotMaterial(color) : slotMaterial(color)}
+        castShadow
+        receiveShadow
+      />
+    )
+  })
+
+  return (
+    <group ref={groupRef} onClick={handleClick}>
+      {entry.model ? (
+        <ModelFallback fallback={procedural}>
+          <ModelParts catalogId={catalogId} url={entry.model} size={size} />
+        </ModelFallback>
+      ) : (
+        procedural
+      )}
+      {isSelected && <SelectionOutline outline={entry.footprint(size).outline} />}
+    </group>
+  )
+}
+
+/**
+ * The real GLB of a catalog entry. Selection is shown by the floor outline only —
+ * baked materials are shared across every instance of the model, so tinting one
+ * selected object would tint them all.
+ */
+function ModelParts({ catalogId, url, size }: { catalogId: string; url: string; size: Size3D }) {
+  const parts = useModelParts(catalogId, url, size)
+  return (
+    <>
+      {parts.map(({ key, geometry, material }) => (
+        <mesh key={key} geometry={geometry} material={material} castShadow receiveShadow />
+      ))}
+    </>
+  )
+}
+
+/** Procedural mesh stands in while a prop GLB loads, and if it fails to load. */
+class PropErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children
+  }
+}
+
+function ModelFallback({ children, fallback }: { children: ReactNode; fallback: ReactNode }) {
+  return (
+    <PropErrorBoundary fallback={fallback}>
+      <Suspense fallback={fallback}>{children}</Suspense>
+    </PropErrorBoundary>
   )
 }
 
@@ -155,20 +293,70 @@ function ChairInstances({ tableId }: { tableId: Id }) {
         return col
       }),
     )
-    return { geoms, matrices, colorsBySlot }
+    const chairIds = chairs.map((c) => c.id)
+    return { entry, geoms, matrices, colorsBySlot, chairIds, size: chairs[0].size }
   }, [chairs, selection])
 
   if (!built) return null
 
+  const procedural = built.geoms.map(({ slot, geometry }, gi) => (
+    <ChairSlot
+      key={slot}
+      geometry={geometry}
+      material={instancedChairMaterial()}
+      colors={built.colorsBySlot[gi]}
+      matrices={built.matrices}
+      chairIds={built.chairIds}
+      tableId={tableId}
+      invalidate={invalidate}
+    />
+  ))
+
+  if (!built.entry.model) return <>{procedural}</>
+
+  return (
+    <ModelFallback fallback={<>{procedural}</>}>
+      <ModelChairInstances
+        catalogId={built.entry.id}
+        url={built.entry.model}
+        size={built.size}
+        matrices={built.matrices}
+        chairIds={built.chairIds}
+        tableId={tableId}
+        invalidate={invalidate}
+      />
+    </ModelFallback>
+  )
+}
+
+/** Chairs of one table drawn from the real GLB — one InstancedMesh per model part. */
+function ModelChairInstances({
+  catalogId,
+  url,
+  size,
+  matrices,
+  chairIds,
+  tableId,
+  invalidate,
+}: {
+  catalogId: string
+  url: string
+  size: Size3D
+  matrices: THREE.Matrix4[]
+  chairIds: Id[]
+  tableId: Id
+  invalidate: () => void
+}) {
+  const parts = useModelParts(catalogId, url, size)
   return (
     <>
-      {built.geoms.map(({ slot, geometry }, gi) => (
+      {parts.map(({ key, geometry, material }) => (
         <ChairSlot
-          key={slot}
+          key={key}
           geometry={geometry}
-          matrices={built.matrices}
-          colors={built.colorsBySlot[gi]}
-          chairIds={chairs.map((c) => c.id)}
+          material={material}
+          matrices={matrices}
+          chairIds={chairIds}
           tableId={tableId}
           invalidate={invalidate}
         />
@@ -179,6 +367,7 @@ function ChairInstances({ tableId }: { tableId: Id }) {
 
 function ChairSlot({
   geometry,
+  material,
   matrices,
   colors,
   chairIds,
@@ -186,8 +375,10 @@ function ChairSlot({
   invalidate,
 }: {
   geometry: THREE.BufferGeometry
+  material: THREE.Material
   matrices: THREE.Matrix4[]
-  colors: THREE.Color[]
+  /** per-instance tint for procedural chairs; omitted for GLB chairs (baked) */
+  colors?: THREE.Color[]
   chairIds: Id[]
   tableId: Id
   invalidate: () => void
@@ -200,7 +391,7 @@ function ChairSlot({
     if (!mesh) return
     for (let i = 0; i < count; i++) {
       mesh.setMatrixAt(i, matrices[i])
-      mesh.setColorAt(i, colors[i])
+      if (colors) mesh.setColorAt(i, colors[i])
     }
     mesh.count = count
     mesh.instanceMatrix.needsUpdate = true
@@ -224,7 +415,7 @@ function ChairSlot({
       // key by count so a seating change rebuilds the instance buffers cleanly
       key={count}
       ref={ref}
-      args={[geometry, instancedChairMaterial(), count]}
+      args={[geometry, material, count]}
       castShadow
       receiveShadow
       onClick={handleClick}

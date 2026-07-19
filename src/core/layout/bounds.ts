@@ -1,6 +1,6 @@
 import type { Outline } from '../catalog/types'
-import type { Transform2D } from '../model/types'
-import { degToRad } from '../space'
+import type { Transform2D, Vec2 } from '../model/types'
+import { degToRad, rotateVec } from '../space'
 
 export interface AABB {
   minX: number
@@ -19,6 +19,15 @@ export function outlineAABB(world: Transform2D, outline: Outline): AABB {
   const hw = (Math.abs(Math.cos(rad)) * outline.w + Math.abs(Math.sin(rad)) * outline.h) / 2
   const hh = (Math.abs(Math.sin(rad)) * outline.w + Math.abs(Math.cos(rad)) * outline.h) / 2
   return { minX: x - hw, minY: y - hh, maxX: x + hw, maxY: y + hh }
+}
+
+/** Is a world-space point inside a placed outline (rotation-aware)? */
+export function pointInOutline(point: Vec2, world: Transform2D, outline: Outline): boolean {
+  const dx = point.x - world.position.x
+  const dy = point.y - world.position.y
+  if (outline.kind === 'circle') return Math.hypot(dx, dy) <= outline.r
+  const local = rotateVec({ x: dx, y: dy }, -world.rotation)
+  return Math.abs(local.x) <= outline.w / 2 && Math.abs(local.y) <= outline.h / 2
 }
 
 export function aabbUnion(boxes: AABB[]): AABB {

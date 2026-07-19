@@ -3,6 +3,7 @@
  * write path is what keeps undo, seat reconciliation and 2D/3D sync coherent.
  */
 import { getCatalogEntry } from '../core/catalog/registry'
+import type { Category } from '../core/catalog/types'
 import { createObject, createProject, newId, type NewProjectOptions } from '../core/model/factory'
 import { attachedChairs, reconcileSeats } from '../core/model/seatingReconciler'
 import type {
@@ -15,10 +16,16 @@ import type {
   Size3D,
   Vec2,
 } from '../core/model/types'
-import { composeTransform, rotateVec } from '../core/space'
+import { composeTransform, normalizeDeg, relativeTransform, rotateVec } from '../core/space'
 import { aabbUnion, type AABB } from '../core/layout/bounds'
 import { getVenuePack, type RestrictedZone } from '../core/venuePacks'
-import { objectAABB as objectAABBOf } from './selectors'
+import {
+  childrenOf,
+  isEffectivelyLocked,
+  isObjectVisible,
+  objectAABB as objectAABBOf,
+  surfaceChildren,
+} from './selectors'
 import { temporalStore, useEditorStore, type EditorState, type ViewMode } from './store'
 
 const set = useEditorStore.setState
@@ -44,9 +51,11 @@ function clampSize(catalogId: string, size: Size3D): Size3D {
   return out
 }
 
-/** ids expanded so that locked objects are filtered out */
+/** ids expanded so that locked objects (own flag or locked category layer) are filtered out */
 function editable(scene: SceneState, ids: Id[]): SceneObject[] {
-  return ids.map((id) => scene.objects[id]).filter((o): o is SceneObject => !!o && !o.flags.locked)
+  return ids
+    .map((id) => scene.objects[id])
+    .filter((o): o is SceneObject => !!o && !isEffectivelyLocked(scene, o))
 }
 
 /** Footprint of a top-level object including its attached chairs (world/plan). */
@@ -95,12 +104,25 @@ function zonePush(box: AABB, z: RestrictedZone, width: number, depth: number): V
   return (fitting.length ? fitting : exits).reduce((a, b) => (mag(b) < mag(a) ? b : a))
 }
 
+/** Shift to keep a box INSIDE a zone rectangle (a fixed station in its home zone). */
+function zoneShift(box: AABB, z: RestrictedZone): Vec2 {
+  let x = 0
+  let y = 0
+  if (box.minX < z.x) x = z.x - box.minX
+  else if (box.maxX > z.x + z.width) x = z.x + z.width - box.maxX
+  if (box.minY < z.y) y = z.y - box.minY
+  else if (box.maxY > z.y + z.depth) y = z.y + z.depth - box.maxY
+  return { x, y }
+}
+
 /**
  * HARD bounds enforcement. Shifts each touched TOP-LEVEL object so its footprint
  * (table + chairs) stays on the venue floor and off any restricted zone (pool…).
- * The single write path means this catches drag, paste, duplicate, arrow-nudge,
- * resize and rotate in one place. Attached chairs follow their clamped table, so
- * we skip them here. Objects larger than the venue align to the near edge.
+ * Fixed stations (entry.zoneKind: bar, DJ booth) are the exception: they are
+ * clamped INTO their matching zone and can never leave it. The single write path
+ * means this catches drag, paste, duplicate, arrow-nudge, resize and rotate in
+ * one place. Attached chairs follow their clamped table, so we skip them here.
+ * Objects larger than the venue align to the near edge.
  */
 function clampToVenue(scene: SceneState, ids: Iterable<Id>): void {
   const { width, depth } = scene.venue.size
@@ -113,12 +135,29 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>): void {
   }
   for (const id of ids) {
     const obj = scene.objects[id]
-    if (!obj || obj.parentId || obj.flags.locked || done.has(id)) continue
+    if (!obj || obj.parentId || isEffectivelyLocked(scene, obj) || done.has(id)) continue
     done.add(id)
     let box = subtreeAABB(scene, id)
     if (!box) continue
     let d = floorShift(box, width, depth)
     if (d.x || d.y) box = shift(obj, box, d)
+
+    // fixed station: snap into the nearest matching home zone and stop there
+    const zoneKind = getCatalogEntry(obj.catalogId).zoneKind
+    const home = zoneKind ? zones.filter((z) => z.kind === zoneKind) : []
+    if (home.length) {
+      const center = (z: RestrictedZone) => ({ x: z.x + z.width / 2, y: z.y + z.depth / 2 })
+      const bc = { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 }
+      const nearest = home.reduce((a, b) => {
+        const da = Math.hypot(center(a).x - bc.x, center(a).y - bc.y)
+        const db = Math.hypot(center(b).x - bc.x, center(b).y - bc.y)
+        return db < da ? b : a
+      })
+      d = zoneShift(box, nearest)
+      if (d.x || d.y) shift(obj, box, d)
+      continue
+    }
+
     for (const z of zones) {
       const p = zonePush(box, z, width, depth)
       if (!p.x && !p.y) continue
@@ -126,6 +165,48 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>): void {
       d = floorShift(box, width, depth) // re-seat on the floor if the push crossed an edge
       if (d.x || d.y) box = shift(obj, box, d)
     }
+  }
+}
+
+/**
+ * Keep a surface-attached decor inside its parent's top outline, standing on the
+ * parent's height. Positions are parent-local, so a circular table is a radial
+ * clamp and a rect table a per-axis clamp; a rotated rect decor is bounded by
+ * its circumradius (conservative, keeps the math simple).
+ */
+function clampToSurface(scene: SceneState, child: SceneObject): void {
+  if (child.attachment?.kind !== 'surface' || !child.parentId) return
+  const parent = scene.objects[child.parentId]
+  if (!parent) return
+  const pOutline = getCatalogEntry(parent.catalogId).footprint(parent.size).outline
+  const cOutline = getCatalogEntry(child.catalogId).footprint(child.size).outline
+  let hw = cOutline.kind === 'circle' ? cOutline.r : cOutline.w / 2
+  let hh = cOutline.kind === 'circle' ? cOutline.r : cOutline.h / 2
+  if (cOutline.kind === 'rect' && normalizeDeg(child.transform.rotation) !== 0) {
+    hw = hh = Math.hypot(hw, hh)
+  }
+  const pos = child.transform.position
+  if (pOutline.kind === 'circle') {
+    const maxR = Math.max(0, pOutline.r - Math.max(hw, hh))
+    const len = Math.hypot(pos.x, pos.y)
+    if (len > maxR) {
+      const f = len > 0 ? maxR / len : 0
+      pos.x *= f
+      pos.y *= f
+    }
+  } else {
+    const maxX = Math.max(0, pOutline.w / 2 - hw)
+    const maxY = Math.max(0, pOutline.h / 2 - hh)
+    pos.x = Math.min(maxX, Math.max(-maxX, pos.x))
+    pos.y = Math.min(maxY, Math.max(-maxY, pos.y))
+  }
+  child.transform.elevation = parent.size.height
+}
+
+function clampSurfaceChildrenIn(scene: SceneState, ids: Iterable<Id>): void {
+  for (const id of ids) {
+    const obj = scene.objects[id]
+    if (obj?.attachment?.kind === 'surface') clampToSurface(scene, obj)
   }
 }
 
@@ -184,9 +265,39 @@ export function addObject(catalogId: string, position: Vec2): Id {
     }
     scene.objects[obj.id] = obj
     scene.objectOrder.push(obj.id)
+    unhideCategoryOf(scene, obj.catalogId)
     if (obj.seating) reconcileSeats(scene, obj.id)
     clampToVenue(scene, [obj.id])
   })
+  select([obj.id])
+  return obj.id
+}
+
+/**
+ * Drop a surface-placement catalog item onto a table top. `worldPos` is the drop
+ * point in plan space; the object becomes an attached child (kind 'surface'),
+ * standing on the parent's height and clamped to its outline.
+ */
+export function addObjectToSurface(catalogId: string, parentId: Id, worldPos: Vec2): Id | null {
+  const obj = createObject(catalogId, { x: 0, y: 0 })
+  let placed = false
+  mutateScene((scene) => {
+    const parent = scene.objects[parentId]
+    if (!parent || parent.parentId) return
+    const local = relativeTransform(parent.transform, {
+      position: worldPos,
+      rotation: parent.transform.rotation,
+      elevation: 0,
+    })
+    obj.parentId = parentId
+    obj.attachment = { kind: 'surface' }
+    obj.transform = { position: local.position, rotation: 0, elevation: parent.size.height }
+    scene.objects[obj.id] = obj
+    unhideCategoryOf(scene, obj.catalogId)
+    clampToSurface(scene, obj)
+    placed = true
+  })
+  if (!placed) return null
   select([obj.id])
   return obj.id
 }
@@ -197,17 +308,23 @@ export function removeObjects(ids: Id[]): void {
     for (const id of ids) {
       const obj = scene.objects[id]
       if (!obj) continue
+      // locked (own flag or layer) protects from deletion too — unlock first
+      if (isEffectivelyLocked(scene, obj)) continue
       if (obj.parentId && obj.attachment) {
-        // removing an attached chair = one seat less on its table
-        const table = scene.objects[obj.parentId]
-        delete scene.objects[id]
-        if (table?.seating) {
-          table.seating.count = Math.max(0, table.seating.count - 1)
-          toReconcile.add(table.id)
+        if (obj.attachment.kind === 'seat') {
+          // removing an attached chair = one seat less on its table
+          const table = scene.objects[obj.parentId]
+          delete scene.objects[id]
+          if (table?.seating) {
+            table.seating.count = Math.max(0, table.seating.count - 1)
+            toReconcile.add(table.id)
+          }
+        } else {
+          delete scene.objects[id]
         }
         continue
       }
-      for (const chair of attachedChairs(scene, id)) delete scene.objects[chair.id]
+      for (const child of childrenOf(scene, id)) delete scene.objects[child.id]
       delete scene.objects[id]
       scene.objectOrder = scene.objectOrder.filter((oid) => oid !== id)
     }
@@ -238,11 +355,12 @@ export function duplicateObjects(ids: Id[], offset: Vec2 = { x: 50, y: 50 }): Id
       }
       scene.objects[copy.id] = copy
       scene.objectOrder.push(copy.id)
-      for (const chair of attachedChairs(scene, id)) {
-        const chairCopy: SceneObject = JSON.parse(JSON.stringify(chair))
-        chairCopy.id = newId()
-        chairCopy.parentId = copy.id
-        scene.objects[chairCopy.id] = chairCopy
+      unhideCategoryOf(scene, copy.catalogId)
+      for (const child of childrenOf(scene, id)) {
+        const childCopy: SceneObject = JSON.parse(JSON.stringify(child))
+        childCopy.id = newId()
+        childCopy.parentId = copy.id
+        scene.objects[childCopy.id] = childCopy
       }
       newIds.push(copy.id)
     }
@@ -280,6 +398,7 @@ export function pasteSubtrees(subtrees: Subtree[], target?: Vec2): Id[] {
       }
       scene.objects[root.id] = root
       scene.objectOrder.push(root.id)
+      unhideCategoryOf(scene, root.catalogId)
       for (const child of st.children) {
         const copy: SceneObject = JSON.parse(JSON.stringify(child))
         copy.id = newId()
@@ -306,33 +425,36 @@ export function moveObjectsBy(ids: Id[], delta: Vec2): void {
         const local = parent ? rotateVec(delta, -parent.transform.rotation) : delta
         obj.transform.position.x += local.x
         obj.transform.position.y += local.y
-        if (obj.attachment) obj.attachment.manual = true
+        if (obj.attachment?.kind === 'seat') obj.attachment.manual = true
       } else {
         obj.transform.position.x += delta.x
         obj.transform.position.y += delta.y
       }
     }
     clampToVenue(scene, ids)
+    clampSurfaceChildrenIn(scene, ids)
   })
 }
 
 export function setPosition(id: Id, position: Vec2): void {
   mutateScene((scene) => {
     const obj = scene.objects[id]
-    if (!obj || obj.flags.locked) return
+    if (!obj || isEffectivelyLocked(scene, obj)) return
     obj.transform.position = { ...position }
-    if (obj.attachment) obj.attachment.manual = true
+    if (obj.attachment?.kind === 'seat') obj.attachment.manual = true
     clampToVenue(scene, [id])
+    clampSurfaceChildrenIn(scene, [id])
   })
 }
 
 export function setRotation(id: Id, rotation: number): void {
   mutateScene((scene) => {
     const obj = scene.objects[id]
-    if (!obj || obj.flags.locked) return
+    if (!obj || isEffectivelyLocked(scene, obj)) return
     obj.transform.rotation = rotation
-    if (obj.attachment) obj.attachment.manual = true
+    if (obj.attachment?.kind === 'seat') obj.attachment.manual = true
     clampToVenue(scene, [id])
+    clampSurfaceChildrenIn(scene, [id])
   })
 }
 
@@ -340,19 +462,23 @@ export function rotateObjectsBy(ids: Id[], delta: number): void {
   mutateScene((scene) => {
     for (const obj of editable(scene, ids)) {
       obj.transform.rotation += delta
-      if (obj.attachment) obj.attachment.manual = true
+      if (obj.attachment?.kind === 'seat') obj.attachment.manual = true
     }
     clampToVenue(scene, ids)
+    clampSurfaceChildrenIn(scene, ids)
   })
 }
 
 export function setSize(id: Id, size: Partial<Size3D>): void {
   mutateScene((scene) => {
     const obj = scene.objects[id]
-    if (!obj || obj.flags.locked) return
+    if (!obj || isEffectivelyLocked(scene, obj)) return
     obj.size = clampSize(obj.catalogId, { ...obj.size, ...size })
     if (obj.seating) reconcileSeats(scene, id)
     clampToVenue(scene, [id])
+    // a resized table keeps its decor on the (new) top, at the (new) height
+    for (const child of surfaceChildren(scene, id)) clampToSurface(scene, child)
+    clampSurfaceChildrenIn(scene, [id])
   })
 }
 
@@ -479,7 +605,7 @@ export function alignObjects(ids: Id[], edge: AlignEdge): void {
   mutateScene((scene) => {
     for (const { id, box } of boxes) {
       const obj = scene.objects[id]
-      if (!obj || obj.flags.locked || obj.parentId) continue
+      if (!obj || isEffectivelyLocked(scene, obj) || obj.parentId) continue
       let dx = 0
       let dy = 0
       const cx = (box.minX + box.maxX) / 2
@@ -530,7 +656,7 @@ export function distributeObjects(ids: Id[], axis: 'x' | 'y'): void {
   mutateScene((scene) => {
     sorted.forEach(({ id, box }, i) => {
       const obj = scene.objects[id]
-      if (!obj || obj.flags.locked || obj.parentId) return
+      if (!obj || isEffectivelyLocked(scene, obj) || obj.parentId) return
       const c = axis === 'x' ? (box.minX + box.maxX) / 2 : (box.minY + box.maxY) / 2
       const target = firstC + step * i
       if (axis === 'x') obj.transform.position.x += target - c
@@ -567,6 +693,54 @@ export function updateSettings(patch: Partial<SceneSettings>): void {
   mutateScene((scene) => {
     Object.assign(scene.settings, patch)
   })
+}
+
+// ---------------------------------------------------------------------------
+// category layers
+// ---------------------------------------------------------------------------
+
+/** Set/clear one layer flag, dropping empty records so all-default stays {}. */
+function setLayerFlag(
+  scene: SceneState,
+  category: Category,
+  flag: 'hidden' | 'locked',
+  value: boolean,
+): void {
+  const layers = (scene.settings.layers ??= {})
+  const entry = layers[category] ?? {}
+  if (value) entry[flag] = true
+  else delete entry[flag]
+  if (entry.hidden || entry.locked) layers[category] = entry
+  else delete layers[category]
+}
+
+export function setLayerHidden(category: Category, hidden: boolean): void {
+  mutateScene((scene) => {
+    setLayerFlag(scene, category, 'hidden', hidden)
+  })
+  // selection is not part of the undoable region — prune like removeObjects does
+  if (hidden) {
+    set((state) => {
+      state.selection = state.selection.filter((id) => isObjectVisible(state.scene, id))
+    })
+  }
+}
+
+export function setLayerLocked(category: Category, locked: boolean): void {
+  mutateScene((scene) => {
+    setLayerFlag(scene, category, 'locked', locked)
+  })
+}
+
+/** Placing into a hidden category would look like a silent no-op — unhide it. */
+function unhideCategoryOf(scene: SceneState, catalogId: string): void {
+  const layers = scene.settings.layers
+  if (!layers) return
+  const cat = getCatalogEntry(catalogId).category
+  const entry = layers[cat]
+  if (!entry?.hidden) return
+  delete entry.hidden
+  if (!entry.locked) delete layers[cat]
 }
 
 // ---------------------------------------------------------------------------
@@ -642,7 +816,10 @@ export function isGestureActive(): boolean {
 
 function pruneSelection(): void {
   set((state) => {
-    state.selection = state.selection.filter((id) => state.scene.objects[id])
+    // dropped objects AND objects hidden by an undone/redone layer toggle
+    state.selection = state.selection.filter(
+      (id) => state.scene.objects[id] && isObjectVisible(state.scene, id),
+    )
   })
 }
 

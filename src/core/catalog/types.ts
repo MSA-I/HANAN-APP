@@ -7,7 +7,7 @@
  */
 import type { Size3D, Vec2 } from '../model/types'
 
-export type Category = 'tables' | 'seating' | 'staging' | 'bars' | 'decor' | 'structure'
+export type Category = 'tables' | 'seating' | 'bars' | 'tableDecor' | 'decor' | 'structure'
 
 export interface MaterialSlotDef {
   name: string
@@ -60,6 +60,32 @@ export interface CatalogEntry {
   materialSlots: MaterialSlotDef[]
   footprint: (size: Size3D) => FootprintSpec
   buildMesh: (size: Size3D) => MeshPart[]
+  /**
+   * URL of a real GLB (public/props/, prepped by glb-prep --mode prop). When set,
+   * the 3D viewer renders this model instead of `buildMesh` — its materials are
+   * baked, so `materialSlots` colours no longer apply in 3D (they still drive the
+   * 2D footprint). `buildMesh` stays as the loading/error fallback.
+   */
+  model?: string
+  /**
+   * URL of a square photo thumbnail (public/thumbs/, 512×512 webp prepped by
+   * tools/thumbs-prep.mjs). The library shows it instead of the vector top-view;
+   * the SVG footprint stays as the fallback when absent or on image load error.
+   */
+  thumbnail?: string
+  /**
+   * Where this object lives. 'floor' (default) = a top-level object on the venue
+   * floor. 'surface' = placed ON a table top (attached child, kind 'surface') —
+   * it can only be dropped onto a table and is clamped to the table's outline.
+   */
+  placement?: 'floor' | 'surface'
+  /**
+   * Fixed-station entries (bar, DJ booth): when the venue pack has a restricted
+   * zone of this kind, the object lives ONLY inside that zone — dropping it
+   * anywhere snaps it in, and it can never be dragged out. Venues without a
+   * matching zone (procedural room) place it freely.
+   */
+  zoneKind?: string
   seating?: SeatingCapability
   /** show the name label on canvas by default (tables) */
   labelByDefault?: boolean

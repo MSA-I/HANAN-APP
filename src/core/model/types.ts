@@ -8,6 +8,8 @@
  * - An object's front faces -y (up-screen) at rotation 0.
  * - Child transforms are parent-relative; world = compose(parent, local).
  */
+// type-only import — erased at runtime, so no cycle with catalog/types
+import type { Category } from '../catalog/types'
 
 export type Id = string
 
@@ -28,11 +30,19 @@ export interface Transform2D {
   elevation: number
 }
 
-export interface Attachment {
-  kind: 'seat'
-  seatIndex: number
-  /** true after the user nudges this chair — the seat reconciler leaves it alone */
-  manual: boolean
+export type Attachment =
+  | {
+      kind: 'seat'
+      seatIndex: number
+      /** true after the user nudges this chair — the seat reconciler leaves it alone */
+      manual: boolean
+    }
+  /** decor standing ON the parent's top surface; local elevation = parent height */
+  | { kind: 'surface' }
+
+/** Children sort: chairs by seat index, surface decor after them (stable). */
+export function childSortKey(o: { attachment?: Attachment }): number {
+  return o.attachment?.kind === 'seat' ? o.attachment.seatIndex : Number.MAX_SAFE_INTEGER
 }
 
 /** Per-material-slot overrides; slot names come from the catalog entry. */
@@ -74,12 +84,20 @@ export interface Venue {
   venuePackId?: string | null
 }
 
+/** Per-category layer state; a missing key means visible + unlocked. */
+export interface LayerFlags {
+  hidden?: boolean
+  locked?: boolean
+}
+
 export interface SceneSettings {
   /** cm */
   gridSize: number
   snapEnabled: boolean
   showGrid: boolean
   showLabels: boolean
+  /** category layers (schema v4); optional so pre-v4 data parses — factory + migration materialize {} */
+  layers?: Partial<Record<Category, LayerFlags>>
 }
 
 export interface SceneState {
@@ -105,4 +123,4 @@ export interface Project {
   scene: SceneState
 }
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 4

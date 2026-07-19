@@ -16,7 +16,7 @@ function formatFootprint(entry: CatalogEntry): string {
 }
 
 /** Top-view vector thumbnail rendered straight from the catalog footprint. */
-function Thumbnail({ entry }: { entry: CatalogEntry }) {
+function VectorThumbnail({ entry }: { entry: CatalogEntry }) {
   const fp = entry.footprint(entry.defaultSize)
   const w = fp.outline.kind === 'circle' ? fp.outline.r * 2 : fp.outline.w
   const h = fp.outline.kind === 'circle' ? fp.outline.r * 2 : fp.outline.h
@@ -25,7 +25,7 @@ function Thumbnail({ entry }: { entry: CatalogEntry }) {
   const fill = (slot: string) =>
     entry.materialSlots.find((s) => s.name === slot)?.defaultColor ?? '#ddd'
   return (
-    <svg viewBox={vb} className="h-12 w-full" aria-hidden>
+    <svg viewBox={vb} className="h-16 w-full" aria-hidden>
       {fp.parts.map((p, i) =>
         p.kind === 'circle' ? (
           <circle key={i} r={p.r} fill={fill(p.slot)} stroke="#57534e" strokeWidth={Math.max(w, h) / 60} />
@@ -44,6 +44,22 @@ function Thumbnail({ entry }: { entry: CatalogEntry }) {
         ),
       )}
     </svg>
+  )
+}
+
+/** Photo thumbnail when the entry has one; the vector top-view otherwise / on error. */
+function Thumbnail({ entry }: { entry: CatalogEntry }) {
+  const [broken, setBroken] = useState(false)
+  if (!entry.thumbnail || broken) return <VectorThumbnail entry={entry} />
+  return (
+    <img
+      src={entry.thumbnail}
+      alt=""
+      loading="lazy"
+      draggable={false}
+      onError={() => setBroken(true)}
+      className="h-16 w-full rounded object-cover"
+    />
   )
 }
 

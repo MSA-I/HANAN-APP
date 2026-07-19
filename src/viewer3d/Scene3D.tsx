@@ -12,10 +12,12 @@ import { Box, Camera, Download, Eye, Grid2x2, RotateCcw } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { getVenuePack } from '../core/venuePacks'
 import { clearSelection } from '../state/actions'
+import { visibleTopLevelIds } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { applyCameraPreset, applySealedCamera, type CameraPreset } from './cameraPresets'
 import { capture3d, registerCapture3d } from './captureBus3d'
 import { CameraRig } from './CameraRig'
+import { FlyControls } from './FlyControls'
 import { LightingRig } from './LightingRig'
 import { ObjectGroup } from './ObjectGroup'
 import { strings3d } from './strings3d'
@@ -55,7 +57,7 @@ class GLErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNo
 }
 
 function Objects() {
-  const order = useEditorStore(useShallow((s) => s.scene.objectOrder))
+  const order = useEditorStore(useShallow((s) => visibleTopLevelIds(s.scene)))
   return (
     <>
       {order.map((id) => (
@@ -205,10 +207,26 @@ export default function Scene3D() {
           <VenueMesh />
           <Objects />
           <CameraRig controlsRef={controlsRef} />
+          <FlyControls controlsRef={controlsRef} />
           <CaptureRegistrar />
         </Canvas>
       </GLErrorBoundary>
       <PresetBar controlsRef={controlsRef} />
+      <FlyHint />
+    </div>
+  )
+}
+
+/** Small key-hint chip — flight is only active in full-3D mode. */
+function FlyHint() {
+  const is3d = useEditorStore((s) => s.mode === '3d')
+  if (!is3d) return null
+  return (
+    <div
+      className="pointer-events-none absolute bottom-3 z-10 rounded-full border border-line bg-panel/90 px-3 py-1 text-[11px] text-ink-soft shadow-sm backdrop-blur"
+      style={{ insetInlineStart: '0.75rem' }}
+    >
+      {strings3d.fly.hint}
     </div>
   )
 }

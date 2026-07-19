@@ -17,6 +17,7 @@ import { attachedChairs } from '../core/model/seatingReconciler'
 import type { SceneObject } from '../core/model/types'
 import { composeTransform } from '../core/space'
 import { displayName } from '../editor2d/ObjectNode'
+import { getVenuePack } from '../core/venuePacks'
 import {
   alignObjects,
   detachAllChairs,
@@ -25,7 +26,6 @@ import {
   removeObjects,
   setAppearance,
   setChairAppearance,
-  setFloorColor,
   setLocked,
   setName,
   setPosition,
@@ -34,21 +34,32 @@ import {
   setSeatCount,
   setSeatingConfig,
   setSize,
-  setVenueSize,
-  setWallHeight,
 } from '../state/actions'
-import { sceneCounts } from '../state/selectors'
+import { isEffectivelyLocked, sceneCounts } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { useShallow } from 'zustand/react/shallow'
 import { ColorField, FieldRow, NumberField, Section, Stepper } from './fields'
+import { LayersSection } from './LayersSection'
 import { strings } from './strings'
 
 const T = strings.inspector
+
+/** Read-only info line — the hall is fixed (dims are set at project creation). */
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-[12px] text-ink-soft">{label}</span>
+      <span className="ltr-nums text-[12px] font-medium text-ink">{value}</span>
+    </div>
+  )
+}
 
 function ProjectInspector() {
   const projectName = useEditorStore((s) => s.projectName)
   const venue = useEditorStore((s) => s.scene.venue)
   const counts = useEditorStore(useShallow((s) => sceneCounts(s.scene)))
+  const pack = getVenuePack(venue.venuePackId)
+  const m = (cm: number) => String(Math.round(cm) / 100)
 
   return (
     <>
@@ -62,18 +73,18 @@ function ProjectInspector() {
         </FieldRow>
       </Section>
       <Section title={T.venue}>
-        <NumberField label={T.venueWidth} value={venue.size.width} unit="m" min={200} onCommit={(v) => setVenueSize(v, venue.size.depth)} />
-        <NumberField label={T.venueDepth} value={venue.size.depth} unit="m" min={200} onCommit={(v) => setVenueSize(venue.size.width, v)} />
-        <NumberField label={T.wallHeight} value={venue.wallHeight} unit="m" min={100} onCommit={setWallHeight} />
-        <ColorField label={T.floorColor} value={venue.floor.color} onChange={setFloorColor} />
+        {pack && <InfoRow label={T.venueName} value={pack.name} />}
+        <InfoRow label={T.venueDims} value={`${m(venue.size.width)} × ${m(venue.size.depth)} מ׳`} />
+        <InfoRow label={T.wallHeightInfo} value={`${m(venue.wallHeight)} מ׳`} />
       </Section>
-      <Section title="סיכום">
+      <Section title={T.summary}>
         <p className="text-[12px] text-ink-soft">
           <span className="ltr-nums">{counts.tables}</span> {strings.statusBar.tables} ·{' '}
           <span className="ltr-nums">{counts.chairs}</span> {strings.statusBar.chairs} ·{' '}
           <span className="ltr-nums">{counts.seats}</span> {strings.statusBar.seats}
         </p>
       </Section>
+      <LayersSection />
     </>
   )
 }
@@ -185,22 +196,29 @@ function ChairInspector({ obj }: { obj: SceneObject }) {
           />
         ))}
       </Section>
-      <Section title={strings.drill.chair}>
+      <Section title={obj.attachment?.kind === 'surface' ? strings.drill.decor : strings.drill.chair}>
         <p className="text-[12px] text-ink-soft">
           {T.belongsTo} <span className="font-semibold text-ink">{parentName}</span>
         </p>
-        <button
-          className="mt-1 rounded-md border border-line px-2 py-1.5 text-[12px] text-ink-soft hover:border-danger hover:text-danger"
-          onClick={() => detachChair(obj.id)}
-        >
-          {T.detachChair}
-        </button>
+        {obj.attachment?.kind !== 'surface' && (
+          <button
+            className="mt-1 rounded-md border border-line px-2 py-1.5 text-[12px] text-ink-soft hover:border-danger hover:text-danger"
+            onClick={() => detachChair(obj.id)}
+          >
+            {T.detachChair}
+          </button>
+        )}
       </Section>
     </>
   )
 }
 
 function SingleInspector({ obj }: { obj: SceneObject }) {
+  // layer lock has no per-object unlock button — reachable via 3D click or lock-while-selected
+  const layerLocked = useEditorStore((s) => {
+    const o = s.scene.objects[obj.id]
+    return !!o && !o.flags.locked && isEffectivelyLocked(s.scene, o)
+  })
   if (obj.parentId) return <ChairInspector obj={obj} />
   const entry = hasCatalogEntry(obj.catalogId) ? getCatalogEntry(obj.catalogId) : null
   if (!entry) return null
@@ -224,6 +242,11 @@ function SingleInspector({ obj }: { obj: SceneObject }) {
             <button className="font-semibold hover:underline" onClick={() => setLocked([obj.id], false)}>
               {T.unlock}
             </button>
+          </div>
+        )}
+        {layerLocked && (
+          <div className="flex items-center gap-1 rounded-md bg-warning/10 px-2 py-1.5 text-[12px] text-warning">
+            <Lock size={12} /> {T.layerLockedNotice}
           </div>
         )}
       </Section>

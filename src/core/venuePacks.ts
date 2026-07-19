@@ -9,7 +9,12 @@
  * plan/camera. These come from the glb-prep bbox report. Precise floor bounds
  * (excluding the desert backdrop) arrive later via footprint.json.
  */
-/** A no-go rectangle in plan cm (top-left corner + size). Furniture is pushed out. */
+/**
+ * A no-go rectangle in plan cm (top-left corner + size). Furniture is pushed out —
+ * EXCEPT catalog entries whose `zoneKind` matches `kind`: those are the zone's own
+ * fixed stations (DJ booth in the DJ zone, bar units in the bar zone) and are
+ * clamped INTO the zone instead — they cannot leave it.
+ */
 export interface RestrictedZone {
   x: number
   y: number
@@ -17,6 +22,8 @@ export interface RestrictedZone {
   depth: number
   /** hebrew label for the 2D overlay */
   label?: string
+  /** stable id from the ZONE_* SketchUp marker (pool, bar, dj, dancefloor…) */
+  kind?: string
 }
 
 /** A sealed camera angle (from a SketchUp Scene). Coords are app three-metres. */
@@ -63,12 +70,12 @@ export const VENUE_PACKS: VenuePack[] = [
     wallHeight: 1160,
     // extracted from ZONE_* marker faces via tools/extract-zones.mjs (plan cm).
     restricted: [
-      { x: 766, y: 1408, width: 3196, depth: 1136, label: 'בריכה' },
-      { x: 1789, y: 0, width: 800, depth: 300, label: 'בר' },
-      { x: 1789, y: 300, width: 800, depth: 1108, label: 'רחבת ריקודים' },
-      { x: 2269, y: 1408, width: 310, depth: 233, label: 'עמדת DJ' },
-      { x: 1809, y: 1651, width: 760, depth: 425, label: 'חופה' },
-      { x: 3962, y: 0, width: 461, depth: 2544, label: 'מסדרון' },
+      { x: 766, y: 1408, width: 3196, depth: 1136, label: 'בריכה', kind: 'pool' },
+      { x: 1789, y: 0, width: 800, depth: 300, label: 'בר', kind: 'bar' },
+      { x: 1789, y: 300, width: 800, depth: 1108, label: 'רחבת ריקודים', kind: 'dancefloor' },
+      { x: 2269, y: 1408, width: 310, depth: 233, label: 'עמדת DJ', kind: 'dj' },
+      { x: 1809, y: 1651, width: 760, depth: 425, label: 'חופה', kind: 'chuppah' },
+      { x: 3962, y: 0, width: 461, depth: 2544, label: 'מסדרון', kind: 'corridor' },
     ],
     floorAreas: [
       [[0, 0], [1790, 0], [1790, 1410], [770, 1410], [770, 2540], [0, 2540]],

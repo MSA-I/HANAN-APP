@@ -14,6 +14,7 @@ import {
   undo,
   updateSettings,
 } from '../state/actions'
+import { visibleTopLevelIds } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { copySelection, cutSelection, pasteClipboard } from './clipboard'
 import { overlay, useOverlayStore } from './overlayStore'
@@ -26,7 +27,7 @@ export interface ZoomApi {
   fitSelection: () => void
 }
 
-function isTypingTarget(e: KeyboardEvent): boolean {
+export function isTypingTarget(e: KeyboardEvent): boolean {
   const el = e.target as HTMLElement | null
   if (!el) return false
   const tag = el.tagName
@@ -36,6 +37,25 @@ function isTypingTarget(e: KeyboardEvent): boolean {
 export function useEditorShortcuts(zoom: ZoomApi): void {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // In full-3D mode the fly controls own the keyboard (Stage2D is only
+      // CSS-hidden, so this handler still fires) — keep just help + Escape.
+      // onKeyUp stays unconditional so spacePan/shiftHeld can't get stuck when
+      // switching modes mid-hold. 'split' keeps normal 2D behavior.
+      if (useEditorStore.getState().mode === '3d') {
+        if (!isTypingTarget(e)) {
+          if (e.code === 'Slash') {
+            overlay.toggleHelp()
+            e.preventDefault()
+          } else if (e.code === 'Escape') {
+            // objects are selectable in 3D too — Esc drills out / deselects
+            const s3 = useEditorStore.getState()
+            const drilled = s3.selection.length === 1 ? s3.scene.objects[s3.selection[0]] : null
+            if (drilled?.parentId) select([drilled.parentId])
+            else clearSelection()
+          }
+        }
+        return
+      }
       if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') overlay.setShiftHeld(true)
       if (isTypingTarget(e)) return
 
@@ -77,7 +97,7 @@ export function useEditorShortcuts(zoom: ZoomApi): void {
             e.preventDefault()
             return
           case 'KeyA':
-            select([...state.scene.objectOrder])
+            select(visibleTopLevelIds(state.scene))
             e.preventDefault()
             return
           case 'Equal':

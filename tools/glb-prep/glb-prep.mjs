@@ -24,6 +24,9 @@
  *   --diameter <cm>          prop: uniform-scale so max horizontal extent = cm (round tables)
  *   --footprint <WxD> [--fp-height <cm>]
  *                            prop: non-uniform to exact footprint W×D (cm); height kept or set
+ *   --yaw <deg>              prop: rotate about Y (CCW seen from above) BEFORE scaling.
+ *                            Tripo's yaw is arbitrary — use this to face the model the
+ *                            app's way: a chair's backrest must end up at +Z (front −Z).
  *   --recenter               venue: also recentre floor corner to origin (default off — trusts placement)
  *   --no-textures            skip texture resize/compress (use if sharp is unavailable)
  *   --tex-size <px>          max texture edge. default 2048
@@ -41,6 +44,7 @@ import draco3d from 'draco3dgltf';
 
 const SQRT1_2 = Math.SQRT1_2;
 
+
 function parseArgs(argv) {
   const a = { mode: 'venue', recenter: false, textures: true, texSize: 2048, draco: true };
   const pos = [];
@@ -52,6 +56,7 @@ function parseArgs(argv) {
     else if (t === '--diameter') a.diameter = Number(argv[++i]);
     else if (t === '--footprint') a.footprint = argv[++i];
     else if (t === '--fp-height') a.fpHeight = Number(argv[++i]);
+    else if (t === '--yaw') a.yaw = Number(argv[++i]);
     else if (t === '--recenter') a.recenter = true;
     else if (t === '--no-textures') a.textures = false;
     else if (t === '--tex-size') a.texSize = Number(argv[++i]);
@@ -131,14 +136,26 @@ async function processOne(io, inPath, outPath, a) {
     }
   }
 
-  // 2. wrap every scene root under one node we can transform.
+  // 2. wrap every scene root under THREE nodes, so each transform acts in the frame
+  // it is actually measured in:
+  //   prep_rot   (innermost) — up-axis fix
+  //   prep_scale             — scale, in the MODEL's own axes
+  //   prep_root  (outermost) — yaw, then translation
+  // Scale must happen BEFORE yaw: `--footprint W×D` is a statement about the model's
+  // own width and depth, but bounds measured after a yaw are the rotated AABB, which
+  // a non-right-angle yaw inflates (a 74° yaw made a 45cm chair come out 35cm). Scaling
+  // in model axes and rotating afterwards also avoids shearing the mesh.
   const scene = root.getDefaultScene() || root.listScenes()[0];
+  const inner = doc.createNode('prep_rot');
+  for (const child of scene.listChildren()) inner.addChild(child);
+  const scaler = doc.createNode('prep_scale');
+  scaler.addChild(inner);
   const wrapper = doc.createNode('prep_root');
-  for (const child of scene.listChildren()) wrapper.addChild(child);
+  wrapper.addChild(scaler);
   scene.addChild(wrapper);
 
   // 3. up-axis: source z-up → y-up is a -90° rotation about X.
-  if (a.sourceUp === 'z') wrapper.setRotation([-SQRT1_2, 0, 0, SQRT1_2]);
+  if (a.sourceUp === 'z') inner.setRotation([-SQRT1_2, 0, 0, SQRT1_2]);
 
   let b = worldBounds(doc);
   console.log(`  bounds (m) after up-axis: size ${fmtV(b.size)}  min ${fmtV(b.min)}  max ${fmtV(b.max)}`);
@@ -156,15 +173,23 @@ async function processOne(io, inPath, outPath, a) {
       const sy = a.fpHeight ? (a.fpHeight / 100) / b.size[1] : (sLong + sShort) / 2;
       const sv = [0, 0, 0];
       sv[longIdx] = sLong; sv[shortIdx] = sShort; sv[1] = sy;
-      wrapper.setScale([sv[0], sv[1], sv[2]]);
+      scaler.setScale([sv[0], sv[1], sv[2]]);
     } else if (a.diameter) {
       scale = (a.diameter / 100) / Math.max(b.size[0], b.size[2]);
-      wrapper.setScale([scale, scale, scale]);
+      scaler.setScale([scale, scale, scale]);
     } else if (a.height) {
       scale = (a.height / 100) / b.size[1];
-      wrapper.setScale([scale, scale, scale]);
+      scaler.setScale([scale, scale, scale]);
     }
     b = worldBounds(doc);
+  }
+
+  // 4b. yaw about Y — AFTER scaling, so `--footprint` meant the model's own W×D.
+  if (a.yaw) {
+    const h = (a.yaw * Math.PI) / 360; // half-angle, degrees→radians
+    wrapper.setRotation([0, Math.sin(h), 0, Math.cos(h)]);
+    b = worldBounds(doc);
+    console.log(`  bounds (m) after yaw ${a.yaw}°: size ${fmtV(b.size)}`);
   }
 
   // 5. recentre. prop: base to Y=0, centre X/Z. venue: only if --recenter (trusts placement otherwise).

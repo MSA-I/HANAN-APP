@@ -1,6 +1,6 @@
-import { attachedChairs } from '../core/model/seatingReconciler'
 import type { Vec2 } from '../core/model/types'
 import { pasteSubtrees, removeObjects, type Subtree } from '../state/actions'
+import { childrenOf } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 
 let clip: Subtree[] = []
@@ -12,7 +12,7 @@ export function copySelection(): number {
   clip = selection
     .map((id) => scene.objects[id])
     .filter((o) => o && !o.parentId)
-    .map((o) => ({ root: clone(o), children: attachedChairs(scene, o.id).map(clone) }))
+    .map((o) => ({ root: clone(o), children: childrenOf(scene, o.id).map(clone) }))
   return clip.length
 }
 

@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "thumbs": "node tools/thumbs-prep.mjs"
   },
   "dependencies": {
     "@fontsource-variable/assistant": "^5.2.5",
@@ -40,6 +41,7 @@
     "@vitejs/plugin-react": "^5.0.0",
     "eslint": "^9.24.0",
     "eslint-plugin-react-hooks": "^5.2.0",
+    "sharp": "^0.33.5",
     "tailwindcss": "^4.1.4",
     "typescript": "~5.8.2",
     "typescript-eslint": "^8.29.0",
