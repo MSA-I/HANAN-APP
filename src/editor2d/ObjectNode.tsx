@@ -22,6 +22,8 @@ import {
 
 const STROKE = '#57534e'
 const SELECTED_STROKE = '#3056d3'
+/** screen-space (strokeScaleEnabled=false), so the pattern holds at every zoom */
+const HANGING_DASH = [6, 4]
 
 function childIdsSelector(id: Id) {
   return (s: ReturnType<typeof useEditorStore.getState>) =>
@@ -66,6 +68,9 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
   // base stroke never changes with selection — the highlight is a separate
   // '.selection-visual' node so exports can hide it imperatively
   const stroke = STROKE
+  // Seen from above a chandelier is indistinguishable from a table, so the one
+  // renderer exception for ceiling items: a dashed outline reading "overhead".
+  const dash = entry.placement === 'ceiling' ? HANGING_DASH : undefined
   // An attached chair listens (for dbl-click drill-in) but is only draggable
   // once it is the drilled-in selection; otherwise events fall through to the table.
   const childSelected = isChild && isSelected
@@ -94,6 +99,7 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
             fill={slotColor(entry, obj.appearance, part.slot)}
             stroke={stroke}
             strokeWidth={1}
+            dash={dash}
             strokeScaleEnabled={false}
             perfectDrawEnabled={false}
           />
@@ -110,6 +116,7 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
             fill={slotColor(entry, obj.appearance, part.slot)}
             stroke={stroke}
             strokeWidth={1}
+            dash={dash}
             strokeScaleEnabled={false}
             perfectDrawEnabled={false}
           />

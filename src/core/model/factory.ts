@@ -1,8 +1,11 @@
 import { nanoid } from 'nanoid'
 import { getCatalogEntry } from '../catalog/registry'
 import { getVenuePack } from '../venuePacks'
-import type { Id, Project, SceneObject, SceneState, Vec2 } from './types'
+import type { Id, Project, SceneObject, SceneState, Vec2, Venue } from './types'
 import { SCHEMA_VERSION } from './types'
+
+/** Ceiling height of a procedural room — pack halls carry their own. */
+export const DEFAULT_WALL_HEIGHT = 350
 
 export function newId(): Id {
   return nanoid(10)
@@ -26,7 +29,7 @@ export function createDefaultScene(
       }
     : {
         size: { width: venueWidth, depth: venueDepth },
-        wallHeight: 350,
+        wallHeight: DEFAULT_WALL_HEIGHT,
         floor: { color: floorColor },
         elements: [] as never[],
       }
@@ -63,13 +66,28 @@ export function createProject(opts: NewProjectOptions): Project {
   }
 }
 
-export function createObject(catalogId: string, position: Vec2): SceneObject {
+/**
+ * `venue` is only consulted for placement:'ceiling' entries, which hang from
+ * `wallHeight` instead of standing at 0 — core must stay store-free, so the
+ * caller passes the venue in. Omitting it assumes a procedural room, which is
+ * right for every venue except a pack hall.
+ */
+export function createObject(
+  catalogId: string,
+  position: Vec2,
+  venue?: Pick<Venue, 'wallHeight'>,
+): SceneObject {
   const entry = getCatalogEntry(catalogId)
+  // top of the object meets the ceiling; its height IS the drop length
+  const elevation =
+    entry.placement === 'ceiling'
+      ? (venue?.wallHeight ?? DEFAULT_WALL_HEIGHT) - entry.defaultSize.height
+      : 0
   return {
     id: newId(),
     catalogId,
     name: '',
-    transform: { position, rotation: 0, elevation: 0 },
+    transform: { position, rotation: 0, elevation },
     size: { ...entry.defaultSize },
     parentId: null,
     appearance: {},

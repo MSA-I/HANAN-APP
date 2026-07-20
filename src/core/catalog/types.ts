@@ -77,8 +77,15 @@ export interface CatalogEntry {
    * Where this object lives. 'floor' (default) = a top-level object on the venue
    * floor. 'surface' = placed ON a table top (attached child, kind 'surface') —
    * it can only be dropped onto a table and is clamped to the table's outline.
+   * 'seat' = like 'surface', but dropping it on a table lays one out at EVERY
+   * seat instead of one at the pointer (place settings). 'ceiling' = hung from
+   * the ceiling: a top-level object whose `elevation` starts at the venue's
+   * wallHeight instead of 0.
+   *
+   * 'floor' and 'ceiling' are top-level objects; 'surface' and 'seat' are
+   * attached children that can only be dropped onto a table.
    */
-  placement?: 'floor' | 'surface'
+  placement?: 'floor' | 'surface' | 'seat' | 'ceiling'
   /**
    * Fixed-station entries (bar, DJ booth): when the venue pack has a restricted
    * zone of this kind, the object lives ONLY inside that zone — dropping it

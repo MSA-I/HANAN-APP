@@ -4,6 +4,7 @@ import { attachedChairs } from '../core/model/seatingReconciler'
 import {
   addObject,
   addObjectToSurface,
+  addSeatItemsToTable,
   beginGesture,
   detachChair,
   duplicateObjects,
@@ -12,7 +13,9 @@ import {
   newProject,
   redo,
   removeObjects,
+  removeSeatItems,
   rotateObjectsBy,
+  seatItems,
   select,
   setAppearance,
   setLayerHidden,
@@ -244,6 +247,109 @@ describe('table-top decor (surface attachment)', () => {
     removeObjects([decorId])
     expect(scene().objects[decorId]).toBeUndefined()
     expect(scene().objects[tableId].seating?.count).toBe(SEATS)
+    expect(attachedChairs(scene(), tableId)).toHaveLength(SEATS)
+  })
+
+  // Regression: the clamp used to collapse a ROTATED rect child to its circumradius
+  // (45×33 → hw=hh=27.9 instead of 22.5/16.5), stopping it 8.4cm short of the rim on
+  // every table. Shoved outward, a rotated decor must reach its EXACT rotated extent.
+  it('a rotated rect decor reaches the exact rim, not its circumradius', () => {
+    const RECT = 'decor.place-setting' // 45×33
+    const shoveTo = (childId: string, deg: number, delta: { x: number; y: number }) => {
+      rotateObjectsBy([childId], deg)
+      moveObjectsBy([childId], delta)
+      return scene().objects[childId].transform.position
+    }
+    const round = addObject('table.round', { x: 500, y: 500 })
+    const onRound = addObjectToSurface(RECT, round, { x: 500, y: 500 })!
+    // 33cm deep across the radius → 90 − 16.5, not the old 90 − 27.9 = 62.1
+    expect(shoveTo(onRound, 180, { x: 0, y: 999 }).y).toBeCloseTo(73.5)
+
+    const banquet = addObject('table.banquet', { x: 1000, y: 500 }) // 240×120
+    const onLong = addObjectToSurface(RECT, banquet, { x: 1000, y: 500 })!
+    expect(shoveTo(onLong, 180, { x: 0, y: 999 }).y).toBeCloseTo(43.5) // long side: 60 − 16.5
+    const onEnd = addObjectToSurface(RECT, banquet, { x: 1000, y: 500 })!
+    expect(shoveTo(onEnd, 90, { x: 999, y: 0 }).x).toBeCloseTo(103.5) // end: 120 − 16.5
+  })
+})
+
+describe('place settings (seat placement)', () => {
+  const SETTING = 'decor.place-setting'
+  const settingsOn = (tableId: string) => seatItems(scene(), tableId)
+
+  it('fills every seat of the table in one drop', () => {
+    const tableId = addObject('table.round', { x: 500, y: 500 })
+    addSeatItemsToTable(SETTING, tableId)
+    const items = settingsOn(tableId)
+    expect(items).toHaveLength(SEATS)
+    for (const item of items) {
+      expect(item.parentId).toBe(tableId)
+      expect(item.attachment).toEqual({ kind: 'surface' })
+      expect(scene().objectOrder).not.toContain(item.id)
+    }
+  })
+
+  it('re-dropping replaces the set instead of doubling it', () => {
+    const tableId = addObject('table.round', { x: 500, y: 500 })
+    addSeatItemsToTable(SETTING, tableId)
+    const firstIds = settingsOn(tableId).map((o) => o.id)
+    setSeatCount(tableId, 8)
+    addSeatItemsToTable(SETTING, tableId) // the re-sync gesture
+    expect(settingsOn(tableId)).toHaveLength(8)
+    for (const id of firstIds) expect(scene().objects[id]).toBeUndefined()
+  })
+
+  // The point of the part-2 clamp fix: every setting is rotated, and the clamp
+  // must not move a single one of them.
+  it('survives clampToSurface untouched on both table shapes', () => {
+    for (const table of ['table.round', 'table.banquet']) {
+      newProject({ name: 'test', venueWidth: 2400, venueDepth: 1600 })
+      const tableId = addObject(table, { x: 800, y: 600 })
+      addSeatItemsToTable(SETTING, tableId)
+      const before = settingsOn(tableId).map((o) => ({ ...o.transform.position }))
+      expect(before.length).toBeGreaterThan(0)
+      // any transform action re-runs the clamp over the table's children
+      moveObjectsBy([tableId], { x: 1, y: 1 })
+      settingsOn(tableId).forEach((o, i) => {
+        expect(o.transform.position.x).toBeCloseTo(before[i].x)
+        expect(o.transform.position.y).toBeCloseTo(before[i].y)
+      })
+    }
+  })
+
+  it('removeSeatItems clears the settings and leaves the chairs', () => {
+    const tableId = addObject('table.round', { x: 500, y: 500 })
+    addSeatItemsToTable(SETTING, tableId)
+    removeSeatItems(tableId)
+    expect(settingsOn(tableId)).toHaveLength(0)
+    expect(attachedChairs(scene(), tableId)).toHaveLength(SEATS)
+    expect(scene().objects[tableId].seating?.count).toBe(SEATS)
+  })
+
+  it('keeps ordinary surface decor when the settings are removed', () => {
+    const tableId = addObject('table.round', { x: 500, y: 500 })
+    const vaseId = addObjectToSurface('decor.candlestick-brass', tableId, { x: 500, y: 500 })!
+    addSeatItemsToTable(SETTING, tableId)
+    removeSeatItems(tableId)
+    expect(scene().objects[vaseId]).toBeDefined()
+  })
+
+  it('deleting the table takes its settings with it, in one undo step', () => {
+    const tableId = addObject('table.round', { x: 500, y: 500 })
+    addSeatItemsToTable(SETTING, tableId)
+    const ids = settingsOn(tableId).map((o) => o.id)
+    removeObjects([tableId])
+    for (const id of ids) expect(scene().objects[id]).toBeUndefined()
+    undo()
+    expect(settingsOn(tableId)).toHaveLength(SEATS)
+  })
+
+  it('one drop is one undo entry', () => {
+    const tableId = addObject('table.round', { x: 500, y: 500 })
+    addSeatItemsToTable(SETTING, tableId)
+    expect(settingsOn(tableId)).toHaveLength(SEATS)
+    undo()
+    expect(settingsOn(tableId)).toHaveLength(0)
     expect(attachedChairs(scene(), tableId)).toHaveLength(SEATS)
   })
 })

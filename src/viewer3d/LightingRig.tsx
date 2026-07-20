@@ -1,7 +1,10 @@
 /**
- * Soft, even daylight: a hemisphere fill plus one directional key that casts
- * the scene's shadows, with its shadow camera fitted to the venue bounds. A
- * drei ContactShadows pass adds soft grounding under the furniture.
+ * The sun, plus a little ground bounce. Most of the fill now comes from the
+ * environment map in Scene3D, so these two sit deliberately low: at the old
+ * 0.5/1.1 the same scene blew the marble floor out to flat white once the
+ * environment was added and the roof stopped shadowing it. The directional key
+ * casts the scene's shadows, with its shadow camera fitted to the venue bounds.
+ * A drei ContactShadows pass adds soft grounding under the furniture.
  *
  * Shadow cost note: ContactShadows re-renders on every invalidated frame (i.e.
  * during a drag). Resolution is kept at 512 and `far` is clamped just above
@@ -34,13 +37,13 @@ export function LightingRig() {
 
   return (
     <>
-      <hemisphereLight args={['#ffffff', '#d8d2c8', 0.5]} />
+      <hemisphereLight args={['#ffffff', '#d8d2c8', 0.2]} />
 
       <primitive object={target} position={[cx, 0, cz]} />
       <directionalLight
         ref={lightRef}
         position={[cx - W * 0.35, H * 1.6 + diag * 0.5, cz - D * 0.2 - diag * 0.15]}
-        intensity={1.1}
+        intensity={0.9}
         castShadow
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}

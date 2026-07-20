@@ -109,8 +109,48 @@ export const banquetTable: CatalogEntry = {
   labelByDefault: true,
 }
 
+/**
+ * The same "שולחן אבירים" already butted end-to-end into one 480cm unit — the venue
+ * counts it as a single item of inventory, so it is its own entry rather than two
+ * table.banquet objects the user has to align by hand. Fixed size for the same reason
+ * as its half: the join only lands where the real tables meet.
+ *
+ * No `model` — table-banquet-240.glb stretched 2× would stretch its baked drape folds
+ * with it, so this one falls back to the procedural `leggedTable`. No `thumbnail`
+ * either: the library then draws the footprint below, and the two butted rects read as
+ * the joined table they are.
+ *
+ * ⚠ `defaultGap: 8` is load-bearing, not cosmetic. Capacity is
+ * 2·⌊480/(45+gap)⌋ + 2·⌊120/(45+gap)⌋, which is 2·9 + 2·2 = 22 at gap 8 but drops to
+ * 2·8 + 2·2 = 20 at gap 9 — only 3.3cm of slack. The inspector exposes gap as an
+ * editable 0–60 field, so a user nudging it up makes `reconcileSeats` silently delete
+ * two chairs. Covered by the gap-9 regression test in seatLayout.test.ts.
+ */
+export const knightsTable: CatalogEntry = {
+  id: 'table.knights-480',
+  category: 'tables',
+  labelKey: 'tableKnights',
+  defaultSize: { width: 480, depth: 120, height: 75 },
+  resizable: [],
+  minSize: {},
+  maxSize: {},
+  materialSlots: [CLOTH, LEGS],
+  footprint: (s) => ({
+    // two halves drawn separately so the join between the butted tables shows
+    parts: [
+      { kind: 'rect', w: s.width / 2, h: s.depth, cx: -s.width / 4, cornerRadius: 2, slot: 'cloth' },
+      { kind: 'rect', w: s.width / 2, h: s.depth, cx: s.width / 4, cornerRadius: 2, slot: 'cloth' },
+    ],
+    // seats, snapping and selection see one table, not two
+    outline: { kind: 'rect', w: s.width, h: s.depth },
+  }),
+  buildMesh: (s) => leggedTable(s.width, s.depth, s.height, 'cloth', 'legs'),
+  seating: { min: 0, max: 22, defaultCount: 22, defaultChair: DEFAULT_CHAIR, defaultGap: 8, defaultOffset: 6 },
+  labelByDefault: true,
+}
+
 // table.rect (180×90) and table.cocktail (⌀70) were generic placeholders with no
 // counterpart in the venue's inventory and no scanned model — they would have gone
 // into an AI frame as invented grey furniture. Dropped; migration v1→v2 remaps any
 // stored ones onto the real tables.
-export const tableEntries = [roundTable, roundTableLarge, squareTable, banquetTable]
+export const tableEntries = [roundTable, roundTableLarge, squareTable, banquetTable, knightsTable]

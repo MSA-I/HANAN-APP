@@ -12,6 +12,10 @@ export function degToRad(deg: number): number {
   return (deg * Math.PI) / 180
 }
 
+export function radToDeg(rad: number): number {
+  return (rad * 180) / Math.PI
+}
+
 /** Rotate a plan-space vector clockwise (y-down) by `deg` degrees. */
 export function rotateVec(v: Vec2, deg: number): Vec2 {
   const r = degToRad(deg)

@@ -89,5 +89,12 @@ export const tableDecorEntries: CatalogEntry[] = [
   surfaceProp('decor.napkin-white', 'decorNapkinWhite', P('decor-napkin-white.glb'), { width: 8.6, depth: 5.4, height: 8 }, '#f3f0ea', 'rect'),
   surfaceProp('decor.candleholders-wood', 'decorCandleholdersWood', P('decor-candleholders-wood.glb'), { width: 5.3, depth: 21.1, height: 25 }, '#8a6b4f', 'rect'),
   surfaceProp('decor.candlestick-wood', 'decorCandlestickWood', P('decor-candlestick-wood.glb'), { width: 6.3, depth: 25.1, height: 30 }, '#8a6b4f', 'rect'),
-  surfaceProp('decor.place-setting', 'decorPlaceSetting', P('decor-place-setting.glb'), { width: 40, depth: 35, height: 15.9 }, '#d9d4cb', 'rect'),
+  // The only 'seat'-placement entry: dropping it on a table lays one out in front
+  // of EVERY chair (see core/layout/seatItemLayout.ts) instead of one at the pointer.
+  // 45×33 is the cover the venue actually lays; the 15.9 height is the wine glass,
+  // the tallest of the model's 9 meshes — footprint was resized, height was not.
+  {
+    ...surfaceProp('decor.place-setting', 'decorPlaceSetting', P('decor-place-setting.glb'), { width: 45, depth: 33, height: 15.9 }, '#d9d4cb', 'rect'),
+    placement: 'seat',
+  },
 ]

@@ -39,9 +39,9 @@ const MAPPING = [
   { id: 'dj.booth', src: 'ChatGPT Image Jul 15, 2026, 06_13_32 PM.png' },
   // table decor — product shots from עיצובי בסיס ריזורט, matched by rendering
   // every GLB next to every candidate photo (2026-07-19; several models are a
-  // different item than their filename suggests). Two photos are NOT mapped:
-  // the pendant lamp (…125631_0fe6cb28 — hanging, not in the catalog) and
+  // different item than their filename suggests). One photo is NOT mapped:
   // ComfyUI-upscaled_00001_ (a duplicate place-setting shot).
+  // …125631_0fe6cb28 was also skipped here; it is mapped under lighting, below.
   { id: 'decor.goblet-crystal', src: 'עיצובי בסיס ריזורט/hf_20260716_122823_c73fc112-5ff5-42ee-b536-4966ccb6e758.png' },
   { id: 'decor.vases-decorative', src: 'עיצובי בסיס ריזורט/hf_20260716_124840_a3254af3-82ee-4bb8-9df6-3359f6f7182a.png' },
   { id: 'decor.vase-striped', src: 'עיצובי בסיס ריזורט/hf_20260716_125432_a8a9dc28-5463-4d9a-b9fd-8327b1ca57af.png' },
@@ -69,6 +69,30 @@ const MAPPING = [
   { id: 'decor.vase-ceramic', src: 'עיצובי בסיס ריזורט/hf_20260716_122858_882530a0-ba2c-4a22-acde-d2666810c62f.png' },
   { id: 'decor.vases-gold-striped', src: 'עיצובי בסיס ריזורט/hf_20260716_125507_e70d4a39-bdff-4edd-9f08-2b42c0dde0eb.png' },
   { id: 'decor.napkin-white', src: 'עיצובי בסיס ריזורט/hf_20260716_131110_596d4696-c6a0-443f-a3ed-af247b835d59.png' },
+  // lighting — each verified by rendering the GLB against the candidate photos
+  // (2026-07-20), because two of the three filenames are wrong.
+  // This photo was previously skipped as "the pendant lamp, hanging". It is
+  // neither: it is decor-chandelier-crystal.glb, and that model is neither a
+  // chandelier nor hanging — same arched brass stand, weighted disc base and
+  // crystal-basket shade. A floor object (entries/decor.ts).
+  { id: 'lamp.arc-crystal', src: 'עיצובי בסיס ריזורט/hf_20260716_125631_0fe6cb28-d852-42f0-86c7-8ec9ef904edf.png' },
+  // same lamp with its ceiling canopy in frame: "hf_20260716_141517_cfe913d7…",
+  // but its cord is so long that the square centre-crop cuts the shade in half —
+  // this shot centres the shade
+  { id: 'lamp.pendant', src: 'hf_20260716_140916_5a8d6bcf-3f19-4ae7-8744-aa5e7dacc366.png' },
+  // four staggered drums — matches the model's four cords exactly, which is why
+  // "decor-pendant-geometric.glb" is 42.6 deep for an 18.1-wide lamp
+  { id: 'lamp.pendant-cluster', src: 'hf_20260716_135210_c4d84f0e-04d6-4dc0-a1ab-3dd31273756f.png' },
+  // chandeliers: the source folder holds 7 GLBs but only THREE products, and the
+  // photos say so too — each product below was shot 2–3 times, and Tripo was run
+  // on every shot. Alternates are listed so nobody re-adds them as new items.
+  // diamond alts: "…02_05_32 PM.png" and "c81d8b72-47c9-4531…" are both tall
+  // crops whose square centre-cut slices the fixture — this shot is near-square
+  { id: 'lamp.chandelier-diamond', src: 'ChatGPT Image Jul 15, 2026, 06_37_54 PM.png' },
+  // basket alt: "…06_34_57 PM.png" — same fixture, longer cord in frame
+  { id: 'lamp.chandelier-basket', src: 'ChatGPT Image Jul 15, 2026, 06_34_18 PM.png' },
+  // candelabra alt: "…02_12_05 PM.png" — same fixture, slightly narrower framing
+  { id: 'lamp.chandelier-candelabra', src: 'ChatGPT Image Jul 16, 2026, 02_11_58 PM.png' },
 ]
 
 const outName = (id) => `${id.replaceAll('.', '-')}.webp`

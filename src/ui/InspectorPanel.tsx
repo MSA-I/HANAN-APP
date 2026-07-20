@@ -24,6 +24,8 @@ import {
   detachChair,
   distributeObjects,
   removeObjects,
+  removeSeatItems,
+  seatItems,
   setAppearance,
   setChairAppearance,
   setLocked,
@@ -92,6 +94,8 @@ function ProjectInspector() {
 function SeatingSection({ obj }: { obj: SceneObject }) {
   // reflect the actual chairs' colors, not just the catalog defaults
   const firstChair = useEditorStore((s) => attachedChairs(s.scene, obj.id)[0] ?? null)
+  // adding place settings is the drop gesture itself; only removal needs a button
+  const settingCount = useEditorStore((s) => seatItems(s.scene, obj.id).length)
   if (!obj.seating) return null
   const entry = getCatalogEntry(obj.catalogId)
   const cap = entry.seating
@@ -148,6 +152,14 @@ function SeatingSection({ obj }: { obj: SceneObject }) {
           onClick={() => detachAllChairs(obj.id)}
         >
           {T.detachAll}
+        </button>
+      )}
+      {settingCount > 0 && (
+        <button
+          className="rounded-md border border-line px-2 py-1.5 text-[12px] text-ink-soft hover:border-danger hover:text-danger"
+          onClick={() => removeSeatItems(obj.id)}
+        >
+          {T.removeSettings}
         </button>
       )}
     </Section>

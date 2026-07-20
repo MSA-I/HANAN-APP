@@ -4,10 +4,11 @@
  * DOM preset overlay. Falls back to a friendly card if WebGL is unavailable or
  * the GL context throws.
  */
-import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Component, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
+import { Environment, useTexture } from '@react-three/drei'
 import type CameraControlsImpl from 'camera-controls'
-import type { PerspectiveCamera } from 'three'
+import { EquirectangularReflectionMapping, SRGBColorSpace, type PerspectiveCamera } from 'three'
 import { Box, Camera, Download, Eye, Grid2x2, RotateCcw } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { getVenuePack } from '../core/venuePacks'
@@ -54,6 +55,30 @@ class GLErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNo
   render() {
     return this.state.failed ? this.props.fallback : this.props.children
   }
+}
+
+/**
+ * Sky and image-based fill in one. Every material in the venue GLB is metalness
+ * 0.5, so with no scene.environment they have nothing to reflect and render
+ * near-black — this is what actually lifts the walls, floor and columns, more
+ * than any lamp does.
+ *
+ * drei's `<Environment files>` can't be used: it routes .webp to the gainmap
+ * loader, which wants a gainmap-encoded image rather than a plain photo. Loading
+ * the texture here and passing `map` takes the same path minus that loader —
+ * three still builds the PMREM for scene.environment off the equirect itself.
+ *
+ * The photo is not a real panorama, so it is mirror-wrapped into a seamless 2:1
+ * equirect by tools/glb-prep/env-prep.mjs. Checked in-app from the sealed camera
+ * angles: no seam is visible, so the plain equirect stands — no cylindrical
+ * backdrop mesh needed. `environmentIntensity` is below 1 because the sky should
+ * stay bright while the light it throws into the hall should not.
+ */
+function Backdrop() {
+  const texture = useTexture('/env/backdrop.webp')
+  texture.mapping = EquirectangularReflectionMapping
+  texture.colorSpace = SRGBColorSpace
+  return <Environment map={texture} background environmentIntensity={0.65} />
 }
 
 function Objects() {
@@ -199,10 +224,12 @@ export default function Scene3D() {
           frameloop="demand"
           shadows
           dpr={[1, 1.75]}
-          gl={{ antialias: true }}
+          gl={{ antialias: true, toneMappingExposure: 0.9 }}
           camera={{ fov: 45, near: 0.1, far: 4000, position: [10, 16, 28] }}
         >
-          <color attach="background" args={['#f6f5f2']} />
+          <Suspense fallback={null}>
+            <Backdrop />
+          </Suspense>
           <LightingRig />
           <VenueMesh />
           <Objects />

@@ -91,3 +91,32 @@ describe('rect seats', () => {
     expect(computeSeatTransforms(outline, seating(99), chair)).toHaveLength(8)
   })
 })
+
+describe('knights table (480×120) seats', () => {
+  const outline = { kind: 'rect', w: 480, h: 120 } as const
+  const withGap = (count: number, gap: number): SeatingConfig => ({ ...seating(count), gap })
+
+  it('seats exactly 22 at the catalog gap of 8', () => {
+    // unit 45+8=53 → 2·⌊480/53⌋ + 2·⌊120/53⌋ = 2·9 + 2·2
+    expect(computeMaxSeats(outline, withGap(99, 8), chair)).toBe(22)
+    expect(computeSeatTransforms(outline, withGap(22, 8), chair)).toHaveLength(22)
+  })
+
+  it('splits 9+9 along the long sides and 2+2 across the ends', () => {
+    const seats = computeSeatTransforms(outline, withGap(22, 8), chair)
+    const top = seats.filter((s) => s.position.y < -60)
+    const bottom = seats.filter((s) => s.position.y > 60)
+    const right = seats.filter((s) => s.position.x > 240)
+    const left = seats.filter((s) => s.position.x < -240)
+    expect(top).toHaveLength(9)
+    expect(bottom).toHaveLength(9)
+    expect(right).toHaveLength(2)
+    expect(left).toHaveLength(2)
+  })
+
+  it('loses two seats at gap 9 — the catalog default of 8 is load-bearing', () => {
+    // unit 54 → ⌊480/54⌋ drops to 8; reconcileSeats would silently delete two chairs
+    expect(computeMaxSeats(outline, withGap(99, 9), chair)).toBe(20)
+    expect(computeSeatTransforms(outline, withGap(22, 9), chair)).toHaveLength(20)
+  })
+})

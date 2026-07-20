@@ -45,4 +45,35 @@ export const dividerScreen: CatalogEntry = {
   ],
 }
 
-export const decorEntries = [pottedPlant, dividerScreen]
+/**
+ * The Tripo model is named "decor-chandelier-crystal" but it is NOT a chandelier:
+ * rendering it (2026-07-20) shows an arched brass stand on a weighted disc base
+ * carrying a crystal-basket shade — exactly its product shot. So it is a floor
+ * object, not a ceiling one (see entries/hanging.ts). The arch leans out along
+ * +depth, which is why the 43.7 cm footprint is deeper than it is wide.
+ * Size = the exact normalised GLB bounds; the slot colour is the model's
+ * measured mean base colour (baked materials, so 2D only).
+ */
+export const arcLampCrystal: CatalogEntry = {
+  id: 'lamp.arc-crystal',
+  category: 'decor',
+  labelKey: 'lampArcCrystal',
+  defaultSize: { width: 27.2, depth: 43.7, height: 80 },
+  resizable: [],
+  minSize: {},
+  maxSize: {},
+  materialSlots: [{ name: 'body', labelKey: 'body', defaultColor: '#a78c6e' }],
+  footprint: (s) => ({
+    parts: [{ kind: 'rect', w: s.width, h: s.depth, cornerRadius: 2, slot: 'body' }],
+    outline: { kind: 'rect', w: s.width, h: s.depth },
+  }),
+  buildMesh: (s) => [
+    { shape: 'cylinder', dims: [s.width * 0.45, s.width * 0.45, s.height * 0.04], offset: [0, s.height * 0.02, 0], slot: 'body' },
+    { shape: 'cylinder', dims: [s.width * 0.05, s.width * 0.05, s.height], offset: [0, s.height / 2, 0], slot: 'body' },
+    { shape: 'cylinder', dims: [s.width * 0.3, s.width * 0.45, s.height * 0.3], offset: [0, s.height * 0.7, s.depth * 0.3], slot: 'body' },
+  ],
+  model: '/props/decor-chandelier-crystal.glb',
+  thumbnail: '/thumbs/lamp-arc-crystal.webp',
+}
+
+export const decorEntries = [pottedPlant, dividerScreen, arcLampCrystal]

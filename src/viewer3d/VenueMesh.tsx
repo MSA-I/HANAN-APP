@@ -88,11 +88,12 @@ export function VenueMesh() {
 
   if (!pack) return <ProceduralRoom />
 
-  const W = cmToM(pack.size.width)
-  const D = cmToM(pack.size.depth)
   return (
     <group>
-      <Field w={W} d={D} />
+      {/* No <Field> here on purpose. The pack ships its own ground (the resort's
+          spans 84×33 m, wider than the venue), and Field sits at y = −0.03 — which
+          is ABOVE the pool: its water plane is at −0.25 and the basin floor at
+          −1.45. Rendering it lidded the pool with an off-white sheet. */}
       <PackErrorBoundary fallback={<ProceduralRoom />}>
         <Suspense fallback={<ProceduralRoom />}>
           <VenuePackModel pack={pack} />

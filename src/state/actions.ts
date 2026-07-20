@@ -16,8 +16,10 @@ import type {
   Size3D,
   Vec2,
 } from '../core/model/types'
-import { composeTransform, normalizeDeg, relativeTransform, rotateVec } from '../core/space'
-import { aabbUnion, type AABB } from '../core/layout/bounds'
+import { composeTransform, relativeTransform, rotateVec } from '../core/space'
+import { aabbUnion, outlineAABB, type AABB } from '../core/layout/bounds'
+import { seatItemTransforms } from '../core/layout/seatItemLayout'
+import { computeSeatTransforms } from '../core/layout/seatLayout'
 import { getVenuePack, type RestrictedZone } from '../core/venuePacks'
 import {
   childrenOf,
@@ -171,8 +173,11 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>): void {
 /**
  * Keep a surface-attached decor inside its parent's top outline, standing on the
  * parent's height. Positions are parent-local, so a circular table is a radial
- * clamp and a rect table a per-axis clamp; a rotated rect decor is bounded by
- * its circumradius (conservative, keeps the math simple).
+ * clamp and a rect table a per-axis clamp.
+ *
+ * Both use the child's EXACT rotated extent. The old code collapsed a rotated
+ * rect to its circumradius, which cost a 45×33 place setting 8.4cm on every
+ * table — enough to drag a correctly laid-out setting off its seat.
  */
 function clampToSurface(scene: SceneState, child: SceneObject): void {
   if (child.attachment?.kind !== 'surface' || !child.parentId) return
@@ -180,23 +185,27 @@ function clampToSurface(scene: SceneState, child: SceneObject): void {
   if (!parent) return
   const pOutline = getCatalogEntry(parent.catalogId).footprint(parent.size).outline
   const cOutline = getCatalogEntry(child.catalogId).footprint(child.size).outline
-  let hw = cOutline.kind === 'circle' ? cOutline.r : cOutline.w / 2
-  let hh = cOutline.kind === 'circle' ? cOutline.r : cOutline.h / 2
-  if (cOutline.kind === 'rect' && normalizeDeg(child.transform.rotation) !== 0) {
-    hw = hh = Math.hypot(hw, hh)
-  }
+  const rot = child.transform.rotation
   const pos = child.transform.position
   if (pOutline.kind === 'circle') {
-    const maxR = Math.max(0, pOutline.r - Math.max(hw, hh))
     const len = Math.hypot(pos.x, pos.y)
+    // exact support of the rotated child along the radial direction
+    let reach = cOutline.kind === 'circle' ? cOutline.r : 0
+    if (cOutline.kind === 'rect') {
+      const u = rotateVec(len > 0 ? { x: pos.x / len, y: pos.y / len } : { x: 1, y: 0 }, -rot)
+      reach = (Math.abs(u.x) * cOutline.w + Math.abs(u.y) * cOutline.h) / 2
+    }
+    const maxR = Math.max(0, pOutline.r - reach)
     if (len > maxR) {
       const f = len > 0 ? maxR / len : 0
       pos.x *= f
       pos.y *= f
     }
   } else {
-    const maxX = Math.max(0, pOutline.w / 2 - hw)
-    const maxY = Math.max(0, pOutline.h / 2 - hh)
+    // rotated half-extents — the same formula outlineAABB uses
+    const box = outlineAABB({ position: { x: 0, y: 0 }, rotation: rot, elevation: 0 }, cOutline)
+    const maxX = Math.max(0, pOutline.w / 2 - box.maxX)
+    const maxY = Math.max(0, pOutline.h / 2 - box.maxY)
     pos.x = Math.min(maxX, Math.max(-maxX, pos.x))
     pos.y = Math.min(maxY, Math.max(-maxY, pos.y))
   }
@@ -300,6 +309,61 @@ export function addObjectToSurface(catalogId: string, parentId: Id, worldPos: Ve
   if (!placed) return null
   select([obj.id])
   return obj.id
+}
+
+/** A table's auto-laid place settings — the 'seat'-placement subset of its surface children. */
+export function seatItems(scene: SceneState, tableId: Id): SceneObject[] {
+  return surfaceChildren(scene, tableId).filter(
+    (c) => getCatalogEntry(c.catalogId).placement === 'seat',
+  )
+}
+
+/**
+ * Lay one 'seat'-placement item (place setting) in front of EVERY chair of a table,
+ * already turned to face its guest — the whole point is that a 22-seat table costs
+ * one gesture instead of 44. Idempotent: an existing set is replaced, so re-dropping
+ * after a seat-count change re-syncs the table in one click.
+ *
+ * The settings are plain one-shot children, deliberately NOT tracked like chairs:
+ * a table can never be resized (every table entry is `resizable: []`) and chair depth
+ * can never change (all six chairs share one CHAIR_SIZE), so nothing the reconciler
+ * watches can invalidate them. Changing seat count or gap DOES leave them stale —
+ * that is the case re-dropping recovers.
+ */
+export function addSeatItemsToTable(catalogId: string, tableId: Id): Id[] {
+  const ids: Id[] = []
+  mutateScene((scene) => {
+    const table = scene.objects[tableId]
+    if (!table?.seating || table.parentId || isEffectivelyLocked(scene, table)) return
+    for (const stale of seatItems(scene, tableId)) delete scene.objects[stale.id]
+    const outline = getCatalogEntry(table.catalogId).footprint(table.size).outline
+    const chair = getCatalogEntry(table.seating.chairCatalogId).defaultSize
+    const item = getCatalogEntry(catalogId).defaultSize
+    const seats = computeSeatTransforms(outline, table.seating, chair)
+    for (const t of seatItemTransforms(seats, chair, item, table.seating.offset)) {
+      const obj = createObject(catalogId, { x: 0, y: 0 })
+      obj.parentId = tableId
+      obj.attachment = { kind: 'surface' }
+      obj.transform = { ...t, elevation: table.size.height }
+      scene.objects[obj.id] = obj
+      ids.push(obj.id)
+    }
+    unhideCategoryOf(scene, catalogId)
+  })
+  set((state) => {
+    // the replaced set may have been selected
+    state.selection = state.selection.filter((id) => state.scene.objects[id])
+  })
+  return ids
+}
+
+export function removeSeatItems(tableId: Id): void {
+  mutateScene((scene) => {
+    for (const item of seatItems(scene, tableId)) delete scene.objects[item.id]
+  })
+  set((state) => {
+    state.selection = state.selection.filter((id) => state.scene.objects[id])
+  })
 }
 
 export function removeObjects(ids: Id[]): void {

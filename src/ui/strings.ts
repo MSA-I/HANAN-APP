@@ -35,7 +35,10 @@ export const strings = {
       tableRound: 'שולחן עגול',
       tableRoundLarge: 'שולחן עגול גדול',
       tableSquare: 'שולחן מרובע',
-      tableBanquet: 'שולחן אבירים',
+      // the venue butts these end to end; 'בודד'/'כפול' keeps the two apart in the
+      // library, which would otherwise show two items both called 'שולחן אבירים'
+      tableBanquet: 'שולחן אבירים בודד',
+      tableKnights: 'שולחן אבירים כפול',
       // the venue's six real chairs — the user's own names for them
       chairXWhite: 'לבן איקס',
       chairXWood: 'עץ איקס',
@@ -48,6 +51,14 @@ export const strings = {
       buffet: 'עמדת בופה',
       plant: 'צמח',
       divider: 'מחיצה',
+      // ceiling-hung — the height in each entry IS the drop from the ceiling
+      lampPendant: 'מנורה תלויה',
+      lampPendantCluster: 'מקבץ מנורות גיאומטרי',
+      lampChandelierDiamond: 'נברשת יהלום',
+      lampChandelierBasket: 'נברשת סל קריסטל',
+      lampChandelierCandelabra: 'נברשת קנדלברה',
+      // floor-standing despite its "chandelier" filename — see entries/decor.ts
+      lampArcCrystal: 'מנורת קשת קריסטל',
       // table-top decor — the resort's real centerpiece inventory
       decorCandlestickBrass: 'פמוט פליז',
       decorVaseCeramic: 'ואזה קרמית',
@@ -136,6 +147,7 @@ export const strings = {
     chairModel: 'דגם כיסא',
     chairColors: 'צבעי הכיסאות',
     detachAll: 'ניתוק כל הכיסאות',
+    removeSettings: 'הסרת ערכות סכו״ם',
     appearance: 'מראה',
     name: 'שם',
     lockedNotice: 'האובייקט נעול',

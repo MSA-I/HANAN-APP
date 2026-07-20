@@ -3,12 +3,14 @@ import type { KonvaEventObject } from 'konva/lib/Node'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Stage } from 'react-konva'
 import { getCatalogEntry } from '../core/catalog/registry'
+import type { CatalogEntry } from '../core/catalog/types'
 import { aabbIntersects, aabbUnion, pointInOutline, type AABB } from '../core/layout/bounds'
 import { snapValue } from '../core/layout/snapping'
 import type { Id, Vec2 } from '../core/model/types'
 import {
   addObject,
   addObjectToSurface,
+  addSeatItemsToTable,
   clearSelection,
   detachChair,
   duplicateObjects,
@@ -72,6 +74,11 @@ function DrillBreadcrumb() {
       </div>
     </div>
   )
+}
+
+/** 'surface' and 'seat' are the table-attached placements — the two that drop onto a table. */
+function attachesToTable(entry: CatalogEntry): boolean {
+  return entry.placement === 'surface' || entry.placement === 'seat'
 }
 
 interface ViewFit {
@@ -281,7 +288,7 @@ export function Stage2D() {
 
   const ghostValidity = (catalogId: string, world: Vec2): boolean => {
     const entry = getCatalogEntry(catalogId)
-    if (entry.placement === 'surface') return surfaceTargetAt(world) !== null
+    if (attachesToTable(entry)) return surfaceTargetAt(world) !== null
     const outline = entry.footprint(entry.defaultSize).outline
     const hw = outline.kind === 'circle' ? outline.r : outline.w / 2
     const hh = outline.kind === 'circle' ? outline.r : outline.h / 2
@@ -345,10 +352,15 @@ export function Stage2D() {
     if (placing) {
       const world = worldPointer()
       if (world && ghostValidity(placing, world)) {
-        if (getCatalogEntry(placing).placement === 'surface') {
-          // drop exactly at the pointer — grid snap is meaningless on a table top
+        const entry = getCatalogEntry(placing)
+        if (attachesToTable(entry)) {
           const target = surfaceTargetAt(world)
-          if (target) addObjectToSurface(placing, target, world)
+          // 'seat' fills the whole table; 'surface' drops exactly at the pointer
+          // (grid snap is meaningless on a table top)
+          if (target) {
+            if (entry.placement === 'seat') addSeatItemsToTable(placing, target)
+            else addObjectToSurface(placing, target, world)
+          }
         } else {
           const { settings } = useEditorStore.getState().scene
           const pos = settings.snapEnabled
