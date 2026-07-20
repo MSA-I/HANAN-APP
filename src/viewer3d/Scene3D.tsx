@@ -9,7 +9,7 @@ import { Canvas, useThree } from '@react-three/fiber'
 import { Environment, useTexture } from '@react-three/drei'
 import type CameraControlsImpl from 'camera-controls'
 import { EquirectangularReflectionMapping, SRGBColorSpace, type PerspectiveCamera } from 'three'
-import { Box, Camera, Download, Eye, Grid2x2, RotateCcw } from 'lucide-react'
+import { Box, Camera, Check, Download, Eye, Grid2x2, RotateCcw } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { getVenuePack } from '../core/venuePacks'
 import { clearSelection } from '../state/actions'
@@ -137,6 +137,7 @@ const PRESETS: { id: CameraPreset; label: string; Icon: typeof Box }[] = [
 
 function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControlsImpl | null> }) {
   const [active, setActive] = useState<string>('overview')
+  const [saved, setSaved] = useState(false)
   const venuePackId = useEditorStore((s) => s.scene.venue.venuePackId)
   const sealed = getVenuePack(venuePackId)?.cameras ?? []
 
@@ -159,15 +160,40 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
     'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] transition-colors ' +
     (isActive ? 'bg-accent text-white' : 'text-ink-soft hover:bg-accent-tint hover:text-accent')
 
+  /** Name the file after the view it shows, so a folder of captures stays readable. */
+  const captureName = () => {
+    const label =
+      PRESETS.find((p) => p.id === active)?.label ?? sealed.find((s) => s.id === active)?.label ?? 'מבט'
+    const stamp = new Date().toISOString().slice(0, 19).replace('T', '_').replaceAll(':', '-')
+    return `${label}__${stamp}`
+  }
+
+  /**
+   * Save the current angle. The dev server writes it into HANAN-APP-DOCS/צילומים
+   * (tools/capture-plugin.ts); in a real build that endpoint doesn't exist, so we
+   * fall back to a plain download rather than losing the frame.
+   */
   const doCapture = () => {
     clearSelection() // no selection highlight in the frame
-    requestAnimationFrame(() => {
+    requestAnimationFrame(async () => {
       const url = capture3d({ width: 1536, height: 1024 })
       if (!url) return
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'venue-capture.png'
-      a.click()
+      const name = captureName()
+      try {
+        const res = await fetch('/__capture', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ dataUrl: url, name }),
+        })
+        if (!res.ok) throw new Error(String(res.status))
+        setSaved(true)
+        window.setTimeout(() => setSaved(false), 1500)
+      } catch {
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${name}.png`
+        a.click()
+      }
     })
   }
 
@@ -192,11 +218,14 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
       <button
         type="button"
         onClick={doCapture}
-        title="צלם פריים נקי (1536×1024)"
-        aria-label="צלם פריים נקי"
-        className="ms-0.5 flex items-center rounded-full p-1.5 text-ink-soft hover:bg-accent-tint hover:text-accent"
+        title={strings3d.capture.title}
+        aria-label={strings3d.capture.title}
+        className={
+          'ms-0.5 flex items-center rounded-full p-1.5 transition-colors ' +
+          (saved ? 'text-accent' : 'text-ink-soft hover:bg-accent-tint hover:text-accent')
+        }
       >
-        <Download size={14} />
+        {saved ? <Check size={14} /> : <Download size={14} />}
       </button>
       <button
         type="button"

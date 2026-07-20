@@ -1,7 +1,8 @@
 import { ChevronsLeft, ChevronsRight, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { CATEGORY_ORDER, listByCategory } from '../core/catalog/registry'
+import { CATEGORY_ORDER, getCatalogEntry, listByCategory } from '../core/catalog/registry'
 import type { CatalogEntry } from '../core/catalog/types'
+import { TABLE_PRESETS, type TablePreset } from '../core/presets'
 import { overlay, useOverlayStore } from '../editor2d/overlayStore'
 import { strings } from './strings'
 
@@ -63,6 +64,53 @@ function Thumbnail({ entry }: { entry: CatalogEntry }) {
   )
 }
 
+function presetLabel(preset: TablePreset): string {
+  return (
+    strings.presets.items[preset.labelKey as keyof typeof strings.presets.items] ?? preset.id
+  )
+}
+
+/**
+ * Ready-made table+chairs units. First in the panel on purpose: dropping a laid
+ * table is the common case, and a bare table is the advanced one. The thumbnail
+ * is the table's own — a preset never introduces an asset of its own.
+ */
+function LibraryPresets({ query }: { query: string }) {
+  const placingPreset = useOverlayStore((s) => s.placingPreset)
+  const items = TABLE_PRESETS.filter((p) => !query || presetLabel(p).includes(query.trim()))
+  if (!items.length) return null
+  return (
+    <div className="mb-3">
+      <h3 className="mb-1.5 text-[11px] font-semibold text-ink-soft">{strings.presets.library}</h3>
+      <div className="grid grid-cols-2 gap-1.5">
+        {items.map((preset) => {
+          const table = getCatalogEntry(preset.tableCatalogId)
+          const armed = placingPreset === preset.id
+          return (
+            <button
+              key={preset.id}
+              title={strings.library.placeHint}
+              onMouseDown={(e) => {
+                e.preventDefault()
+                overlay.setPlacingPreset(armed ? null : preset.id, preset.tableCatalogId)
+              }}
+              className={`select-none rounded-lg border p-1.5 text-center transition-colors ${
+                armed ? 'border-accent bg-accent-tint' : 'border-line bg-panel hover:border-accent/50'
+              }`}
+            >
+              <Thumbnail entry={table} />
+              <div className="mt-1 truncate text-[11px] font-medium">{presetLabel(preset)}</div>
+              <div className="ltr-nums text-[10px] text-ink-soft">
+                {preset.seatCount} {strings.presets.seatsSuffix}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function LibraryPanel() {
   const [collapsed, setCollapsed] = useState(false)
   const [query, setQuery] = useState('')
@@ -118,6 +166,7 @@ export function LibraryPanel() {
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+        <LibraryPresets query={query} />
         {categories.length === 0 && (
           <div className="py-6 text-center text-[12px] text-ink-soft">
             <p>

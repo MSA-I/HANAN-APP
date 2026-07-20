@@ -25,6 +25,13 @@ interface OverlayState {
   shiftHeld: boolean
   /** click-to-place mode armed with a catalog id */
   placing: string | null
+  /**
+   * Set when `placing` was armed by a preset rather than a bare catalog item.
+   * `placing` still holds a REAL catalog id (the preset's table), so the ghost
+   * and its validity test keep working untouched — this only tells the drop
+   * handler to add the whole unit.
+   */
+  placingPreset: string | null
   ghost: PlacingGhost | null
   cursorWorld: { x: number; y: number } | null
   helpOpen: boolean
@@ -38,6 +45,7 @@ export const useOverlayStore = create<OverlayState>()(() => ({
   handTool: false,
   shiftHeld: false,
   placing: null,
+  placingPreset: null,
   ghost: null,
   cursorWorld: null,
   helpOpen: false,
@@ -66,7 +74,19 @@ export const overlay = {
     useOverlayStore.setState({ handTool })
   },
   setPlacing(placing: string | null) {
-    useOverlayStore.setState({ placing, ghost: placing ? useOverlayStore.getState().ghost : null })
+    useOverlayStore.setState({
+      placing,
+      placingPreset: null,
+      ghost: placing ? useOverlayStore.getState().ghost : null,
+    })
+  },
+  /** Arm a preset: the ghost shows its table, the drop adds table + chairs. */
+  setPlacingPreset(presetId: string | null, tableCatalogId: string | null) {
+    useOverlayStore.setState({
+      placing: presetId ? tableCatalogId : null,
+      placingPreset: presetId,
+      ghost: presetId ? useOverlayStore.getState().ghost : null,
+    })
   },
   setGhost(ghost: PlacingGhost | null) {
     useOverlayStore.setState({ ghost })

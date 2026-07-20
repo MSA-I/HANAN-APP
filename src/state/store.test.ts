@@ -1,11 +1,21 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { getCatalogEntry } from '../core/catalog/registry'
 import { attachedChairs } from '../core/model/seatingReconciler'
+import { getHallDesign, getTableDesign, getTablePreset } from '../core/presets'
+import { getVenuePack } from '../core/venuePacks'
 import {
   addObject,
   addObjectToSurface,
   addSeatItemsToTable,
+  addTablePreset,
+  applyHallDesign,
+  applyTableDesign,
+  applyTableDesignToAll,
   beginGesture,
+  designItems,
+  fillHallWithTables,
+  removeHallDesign,
+  removeTableDesign,
   detachChair,
   duplicateObjects,
   endGesture,
@@ -451,5 +461,196 @@ describe('category layers', () => {
     setLayerLocked('tables', false)
     moveObjectsBy([id], { x: 100, y: 0 })
     expect(scene().objects[id].transform.position.x).toBe(500)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// presets
+// ---------------------------------------------------------------------------
+
+const PRESET = getTablePreset('preset.round-12-gold-white')!
+const DESIGN = getTableDesign('design.classic-gold')!
+const topLevel = () => scene().objectOrder.map((id) => scene().objects[id])
+
+describe('table presets', () => {
+  it('drops the table with the preset chair and seat count, numbered', () => {
+    const id = addTablePreset(PRESET.id, { x: 600, y: 600 })!
+    const table = scene().objects[id]
+    expect(table.seating!.chairCatalogId).toBe(PRESET.chairCatalogId)
+    expect(attachedChairs(scene(), id)).toHaveLength(PRESET.seatCount)
+    expect(table.meta.number).toBe(1)
+    undo()
+    expect(Object.keys(scene().objects)).toHaveLength(0)
+  })
+
+  it('unhides both the table and the chair layer', () => {
+    setLayerHidden('tables', true)
+    setLayerHidden('seating', true)
+    addTablePreset(PRESET.id, { x: 600, y: 600 })
+    expect(scene().settings.layers).toEqual({})
+  })
+
+  it('an unknown preset id is a no-op', () => {
+    expect(addTablePreset('preset.nope', { x: 0, y: 0 })).toBeNull()
+    expect(scene().objectOrder).toHaveLength(0)
+  })
+})
+
+describe('fill hall', () => {
+  it('lays several non-overlapping tables inside the venue, in one undo entry', () => {
+    const ids = fillHallWithTables(PRESET.id)
+    expect(ids.length).toBeGreaterThan(1)
+    for (const id of ids) {
+      const box = objectAABB(scene(), id)!
+      expect(box.minX).toBeGreaterThanOrEqual(0)
+      expect(box.minY).toBeGreaterThanOrEqual(0)
+      expect(box.maxX).toBeLessThanOrEqual(scene().venue.size.width)
+      expect(box.maxY).toBeLessThanOrEqual(scene().venue.size.depth)
+    }
+    const numbers = ids.map((id) => scene().objects[id].meta.number)
+    expect(new Set(numbers).size).toBe(ids.length)
+
+    undo()
+    expect(scene().objectOrder).toHaveLength(0)
+  })
+
+  it('is additive — a second run finds no room and adds nothing', () => {
+    const first = fillHallWithTables(PRESET.id)
+    const before = scene().objectOrder.length
+    expect(fillHallWithTables(PRESET.id)).toHaveLength(0)
+    expect(scene().objectOrder).toHaveLength(before)
+    expect(scene().objectOrder.slice(0, first.length)).toEqual(first)
+  })
+})
+
+describe('table designs', () => {
+  it('lays the decor plus one place setting per seat, all tagged', () => {
+    const id = addObject('table.round', { x: 600, y: 600 })
+    applyTableDesign(DESIGN.id, id)
+    const laid = designItems(scene(), id)
+    expect(laid).toHaveLength(DESIGN.items.length + SEATS)
+    expect(laid.every((o) => o.meta.design === DESIGN.id)).toBe(true)
+    expect(laid.every((o) => o.attachment?.kind === 'surface')).toBe(true)
+    expect(laid.every((o) => o.transform.elevation === scene().objects[id].size.height)).toBe(true)
+  })
+
+  it('is idempotent — re-applying replaces instead of stacking', () => {
+    const id = addObject('table.round', { x: 600, y: 600 })
+    applyTableDesign(DESIGN.id, id)
+    const first = designItems(scene(), id).map((o) => o.id)
+    applyTableDesign(DESIGN.id, id)
+    const second = designItems(scene(), id).map((o) => o.id)
+    expect(second).toHaveLength(first.length)
+    expect(second).not.toEqual(first) // genuinely re-laid, not left alone
+  })
+
+  it('switching design replaces the previous one', () => {
+    const id = addObject('table.round', { x: 600, y: 600 })
+    applyTableDesign(DESIGN.id, id)
+    applyTableDesign('design.crystal', id)
+    const laid = designItems(scene(), id)
+    expect(laid.every((o) => o.meta.design === 'design.crystal')).toBe(true)
+    expect(laid).toHaveLength(getTableDesign('design.crystal')!.items.length + SEATS)
+  })
+
+  it('replaces hand-dropped place settings rather than doubling them up', () => {
+    const id = addObject('table.round', { x: 600, y: 600 })
+    addSeatItemsToTable('decor.place-setting', id)
+    expect(seatItems(scene(), id)).toHaveLength(SEATS)
+    applyTableDesign(DESIGN.id, id)
+    expect(seatItems(scene(), id)).toHaveLength(SEATS)
+  })
+
+  it('leaves hand-placed decor alone on apply and on remove', () => {
+    const id = addObject('table.round', { x: 600, y: 600 })
+    const manual = addObjectToSurface('decor.vase-ceramic', id, { x: 600, y: 630 })!
+    applyTableDesign(DESIGN.id, id)
+    expect(scene().objects[manual]).toBeDefined()
+    removeTableDesign(id)
+    expect(designItems(scene(), id)).toHaveLength(0)
+    expect(scene().objects[manual]).toBeDefined()
+  })
+
+  it('a locked table refuses the design', () => {
+    const id = addObject('table.round', { x: 600, y: 600 })
+    setLocked([id], true)
+    expect(applyTableDesign(DESIGN.id, id)).toHaveLength(0)
+    setLocked([id], false)
+    setLayerLocked('tables', true)
+    expect(applyTableDesign(DESIGN.id, id)).toHaveLength(0)
+  })
+
+  it('applies to every table and undoes all of them in ONE step', () => {
+    const ids = [
+      addObject('table.round', { x: 400, y: 400 }),
+      addObject('table.round', { x: 1200, y: 400 }),
+      addObject('table.round', { x: 400, y: 1200 }),
+    ]
+    applyTableDesignToAll(DESIGN.id)
+    for (const id of ids) expect(designItems(scene(), id).length).toBeGreaterThan(0)
+
+    undo()
+    for (const id of ids) expect(designItems(scene(), id)).toHaveLength(0)
+  })
+
+  it('apply-to-all skips locked tables', () => {
+    const free = addObject('table.round', { x: 400, y: 400 })
+    const locked = addObject('table.round', { x: 1200, y: 400 })
+    setLocked([locked], true)
+    applyTableDesignToAll(DESIGN.id)
+    expect(designItems(scene(), free).length).toBeGreaterThan(0)
+    expect(designItems(scene(), locked)).toHaveLength(0)
+  })
+})
+
+describe('hall designs', () => {
+  const HALL = getHallDesign('hall.chandeliers-diamond')!
+
+  it('hangs the fixtures at ceiling height, tagged, in one undo entry', () => {
+    const ids = applyHallDesign(HALL.id)
+    expect(ids.length).toBeGreaterThan(0)
+    const drop = getCatalogEntry(HALL.catalogId).defaultSize.height
+    for (const id of ids) {
+      const obj = scene().objects[id]
+      // regression: addObject used to ignore the venue and hang everything at 350
+      expect(obj.transform.elevation).toBe(scene().venue.wallHeight - drop)
+      expect(obj.meta.design).toBe(HALL.id)
+      expect(scene().objectOrder).toContain(id)
+    }
+    undo()
+    expect(scene().objectOrder).toHaveLength(0)
+  })
+
+  it('re-applying replaces the previous hall design', () => {
+    const first = applyHallDesign(HALL.id)
+    const second = applyHallDesign('hall.pendants')
+    expect(topLevel().every((o) => o.meta.design === 'hall.pendants')).toBe(true)
+    for (const id of first) expect(scene().objects[id]).toBeUndefined()
+    expect(second.length).toBeGreaterThan(0)
+  })
+
+  it('removal clears the fixtures and the order list together', () => {
+    applyHallDesign(HALL.id)
+    removeHallDesign()
+    expect(scene().objectOrder).toHaveLength(0)
+    expect(Object.keys(scene().objects)).toHaveLength(0)
+  })
+
+  it('leaves ordinary furniture untouched', () => {
+    const table = addObject('table.round', { x: 600, y: 600 })
+    applyHallDesign(HALL.id)
+    removeHallDesign()
+    expect(scene().objects[table]).toBeDefined()
+    expect(scene().objectOrder).toEqual([table])
+  })
+
+  it('a ceiling fixture is not pushed out of a restricted zone', () => {
+    // regression: clampToVenue's zone push treated chandeliers as furniture, so
+    // nothing could ever hang over the dance floor.
+    newProject({ name: 'resort', venuePackId: 'resort' })
+    const zone = getVenuePack('resort')!.restricted!.find((z) => z.kind === 'dancefloor')!
+    const at = { x: zone.x + zone.width / 2, y: zone.y + zone.depth / 2 }
+    const id = addObject('lamp.chandelier-diamond', at)
+    expect(scene().objects[id].transform.position).toEqual(at)
   })
 })

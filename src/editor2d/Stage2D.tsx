@@ -10,6 +10,7 @@ import type { Id, Vec2 } from '../core/model/types'
 import {
   addObject,
   addObjectToSurface,
+  addTablePreset,
   addSeatItemsToTable,
   clearSelection,
   detachChair,
@@ -106,6 +107,7 @@ export function Stage2D() {
   const spacePan = useOverlayStore((s) => s.spacePan)
   const handTool = useOverlayStore((s) => s.handTool)
   const placing = useOverlayStore((s) => s.placing)
+  const placingPreset = useOverlayStore((s) => s.placingPreset)
   const panMode = spacePan || handTool
   const marqueeRef = useRef<Vec2 | null>(null)
   const midPanRef = useRef<{ pointer: Vec2; stagePos: Vec2 } | null>(null)
@@ -366,7 +368,8 @@ export function Stage2D() {
           const pos = settings.snapEnabled
             ? { x: snapValue(world.x, settings.gridSize), y: snapValue(world.y, settings.gridSize) }
             : world
-          addObject(placing, pos)
+          if (placingPreset) addTablePreset(placingPreset, pos)
+          else addObject(placing, pos)
         }
         if (!e.evt.altKey) {
           overlay.setPlacing(null)

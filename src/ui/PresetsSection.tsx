@@ -1,0 +1,134 @@
+/**
+ * The two inspector surfaces for presets.
+ *
+ * Table designs live on the SELECTED table (that is the object the design is
+ * applied to), hall-wide operations live in the project inspector next to the
+ * layers panel (they are scene-level, so there is nothing to select first).
+ * Dropping a table+chairs unit is a library gesture and lives there instead.
+ */
+import { useState } from 'react'
+import { getCatalogEntry } from '../core/catalog/registry'
+import type { SceneObject } from '../core/model/types'
+import { HALL_DESIGNS, TABLE_DESIGNS, TABLE_PRESETS } from '../core/presets'
+import {
+  applyHallDesign,
+  applyTableDesign,
+  applyTableDesignToAll,
+  designItems,
+  fillHallWithTables,
+  hasHallDesign,
+  removeHallDesign,
+  removeTableDesign,
+} from '../state/actions'
+import { isEffectivelyLocked } from '../state/selectors'
+import { useEditorStore } from '../state/store'
+import { Section } from './fields'
+import { strings } from './strings'
+
+const T = strings.presets
+
+const label = (key: string) => T.items[key as keyof typeof T.items] ?? key
+
+const selectClass =
+  'w-full rounded-md border border-line bg-panel px-1.5 py-1 text-[12px] focus:border-accent focus:outline-none'
+
+const buttonClass =
+  'rounded-md border border-line px-2 py-1.5 text-[12px] text-ink hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-ink-soft/40 disabled:hover:text-ink-soft/40'
+
+const dangerClass =
+  'rounded-md border border-line px-2 py-1.5 text-[12px] text-ink-soft hover:border-danger hover:text-danger'
+
+function Picker({
+  value,
+  onChange,
+  options,
+}: {
+  value: string
+  onChange: (v: string) => void
+  options: { id: string; labelKey: string }[]
+}) {
+  return (
+    <select className={selectClass} value={value} onChange={(e) => onChange(e.target.value)}>
+      {options.map((o) => (
+        <option key={o.id} value={o.id}>
+          {label(o.labelKey)}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+/** Apply a ready-made decor set to this table — or to every table at once. */
+export function TableDesignSection({ obj }: { obj: SceneObject }) {
+  const [designId, setDesignId] = useState(TABLE_DESIGNS[0].id)
+  const applied = useEditorStore((s) => designItems(s.scene, obj.id).length > 0)
+  // apply-to-all is a dead no-op when every table is locked — say so by disabling
+  const anyTableFree = useEditorStore((s) =>
+    Object.values(s.scene.objects).some(
+      (o) =>
+        !o.parentId &&
+        o.seating &&
+        getCatalogEntry(o.catalogId).category === 'tables' &&
+        !isEffectivelyLocked(s.scene, o),
+    ),
+  )
+  if (!obj.seating) return null
+
+  return (
+    <Section title={T.tableDesign}>
+      <Picker value={designId} onChange={setDesignId} options={TABLE_DESIGNS} />
+      <div className="flex gap-1.5">
+        <button className={`${buttonClass} flex-1`} onClick={() => applyTableDesign(designId, obj.id)}>
+          {T.apply}
+        </button>
+        <button
+          className={`${buttonClass} flex-1`}
+          disabled={!anyTableFree}
+          onClick={() => applyTableDesignToAll(designId)}
+        >
+          {T.applyAll}
+        </button>
+      </div>
+      {applied && (
+        <button className={dangerClass} onClick={() => removeTableDesign(obj.id)}>
+          {T.remove}
+        </button>
+      )}
+    </Section>
+  )
+}
+
+/** Hall-wide operations: fill the floor with tables, hang a ceiling design. */
+export function ScenePresetsSection() {
+  const [presetId, setPresetId] = useState(TABLE_PRESETS[0].id)
+  const [hallId, setHallId] = useState(HALL_DESIGNS[0].id)
+  const hallApplied = useEditorStore((s) => hasHallDesign(s.scene))
+
+  return (
+    <>
+      <Section title={T.layouts}>
+        <Picker value={presetId} onChange={setPresetId} options={TABLE_PRESETS} />
+        <button
+          className={buttonClass}
+          title={T.fillHint}
+          onClick={() => fillHallWithTables(presetId)}
+        >
+          {T.fillHall}
+        </button>
+      </Section>
+      <Section title={T.hallDesign}>
+        <Picker value={hallId} onChange={setHallId} options={HALL_DESIGNS} />
+        <div className="flex gap-1.5">
+          <button className={`${buttonClass} flex-1`} onClick={() => applyHallDesign(hallId)}>
+            {T.apply}
+          </button>
+          {hallApplied && (
+            <button className={`${dangerClass} flex-1`} onClick={() => removeHallDesign()}>
+              {T.remove}
+            </button>
+          )}
+        </div>
+      </Section>
+    </>
+  )
+}

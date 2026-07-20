@@ -14,12 +14,30 @@ import type {
   SceneState,
   SeatingConfig,
   Size3D,
+  Transform2D,
   Vec2,
 } from '../core/model/types'
 import { composeTransform, relativeTransform, rotateVec } from '../core/space'
 import { aabbUnion, outlineAABB, type AABB } from '../core/layout/bounds'
+import {
+  CEILING_INSET,
+  DEFAULT_AISLE,
+  MAX_CEILING,
+  MAX_FILL,
+  ceilingAreas,
+  fillHallSlots,
+  rectRing,
+  tableCellSize,
+} from '../core/layout/fillHall'
 import { seatItemTransforms } from '../core/layout/seatItemLayout'
 import { computeSeatTransforms } from '../core/layout/seatLayout'
+import {
+  getHallDesign,
+  getTableDesign,
+  getTablePreset,
+  presetSeating,
+  type TableDesign,
+} from '../core/presets'
 import { getVenuePack, type RestrictedZone } from '../core/venuePacks'
 import {
   childrenOf,
@@ -160,6 +178,11 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>): void {
       continue
     }
 
+    // Restricted zones are FLOOR no-go areas — their own contract says furniture
+    // is pushed out. A ceiling fixture is not on the floor, and pushing it meant
+    // nothing could ever hang over the dance floor or the bar.
+    if (getCatalogEntry(obj.catalogId).placement === 'ceiling') continue
+
     for (const z of zones) {
       const p = zonePush(box, z, width, depth)
       if (!p.x && !p.y) continue
@@ -263,8 +286,16 @@ export function setProjectName(name: string): void {
 // object lifecycle
 // ---------------------------------------------------------------------------
 
-export function addObject(catalogId: string, position: Vec2): Id {
-  const obj = createObject(catalogId, position)
+/**
+ * `seating` overrides the catalog defaults before the chairs are reconciled —
+ * how a table preset lands as one unit (its own chair model and seat count)
+ * instead of a default table the caller then has to re-configure.
+ */
+export function addObject(catalogId: string, position: Vec2, seating?: Partial<SeatingConfig>): Id {
+  // the venue matters for placement:'ceiling' — without it a chandelier hangs at
+  // the procedural 3.5m instead of the pack hall's 11.6m
+  const obj = createObject(catalogId, position, get().scene.venue)
+  if (obj.seating && seating) Object.assign(obj.seating, seating)
   mutateScene((scene) => {
     if (obj.seating) {
       const numbers = Object.values(scene.objects)
@@ -275,7 +306,11 @@ export function addObject(catalogId: string, position: Vec2): Id {
     scene.objects[obj.id] = obj
     scene.objectOrder.push(obj.id)
     unhideCategoryOf(scene, obj.catalogId)
-    if (obj.seating) reconcileSeats(scene, obj.id)
+    if (obj.seating) {
+      reconcileSeats(scene, obj.id)
+      // the chairs are a different category — hiding it would swallow them silently
+      unhideCategoryOf(scene, obj.seating.chairCatalogId)
+    }
     clampToVenue(scene, [obj.id])
   })
   select([obj.id])
@@ -350,10 +385,7 @@ export function addSeatItemsToTable(catalogId: string, tableId: Id): Id[] {
     }
     unhideCategoryOf(scene, catalogId)
   })
-  set((state) => {
-    // the replaced set may have been selected
-    state.selection = state.selection.filter((id) => state.scene.objects[id])
-  })
+  pruneSelection() // the replaced set may have been selected
   return ids
 }
 
@@ -361,9 +393,223 @@ export function removeSeatItems(tableId: Id): void {
   mutateScene((scene) => {
     for (const item of seatItems(scene, tableId)) delete scene.objects[item.id]
   })
-  set((state) => {
-    state.selection = state.selection.filter((id) => state.scene.objects[id])
+  pruneSelection()
+}
+
+// ---------------------------------------------------------------------------
+// presets — ready-made layouts (core/presets.ts)
+//
+// Everything here is ONE mutateScene per user gesture, which is what makes a
+// whole hall-fill or an apply-to-all a single undo entry. That is also why the
+// design layer is a draft helper rather than an action calling an action.
+// ---------------------------------------------------------------------------
+
+/** Drop a table with its chairs already configured, as one unit. */
+export function addTablePreset(presetId: string, position: Vec2): Id | null {
+  const preset = getTablePreset(presetId)
+  if (!preset) return null
+  return addObject(preset.tableCatalogId, position, {
+    chairCatalogId: preset.chairCatalogId,
+    count: preset.seatCount,
   })
+}
+
+/**
+ * Arrange as many preset tables as fit across the free floor. Additive: existing
+ * furniture is treated as occupied and never moved or deleted, so running it
+ * twice on a full hall is a no-op.
+ */
+export function fillHallWithTables(presetId: string): Id[] {
+  const preset = getTablePreset(presetId)
+  if (!preset) return []
+  const scene0 = get().scene
+  const { venue } = scene0
+  const pack = getVenuePack(venue.venuePackId)
+  const cell = tableCellSize(preset.tableCatalogId, presetSeating(preset))
+  const occupied = scene0.objectOrder
+    .map((id) => subtreeAABB(scene0, id))
+    .filter((b): b is AABB => !!b)
+
+  const slots = fillHallSlots({
+    areas: pack?.floorAreas ?? [rectRing(0, 0, venue.size.width, venue.size.depth)],
+    zones: pack?.restricted ?? [],
+    cell,
+    aisle: DEFAULT_AISLE,
+    occupied,
+    max: MAX_FILL,
+  })
+  if (!slots.length) return []
+
+  const ids: Id[] = []
+  mutateScene((scene) => {
+    // number once up front — addObject's per-call rescan is O(n²) at this size
+    let next =
+      Math.max(
+        0,
+        ...Object.values(scene.objects)
+          .filter((o) => o.seating)
+          .map((o) => (typeof o.meta.number === 'number' ? o.meta.number : 0)),
+      ) + 1
+    for (const position of slots) {
+      const obj = createObject(preset.tableCatalogId, position, venue)
+      if (obj.seating) {
+        obj.seating.chairCatalogId = preset.chairCatalogId
+        obj.seating.count = preset.seatCount
+      }
+      obj.meta.number = next++
+      scene.objects[obj.id] = obj
+      scene.objectOrder.push(obj.id)
+      reconcileSeats(scene, obj.id)
+      ids.push(obj.id)
+    }
+    unhideCategoryOf(scene, preset.tableCatalogId)
+    unhideCategoryOf(scene, preset.chairCatalogId)
+    clampToVenue(scene, ids)
+  })
+  select(ids)
+  return ids
+}
+
+/** A table's design-placed decor — the tagged subset of its surface children. */
+export function designItems(scene: SceneState, tableId: Id): SceneObject[] {
+  return surfaceChildren(scene, tableId).filter((c) => c.meta.design !== undefined)
+}
+
+/**
+ * Lay one design on one table, on the immer draft. Idempotent in the same way
+ * addSeatItemsToTable is: the previous run is deleted before the new one lands,
+ * so re-applying re-syncs instead of stacking. A design that lays place settings
+ * also clears hand-dropped ones, which would otherwise double up at every seat;
+ * a decor-only design leaves them alone.
+ */
+function layTableDesign(scene: SceneState, design: TableDesign, tableId: Id): Id[] {
+  const table = scene.objects[tableId]
+  if (!table?.seating || table.parentId || isEffectivelyLocked(scene, table)) return []
+  const entry = getCatalogEntry(table.catalogId)
+  if (entry.category !== 'tables') return []
+
+  for (const child of designItems(scene, tableId)) delete scene.objects[child.id]
+  if (design.seatItem) for (const stale of seatItems(scene, tableId)) delete scene.objects[stale.id]
+
+  const ids: Id[] = []
+  const lay = (catalogId: string, t: Transform2D) => {
+    const obj = createObject(catalogId, { x: 0, y: 0 })
+    obj.parentId = tableId
+    obj.attachment = { kind: 'surface' }
+    obj.transform = { ...t, elevation: table.size.height }
+    obj.meta.design = design.id
+    scene.objects[obj.id] = obj
+    unhideCategoryOf(scene, catalogId)
+    clampToSurface(scene, obj)
+    ids.push(obj.id)
+  }
+
+  for (const item of design.items) {
+    lay(item.catalogId, {
+      position: { x: item.x ?? 0, y: item.y ?? 0 },
+      rotation: item.rotation ?? 0,
+      elevation: 0,
+    })
+  }
+  if (design.seatItem) {
+    const outline = entry.footprint(table.size).outline
+    const chair = getCatalogEntry(table.seating.chairCatalogId).defaultSize
+    const item = getCatalogEntry(design.seatItem).defaultSize
+    const seats = computeSeatTransforms(outline, table.seating, chair)
+    for (const t of seatItemTransforms(seats, chair, item, table.seating.offset)) {
+      lay(design.seatItem, t)
+    }
+  }
+  return ids
+}
+
+export function applyTableDesign(designId: string, tableId: Id): Id[] {
+  const design = getTableDesign(designId)
+  if (!design) return []
+  const ids: Id[] = []
+  mutateScene((scene) => {
+    ids.push(...layTableDesign(scene, design, tableId))
+  })
+  pruneSelection()
+  return ids
+}
+
+/** Same design on every table in the hall — one gesture, one undo entry. */
+export function applyTableDesignToAll(designId: string): Id[] {
+  const design = getTableDesign(designId)
+  if (!design) return []
+  const ids: Id[] = []
+  mutateScene((scene) => {
+    for (const id of [...scene.objectOrder]) {
+      const obj = scene.objects[id]
+      if (obj?.seating && getCatalogEntry(obj.catalogId).category === 'tables') {
+        ids.push(...layTableDesign(scene, design, id))
+      }
+    }
+  })
+  pruneSelection()
+  return ids
+}
+
+/** Remove a design's decor only — hand-placed decor on the same table survives. */
+export function removeTableDesign(tableId: Id): void {
+  mutateScene((scene) => {
+    for (const child of designItems(scene, tableId)) delete scene.objects[child.id]
+  })
+  pruneSelection()
+}
+
+/** Top-level fixtures placed by a hall design. */
+function hallDesignIds(scene: SceneState): Id[] {
+  return scene.objectOrder.filter((id) => scene.objects[id]?.meta.design !== undefined)
+}
+
+export function hasHallDesign(scene: SceneState): boolean {
+  return hallDesignIds(scene).length > 0
+}
+
+/**
+ * Spread a ceiling fixture on a grid over the hall, replacing any previous hall
+ * design. The cell is the FIXTURE plus a wall inset, not the spacing — sizing it
+ * by spacing would leave a metres-wide bare border at every wall.
+ */
+export function applyHallDesign(designId: string): Id[] {
+  const design = getHallDesign(designId)
+  if (!design) return []
+  const { venue } = get().scene
+  const entry = getCatalogEntry(design.catalogId)
+  const side = Math.max(entry.defaultSize.width, entry.defaultSize.depth) + 2 * CEILING_INSET
+  const slots = fillHallSlots({
+    areas: ceilingAreas(getVenuePack(venue.venuePackId), venue),
+    zones: [],
+    cell: { width: side, depth: side },
+    aisle: Math.max(0, design.spacing - side),
+    occupied: [],
+    max: MAX_CEILING,
+  })
+
+  const ids: Id[] = []
+  mutateScene((scene) => {
+    for (const id of hallDesignIds(scene)) delete scene.objects[id]
+    for (const position of slots) {
+      const obj = createObject(design.catalogId, position, venue)
+      obj.meta.design = design.id
+      scene.objects[obj.id] = obj
+      ids.push(obj.id)
+    }
+    scene.objectOrder = scene.objectOrder.filter((id) => !!scene.objects[id]).concat(ids)
+    unhideCategoryOf(scene, design.catalogId)
+  })
+  pruneSelection()
+  return ids
+}
+
+export function removeHallDesign(): void {
+  mutateScene((scene) => {
+    for (const id of hallDesignIds(scene)) delete scene.objects[id]
+    scene.objectOrder = scene.objectOrder.filter((id) => !!scene.objects[id])
+  })
+  pruneSelection()
 }
 
 export function removeObjects(ids: Id[]): void {
@@ -394,9 +640,7 @@ export function removeObjects(ids: Id[]): void {
     }
     for (const tableId of toReconcile) reconcileSeats(scene, tableId)
   })
-  set((state) => {
-    state.selection = state.selection.filter((id) => state.scene.objects[id])
-  })
+  pruneSelection()
 }
 
 export function duplicateObjects(ids: Id[], offset: Vec2 = { x: 50, y: 50 }): Id[] {

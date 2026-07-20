@@ -30,6 +30,19 @@ export function pointInOutline(point: Vec2, world: Transform2D, outline: Outline
   return Math.abs(local.x) <= outline.w / 2 && Math.abs(local.y) <= outline.h / 2
 }
 
+/** Ray-cast point-in-polygon over a closed ring of [x, y] pairs (venue floorAreas). */
+export function pointInPolygon(point: Vec2, ring: [number, number][]): boolean {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i]
+    const [xj, yj] = ring[j]
+    if (yi > point.y !== yj > point.y && point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi) {
+      inside = !inside
+    }
+  }
+  return inside
+}
+
 export function aabbUnion(boxes: AABB[]): AABB {
   return boxes.reduce((acc, b) => ({
     minX: Math.min(acc.minX, b.minX),

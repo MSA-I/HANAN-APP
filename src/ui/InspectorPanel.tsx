@@ -42,6 +42,7 @@ import { useEditorStore } from '../state/store'
 import { useShallow } from 'zustand/react/shallow'
 import { ColorField, FieldRow, NumberField, Section, Stepper } from './fields'
 import { LayersSection } from './LayersSection'
+import { ScenePresetsSection, TableDesignSection } from './PresetsSection'
 import { strings } from './strings'
 
 const T = strings.inspector
@@ -86,6 +87,7 @@ function ProjectInspector() {
           <span className="ltr-nums">{counts.seats}</span> {strings.statusBar.seats}
         </p>
       </Section>
+      <ScenePresetsSection />
       <LayersSection />
     </>
   )
@@ -284,6 +286,7 @@ function SingleInspector({ obj }: { obj: SceneObject }) {
         )}
       </Section>
       <SeatingSection obj={obj} />
+      <TableDesignSection obj={obj} />
       <Section title={T.appearance}>
         {entry.materialSlots.map((slot) => (
           <ColorField
