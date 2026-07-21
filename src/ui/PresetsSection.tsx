@@ -63,6 +63,70 @@ function Picker({
   )
 }
 
+/** Picker image with the library's fallback behaviour: text-only card on error. */
+function ThumbImage({ src, alt }: { src?: string; alt: string }) {
+  const [broken, setBroken] = useState(false)
+  if (!src || broken) {
+    return (
+      <div className="flex h-14 w-full items-center justify-center rounded bg-canvas text-[10px] text-ink-soft">
+        {alt}
+      </div>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt=""
+      loading="lazy"
+      draggable={false}
+      onError={() => setBroken(true)}
+      className="h-14 w-full rounded object-cover"
+    />
+  )
+}
+
+/**
+ * Visual replacement for the text-only <select> pickers: a 2-col card grid,
+ * each card = image + label, selection via aria-pressed. The image comes from
+ * the option itself (design capture) or its catalog entry's thumbnail.
+ */
+function ThumbGrid({
+  value,
+  onChange,
+  options,
+}: {
+  value: string
+  onChange: (v: string) => void
+  options: { id: string; labelKey: string; thumbnail?: string }[]
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-1.5">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          aria-pressed={value === o.id}
+          onClick={() => onChange(o.id)}
+          className={
+            'flex flex-col gap-1 rounded-md border p-1.5 text-start transition-colors ' +
+            (value === o.id ? 'border-accent bg-accent-tint' : 'border-line hover:border-accent')
+          }
+        >
+          <ThumbImage src={o.thumbnail} alt={label(o.labelKey)} />
+          <span className="text-[11px] font-medium text-ink">{label(o.labelKey)}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** A table design's picker image: its own capture, else its centerpiece photo. */
+const designThumb = (design: (typeof TABLE_DESIGNS)[number]) =>
+  design.thumbnail ?? getCatalogEntry(design.items[0].catalogId).thumbnail
+
+const hallThumb = (design: (typeof HALL_DESIGNS)[number]) =>
+  getCatalogEntry(design.catalogId).thumbnail
+
 /** Apply a ready-made decor set to this table — or to every table at once. */
 export function TableDesignSection({ obj }: { obj: SceneObject }) {
   const [designId, setDesignId] = useState(TABLE_DESIGNS[0].id)
@@ -81,7 +145,11 @@ export function TableDesignSection({ obj }: { obj: SceneObject }) {
 
   return (
     <Section title={T.tableDesign}>
-      <Picker value={designId} onChange={setDesignId} options={TABLE_DESIGNS} />
+      <ThumbGrid
+        value={designId}
+        onChange={setDesignId}
+        options={TABLE_DESIGNS.map((d) => ({ ...d, thumbnail: designThumb(d) }))}
+      />
       <div className="flex gap-1.5">
         <button className={`${buttonClass} flex-1`} onClick={() => applyTableDesign(designId, obj.id)}>
           {T.apply}
@@ -168,7 +236,11 @@ export function ScenePresetsSection() {
         </button>
       </Section>
       <Section title={T.hallDesign}>
-        <Picker value={hallId} onChange={setHallId} options={HALL_DESIGNS} />
+        <ThumbGrid
+          value={hallId}
+          onChange={setHallId}
+          options={HALL_DESIGNS.map((d) => ({ ...d, thumbnail: hallThumb(d) }))}
+        />
         <div className="flex gap-1.5">
           <button className={`${buttonClass} flex-1`} onClick={() => applyHallDesign(hallId)}>
             {T.apply}

@@ -35,6 +35,9 @@ export interface TableDesign {
   items: { catalogId: string; x?: number; y?: number; rotation?: number }[]
   /** a placement:'seat' entry laid in front of EVERY chair */
   seatItem?: string
+  /** picker image override (e.g. a 3D capture of the dressed table); when
+   *  absent the picker falls back to the centerpiece's catalog thumbnail */
+  thumbnail?: string
 }
 
 /** Ceiling fixtures spread on a grid over the hall. */
