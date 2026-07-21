@@ -13,18 +13,31 @@
  * - A table's chairs render as one InstancedMesh per material slot, so 10 chairs
  *   cost 2 draw calls and follow the table for free (they live in its group).
  */
-import { Component, Suspense, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
+import {
+  Component,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import * as THREE from 'three'
 import { useThree, type ThreeEvent } from '@react-three/fiber'
+import { TransformControls } from '@react-three/drei'
 import { useShallow } from 'zustand/react/shallow'
 import { shallow } from 'zustand/shallow'
 import { getCatalogEntry } from '../core/catalog/registry'
 import { slotColor, type Outline } from '../core/catalog/types'
+import { snapValue } from '../core/layout/snapping'
 import { attachedChairs } from '../core/model/seatingReconciler'
 import type { Id, Size3D } from '../core/model/types'
-import { cmToM } from '../core/space'
-import { select } from '../state/actions'
-import { isLayerHidden, isObjectVisible } from '../state/selectors'
+import { cmToM, degToRad, radToDeg } from '../core/space'
+import { useOverlayStore } from '../editor2d/overlayStore'
+import { beginGesture, endGesture, select, setPosition, setRotation, toggleSelect } from '../state/actions'
+import { isEffectivelyLocked, isLayerHidden, isObjectVisible } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import {
   instancedChairMaterial,
@@ -34,13 +47,76 @@ import {
   slotMaterial,
 } from './meshCache'
 import { applyPlanTransform, planTransformMatrix } from './planTransform'
+import { commitPlacement3D, previewPlacement3D } from './Placement3D'
 import { useModelParts } from './propModel'
 
 const SELECT_COLOR = new THREE.Color(SELECT_TINT)
 
+type MoveDrag = {
+  pointerId: number
+  startX: number
+  startY: number
+  offsetX: number
+  offsetY: number
+  plane: THREE.Plane
+  hit: THREE.Vector3
+  capture: Element
+  previousCursor: string
+  moved: boolean
+  move: (event: PointerEvent) => void
+  end: (event: PointerEvent) => void
+}
+
+/** A single-axis editor handle; every drag is one history entry. */
+function RotationHandle({ id, object }: { id: Id; object: THREE.Object3D }) {
+  const shiftHeld = useOverlayStore((s) => s.shiftHeld)
+  const dragging = useRef(false)
+
+  useEffect(
+    () => () => {
+      if (dragging.current) endGesture()
+    },
+    [],
+  )
+
+  return (
+    <TransformControls
+      object={object}
+      mode="rotate"
+      space="world"
+      size={0.82}
+      showX={false}
+      showY
+      showZ={false}
+      rotationSnap={shiftHeld ? degToRad(15) : null}
+      onMouseDown={() => {
+        dragging.current = true
+        beginGesture()
+      }}
+      onObjectChange={() => {
+        setRotation(id, -radToDeg(object.rotation.y))
+      }}
+      onMouseUp={() => {
+        if (!dragging.current) return
+        dragging.current = false
+        endGesture()
+      }}
+    />
+  )
+}
+
 export function ObjectGroup({ id }: { id: Id }) {
   const groupRef = useRef<THREE.Group>(null)
+  const dragRef = useRef<MoveDrag | null>(null)
+  const suppressClick = useRef(false)
+  const [rotationTarget, setRotationTarget] = useState<THREE.Group | null>(null)
+  const bindGroup = useCallback((group: THREE.Group | null) => {
+    groupRef.current = group
+    setRotationTarget(group)
+  }, [])
   const invalidate = useThree((s) => s.invalidate)
+  const camera = useThree((s) => s.camera)
+  const gl = useThree((s) => s.gl)
 
   // Per-field selectors: these references are stable across transform-only edits
   // (Immer only clones the path that changed), so a drag never re-renders here.
@@ -50,6 +126,11 @@ export function ObjectGroup({ id }: { id: Id }) {
   const hasSeating = useEditorStore((s) => !!s.scene.objects[id]?.seating)
   const seatingHidden = useEditorStore((s) => isLayerHidden(s.scene, 'seating'))
   const isSelected = useEditorStore((s) => s.selection.includes(id))
+  const canRotate = useEditorStore((s) => {
+    const obj = s.scene.objects[id]
+    return s.selection.length === 1 && s.selection[0] === id && !!obj && !isEffectivelyLocked(s.scene, obj)
+  })
+  const placing = useOverlayStore((s) => s.placing)
 
   // Transient transform sync — the hot path. fireImmediately seeds the initial
   // placement; subsequent drag frames update the matrix without React.
@@ -66,6 +147,21 @@ export function ObjectGroup({ id }: { id: Id }) {
     )
   }, [id, invalidate])
 
+  useEffect(
+    () => () => {
+      const drag = dragRef.current
+      if (!drag) return
+      window.removeEventListener('pointermove', drag.move)
+      window.removeEventListener('pointerup', drag.end)
+      window.removeEventListener('pointercancel', drag.end)
+      if (drag.capture.hasPointerCapture(drag.pointerId)) drag.capture.releasePointerCapture(drag.pointerId)
+      gl.domElement.style.cursor = drag.previousCursor
+      dragRef.current = null
+      endGesture()
+    },
+    [gl],
+  )
+
   const geometries = useMemo(
     () => (catalogId && size ? objectSlotGeometries(catalogId, size) : []),
     [catalogId, size],
@@ -75,8 +171,101 @@ export function ObjectGroup({ id }: { id: Id }) {
   const entry = getCatalogEntry(catalogId)
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
+    if (suppressClick.current) {
+      suppressClick.current = false
+      e.stopPropagation()
+      return
+    }
+    if (placing) {
+      e.stopPropagation()
+      commitPlacement3D(e.point, e.nativeEvent.altKey, id)
+      return
+    }
     e.stopPropagation()
-    select([id])
+    if (e.nativeEvent.shiftKey) toggleSelect(id)
+    else select([id])
+  }
+
+  const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
+    suppressClick.current = false
+    if (placing || e.button !== 0 || e.nativeEvent.shiftKey) return
+    const state = useEditorStore.getState()
+    const obj = state.scene.objects[id]
+    if (!obj || obj.parentId || isEffectivelyLocked(state.scene, obj)) return
+
+    const plane = new THREE.Plane(
+      new THREE.Vector3(0, 1, 0),
+      -cmToM(obj.transform.elevation),
+    )
+    const hit = new THREE.Vector3()
+    if (!e.ray.intersectPlane(plane, hit)) return
+    const capture = e.nativeEvent.target
+    if (!(capture instanceof Element)) return
+
+    e.stopPropagation()
+    if (state.selection.length !== 1 || state.selection[0] !== id) select([id])
+    const raycaster = new THREE.Raycaster()
+    const ndc = new THREE.Vector2()
+    const drag = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      offsetX: obj.transform.position.x - hit.x * 100,
+      offsetY: obj.transform.position.y - hit.z * 100,
+      plane,
+      hit,
+      capture,
+      previousCursor: gl.domElement.style.cursor,
+      moved: false,
+    } as MoveDrag
+    drag.move = (event) => {
+      if (event.pointerId !== drag.pointerId) return
+      if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 3) return
+      drag.moved = true
+      const rect = gl.domElement.getBoundingClientRect()
+      ndc.set(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      )
+      raycaster.setFromCamera(ndc, camera)
+      if (!raycaster.ray.intersectPlane(drag.plane, drag.hit)) return
+
+      const scene = useEditorStore.getState().scene
+      const x = drag.hit.x * 100 + drag.offsetX
+      const y = drag.hit.z * 100 + drag.offsetY
+      setPosition(
+        id,
+        scene.settings.snapEnabled && !event.altKey
+          ? { x: snapValue(x, scene.settings.gridSize), y: snapValue(y, scene.settings.gridSize) }
+          : { x, y },
+      )
+      event.preventDefault()
+    }
+    drag.end = (event) => {
+      if (event.pointerId !== drag.pointerId || dragRef.current !== drag) return
+      window.removeEventListener('pointermove', drag.move)
+      window.removeEventListener('pointerup', drag.end)
+      window.removeEventListener('pointercancel', drag.end)
+      if (drag.capture.hasPointerCapture(drag.pointerId)) drag.capture.releasePointerCapture(drag.pointerId)
+      gl.domElement.style.cursor = drag.previousCursor
+      dragRef.current = null
+      suppressClick.current = drag.moved
+      endGesture()
+    }
+    dragRef.current = drag
+    beginGesture()
+    capture.setPointerCapture(e.pointerId)
+    gl.domElement.style.cursor = 'grabbing'
+    window.addEventListener('pointermove', drag.move)
+    window.addEventListener('pointerup', drag.end)
+    window.addEventListener('pointercancel', drag.end)
+  }
+
+  const handlePointerMove = (e: ThreeEvent<PointerEvent>) => {
+    if (placing) {
+      e.stopPropagation()
+      previewPlacement3D(e.point, id)
+    }
   }
 
   const procedural = geometries.map(({ slot, geometry }) => {
@@ -93,23 +282,31 @@ export function ObjectGroup({ id }: { id: Id }) {
   })
 
   return (
-    <group ref={groupRef} onClick={handleClick}>
-      {entry.model ? (
-        <ModelFallback fallback={procedural}>
-          <ModelParts
-            catalogId={catalogId}
-            url={entry.model}
-            size={size}
-            color={entry.editableColorSlot ? appearance[entry.editableColorSlot]?.color : undefined}
-          />
-        </ModelFallback>
-      ) : (
-        procedural
-      )}
-      {isSelected && <SelectionOutline outline={entry.footprint(size).outline} />}
-      {hasSeating && !seatingHidden && <ChairInstances tableId={id} />}
-      <SurfaceChildren parentId={id} />
-    </group>
+    <>
+      <group
+        ref={bindGroup}
+        onClick={handleClick}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+      >
+        {entry.model ? (
+          <ModelFallback fallback={procedural}>
+            <ModelParts
+              catalogId={catalogId}
+              url={entry.model}
+              size={size}
+              color={entry.editableColorSlot ? appearance[entry.editableColorSlot]?.color : undefined}
+            />
+          </ModelFallback>
+        ) : (
+          procedural
+        )}
+        {isSelected && <SelectionOutline outline={entry.footprint(size).outline} />}
+        {hasSeating && !seatingHidden && <ChairInstances tableId={id} />}
+        <SurfaceChildren parentId={id} />
+      </group>
+      {canRotate && !placing && rotationTarget && <RotationHandle id={id} object={rotationTarget} />}
+    </>
   )
 }
 
@@ -143,11 +340,21 @@ function SurfaceChildren({ parentId }: { parentId: Id }) {
  */
 function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
   const groupRef = useRef<THREE.Group>(null)
+  const [rotationTarget, setRotationTarget] = useState<THREE.Group | null>(null)
+  const bindGroup = useCallback((group: THREE.Group | null) => {
+    groupRef.current = group
+    setRotationTarget(group)
+  }, [])
   const invalidate = useThree((s) => s.invalidate)
   const catalogId = useEditorStore((s) => s.scene.objects[id]?.catalogId)
   const size = useEditorStore((s) => s.scene.objects[id]?.size)
   const appearance = useEditorStore((s) => s.scene.objects[id]?.appearance)
   const isSelected = useEditorStore((s) => s.selection.includes(id))
+  const canRotate = useEditorStore((s) => {
+    const obj = s.scene.objects[id]
+    return s.selection.length === 1 && s.selection[0] === id && !!obj && !isEffectivelyLocked(s.scene, obj)
+  })
+  const placing = useOverlayStore((s) => s.placing)
 
   useLayoutEffect(() => {
     return useEditorStore.subscribe(
@@ -171,11 +378,25 @@ function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
   const entry = getCatalogEntry(catalogId)
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
+    if (placing) {
+      e.stopPropagation()
+      commitPlacement3D(e.point, e.nativeEvent.altKey, parentId)
+      return
+    }
     e.stopPropagation()
     // mirror chairs: a click selects the TABLE, unless this decor is already selected
     const sel = useEditorStore.getState().selection
-    select(sel.includes(id) ? [id] : [parentId])
+    const target = sel.includes(id) ? id : parentId
+    if (e.nativeEvent.shiftKey) toggleSelect(target)
+    else select([target])
   }
+
+  const handlePointerMove = placing
+    ? (e: ThreeEvent<PointerEvent>) => {
+        e.stopPropagation()
+        previewPlacement3D(e.point, parentId)
+      }
+    : undefined
 
   const procedural = geometries.map(({ slot, geometry }) => {
     const color = slotColor(entry, appearance, slot)
@@ -191,21 +412,24 @@ function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
   })
 
   return (
-    <group ref={groupRef} onClick={handleClick}>
-      {entry.model ? (
-        <ModelFallback fallback={procedural}>
-          <ModelParts
-            catalogId={catalogId}
-            url={entry.model}
-            size={size}
-            color={entry.editableColorSlot ? appearance[entry.editableColorSlot]?.color : undefined}
-          />
-        </ModelFallback>
-      ) : (
-        procedural
-      )}
-      {isSelected && <SelectionOutline outline={entry.footprint(size).outline} />}
-    </group>
+    <>
+      <group ref={bindGroup} onClick={handleClick} onPointerMove={handlePointerMove}>
+        {entry.model ? (
+          <ModelFallback fallback={procedural}>
+            <ModelParts
+              catalogId={catalogId}
+              url={entry.model}
+              size={size}
+              color={entry.editableColorSlot ? appearance[entry.editableColorSlot]?.color : undefined}
+            />
+          </ModelFallback>
+        ) : (
+          procedural
+        )}
+        {isSelected && <SelectionOutline outline={entry.footprint(size).outline} />}
+      </group>
+      {canRotate && !placing && rotationTarget && <RotationHandle id={id} object={rotationTarget} />}
+    </>
   )
 }
 
@@ -428,6 +652,7 @@ function ChairSlot({
 }) {
   const ref = useRef<THREE.InstancedMesh>(null)
   const count = matrices.length
+  const placing = useOverlayStore((s) => s.placing)
 
   useLayoutEffect(() => {
     const mesh = ref.current
@@ -444,14 +669,28 @@ function ChairSlot({
   }, [matrices, colors, count, invalidate])
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
+    if (placing) {
+      e.stopPropagation()
+      commitPlacement3D(e.point, e.nativeEvent.altKey, tableId)
+      return
+    }
     e.stopPropagation()
     if (e.instanceId == null) return
     const chairId = chairIds[e.instanceId]
     if (!chairId) return
     // mirror 2D: a chair click selects its TABLE, unless that chair is already selected
     const sel = useEditorStore.getState().selection
-    select(sel.includes(chairId) ? [chairId] : [tableId])
+    const target = sel.includes(chairId) ? chairId : tableId
+    if (e.nativeEvent.shiftKey) toggleSelect(target)
+    else select([target])
   }
+
+  const handlePointerMove = placing
+    ? (e: ThreeEvent<PointerEvent>) => {
+        e.stopPropagation()
+        previewPlacement3D(e.point, tableId)
+      }
+    : undefined
 
   return (
     <instancedMesh
@@ -462,6 +701,7 @@ function ChairSlot({
       castShadow
       receiveShadow
       onClick={handleClick}
+      onPointerMove={handlePointerMove}
     />
   )
 }

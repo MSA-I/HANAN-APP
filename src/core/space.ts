@@ -51,6 +51,11 @@ export function cmToM(cm: number): number {
   return cm / 100
 }
 
+/** Three.js ground-plane (x,z) metres → plan-space (x,y) centimetres. */
+export function threeToPlan(x: number, z: number): Vec2 {
+  return { x: x * 100, y: z * 100 }
+}
+
 /** Plan transform → three.js position/rotation (meters, y-up). */
 export function planToThree(t: Transform2D): {
   position: [number, number, number]

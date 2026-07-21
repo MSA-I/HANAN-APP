@@ -28,6 +28,7 @@ import {
   newProject,
   redo,
   removeObjects,
+  replaceObject,
   removeSeatItems,
   rotateObjectsBy,
   seatItems,
@@ -36,6 +37,8 @@ import {
   setLayerHidden,
   setLayerLocked,
   setLocked,
+  setPosition,
+  setRotation,
   setSeatCount,
   setSize,
   undo,
@@ -107,6 +110,51 @@ describe('gestures', () => {
     beginGesture()
     endGesture()
     expect(temporalStore.getState().pastStates.length).toBe(before)
+  })
+
+  it('a live 3D rotation is exactly one undo entry', () => {
+    const id = addObject('table.round', { x: 500, y: 500 })
+    beginGesture()
+    for (const rotation of [12, 34, 67]) setRotation(id, rotation)
+    endGesture()
+    expect(scene().objects[id].transform.rotation).toBe(67)
+
+    undo()
+    expect(scene().objects[id].transform.rotation).toBe(0)
+  })
+
+  it('a live 3D move is exactly one undo entry', () => {
+    const id = addObject('table.round', { x: 500, y: 500 })
+    beginGesture()
+    for (const position of [{ x: 520, y: 530 }, { x: 650, y: 700 }]) setPosition(id, position)
+    endGesture()
+    expect(scene().objects[id].transform.position).toEqual({ x: 650, y: 700 })
+
+    undo()
+    expect(scene().objects[id].transform.position).toEqual({ x: 500, y: 500 })
+  })
+})
+
+describe('replace object', () => {
+  it('keeps identity and transform, replaces defaults, and undoes once', () => {
+    const id = addObject('table.round', { x: 500, y: 600 })
+    setRotation(id, 37)
+
+    expect(replaceObject(id, 'table.square')).toBe(true)
+    expect(scene().objects[id]).toMatchObject({
+      id,
+      catalogId: 'table.square',
+      transform: { position: { x: 500, y: 600 }, rotation: 37 },
+    })
+    expect(useEditorStore.getState().selection).toEqual([id])
+
+    undo()
+    expect(scene().objects[id].catalogId).toBe('table.round')
+    expect(scene().objects[id].transform.rotation).toBe(37)
+
+    setLocked([id], true)
+    expect(replaceObject(id, 'table.square')).toBe(false)
+    expect(scene().objects[id].catalogId).toBe('table.round')
   })
 })
 

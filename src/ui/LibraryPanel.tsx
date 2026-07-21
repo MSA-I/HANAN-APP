@@ -1,8 +1,11 @@
-import { ChevronsLeft, ChevronsRight, Search } from 'lucide-react'
+import { ChevronsLeft, ChevronsRight, RefreshCw, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { CATEGORY_ORDER, listByCategory } from '../core/catalog/registry'
 import type { CatalogEntry, FootprintPart } from '../core/catalog/types'
 import { overlay, useOverlayStore } from '../editor2d/overlayStore'
+import { canReplaceObject, replaceObject } from '../state/actions'
+import { isEffectivelyLocked } from '../state/selectors'
+import { useEditorStore } from '../state/store'
 import { strings } from './strings'
 
 function itemLabel(entry: CatalogEntry): string {
@@ -111,7 +114,17 @@ function Thumbnail({ entry }: { entry: CatalogEntry }) {
 export function LibraryPanel() {
   const [collapsed, setCollapsed] = useState(false)
   const [query, setQuery] = useState('')
+  const [replaceTarget, setReplaceTarget] = useState<string | null>(null)
   const placing = useOverlayStore((s) => s.placing)
+  const selectedObject = useEditorStore((s) => {
+    if (s.selection.length !== 1) return null
+    const object = s.scene.objects[s.selection[0]]
+    return object && object.attachment?.kind !== 'seat' && !isEffectivelyLocked(s.scene, object)
+      ? object
+      : null
+  })
+  const selectedId = selectedObject?.id ?? null
+  const replacing = !!selectedId && replaceTarget === selectedId
 
   const categories = useMemo(
     () =>
@@ -161,6 +174,26 @@ export function LibraryPanel() {
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
+        {selectedId && (
+          <button
+            type="button"
+            data-replace-selection
+            aria-pressed={replacing}
+            title={strings.library.replaceHint}
+            onClick={() => {
+              overlay.setPlacing(null)
+              setReplaceTarget(replacing ? null : selectedId)
+            }}
+            className={`mt-2 flex min-h-8 w-full items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-[11px] font-semibold transition-colors ${
+              replacing
+                ? 'border-accent bg-accent text-white'
+                : 'border-line text-ink-soft hover:border-accent/50 hover:bg-accent-tint hover:text-accent'
+            }`}
+          >
+            <RefreshCw size={14} />
+            {replacing ? strings.library.replaceActive : strings.library.replaceSelected}
+          </button>
+        )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
         {categories.length === 0 && (
@@ -177,25 +210,41 @@ export function LibraryPanel() {
           <div key={cat} className="mb-3">
             <h3 className="mb-1.5 text-[11px] font-semibold text-ink-soft">{label}</h3>
             <div className="grid grid-cols-2 gap-1.5">
-              {items.map((entry) => (
-                <button
-                  key={entry.id}
-                  title={strings.library.placeHint}
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    overlay.setPlacing(placing === entry.id ? null : entry.id)
-                  }}
-                  className={`select-none rounded-lg border p-1.5 text-center transition-colors ${
-                    placing === entry.id
-                      ? 'border-accent bg-accent-tint'
-                      : 'border-line bg-panel hover:border-accent/50'
-                  }`}
-                >
-                  <Thumbnail entry={entry} />
-                  <div className="mt-1 truncate text-[11px] font-medium">{itemLabel(entry)}</div>
-                  <div className="ltr-nums text-[10px] text-ink-soft">{formatFootprint(entry)}</div>
-                </button>
-              ))}
+              {items.map((entry) => {
+                const compatible =
+                  !!selectedId && canReplaceObject(useEditorStore.getState().scene, selectedId, entry.id)
+                return (
+                  <button
+                    key={entry.id}
+                    data-catalog-id={entry.id}
+                    disabled={replacing && !compatible}
+                    title={
+                      replacing
+                        ? compatible
+                          ? strings.library.replaceHint
+                          : strings.library.replaceIncompatible
+                        : strings.library.placeHint
+                    }
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      if (replacing && selectedId) {
+                        if (replaceObject(selectedId, entry.id)) setReplaceTarget(null)
+                        return
+                      }
+                      overlay.setPlacing(placing === entry.id ? null : entry.id)
+                    }}
+                    className={`select-none rounded-lg border p-1.5 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
+                      placing === entry.id
+                        ? 'border-accent bg-accent-tint'
+                        : 'border-line bg-panel hover:border-accent/50'
+                    }`}
+                  >
+                    <Thumbnail entry={entry} />
+                    <div className="mt-1 truncate text-[11px] font-medium">{itemLabel(entry)}</div>
+                    <div className="ltr-nums text-[10px] text-ink-soft">{formatFootprint(entry)}</div>
+                  </button>
+                )
+              })}
             </div>
           </div>
         ))}

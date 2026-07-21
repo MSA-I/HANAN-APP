@@ -9,11 +9,12 @@ import { Canvas, useThree } from '@react-three/fiber'
 import { Environment, useTexture } from '@react-three/drei'
 import type CameraControlsImpl from 'camera-controls'
 import { EquirectangularReflectionMapping, SRGBColorSpace, type PerspectiveCamera } from 'three'
-import { Box, Camera, Check, Download, Eye, Grid2x2, RotateCcw } from 'lucide-react'
+import { Box, Camera, Check, CopyPlus, Download, Eye, Grid2x2, RotateCcw, Trash2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { getVenuePack } from '../core/venuePacks'
-import { clearSelection } from '../state/actions'
-import { lightingOf, visibleTopLevelIds } from '../state/selectors'
+import { useOverlayStore } from '../editor2d/overlayStore'
+import { clearSelection, duplicateObjects, removeObjects } from '../state/actions'
+import { isEffectivelyLocked, lightingOf, visibleTopLevelIds } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { LIGHTING_MODES } from './lightingModes'
 import { applyCameraPreset, applySealedCamera, type CameraPreset } from './cameraPresets'
@@ -22,6 +23,7 @@ import { CameraRig } from './CameraRig'
 import { FlyControls } from './FlyControls'
 import { LightingRig } from './LightingRig'
 import { ObjectGroup } from './ObjectGroup'
+import { Placement3D } from './Placement3D'
 import { strings3d } from './strings3d'
 import { VenueMesh } from './VenueMesh'
 
@@ -108,6 +110,57 @@ function Objects() {
         <ObjectGroup key={id} id={id} />
       ))}
     </>
+  )
+}
+
+function SelectionActions3D() {
+  const placing = useOverlayStore((s) => s.placing)
+  const state = useEditorStore(
+    useShallow((s) => {
+      const objects = s.selection.map((id) => s.scene.objects[id]).filter(Boolean)
+      return {
+        count: s.selection.length,
+        canDelete: objects.some((obj) => !isEffectivelyLocked(s.scene, obj)),
+        canDuplicate:
+          objects.length === s.selection.length &&
+          objects.length > 0 &&
+          objects.every((obj) => !obj.parentId && !isEffectivelyLocked(s.scene, obj)),
+      }
+    }),
+  )
+
+  if (!state.count || placing) return null
+  const button =
+    'flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-35'
+
+  return (
+    <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-panel/92 p-1 shadow-lg backdrop-blur">
+      <span className="px-2 text-[13px] font-semibold text-ink-soft" aria-live="polite">
+        {state.count === 1 ? strings3d.selection.one : strings3d.selection.many(state.count)}
+      </span>
+      <button
+        type="button"
+        disabled={!state.canDuplicate}
+        onClick={() => duplicateObjects(useEditorStore.getState().selection)}
+        title={strings3d.selection.duplicate}
+        aria-label={strings3d.selection.duplicate}
+        className={`${button} text-ink-soft hover:bg-accent-tint hover:text-accent`}
+      >
+        <CopyPlus size={14} />
+        <span>שכפול</span>
+      </button>
+      <button
+        type="button"
+        disabled={!state.canDelete}
+        onClick={() => removeObjects(useEditorStore.getState().selection)}
+        title={strings3d.selection.delete}
+        aria-label={strings3d.selection.delete}
+        className={`${button} text-danger hover:bg-danger/10`}
+      >
+        <Trash2 size={14} />
+        <span>מחיקה</span>
+      </button>
+    </div>
   )
 }
 
@@ -276,6 +329,9 @@ export default function Scene3D() {
           dpr={[1, 1.75]}
           gl={{ antialias: true, toneMappingExposure: 0.9 }}
           camera={{ fov: 45, near: 0.1, far: 4000, position: [10, 16, 28] }}
+          onPointerMissed={() => {
+            if (!useOverlayStore.getState().placing) clearSelection()
+          }}
         >
           <color attach="background" args={[background]} />
           <Suspense fallback={null}>
@@ -285,12 +341,14 @@ export default function Scene3D() {
           <LightingRig />
           <VenueMesh />
           <Objects />
+          <Placement3D />
           <CameraRig controlsRef={controlsRef} />
           <FlyControls controlsRef={controlsRef} />
           <CaptureRegistrar />
         </Canvas>
       </GLErrorBoundary>
       <PresetBar controlsRef={controlsRef} />
+      <SelectionActions3D />
       <FlyHint />
     </div>
   )

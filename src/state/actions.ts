@@ -793,6 +793,61 @@ export function duplicateObjects(ids: Id[], offset: Vec2 = { x: 50, y: 50 }): Id
   return newIds
 }
 
+export function canReplaceObject(scene: SceneState, id: Id, catalogId: string): boolean {
+  const source = scene.objects[id]
+  if (!source || source.catalogId === catalogId || isEffectivelyLocked(scene, source)) return false
+  const nextPlacement = getCatalogEntry(catalogId).placement ?? 'floor'
+  if (!source.parentId) return nextPlacement === 'floor' || nextPlacement === 'ceiling'
+  if (source.attachment?.kind !== 'surface') return false
+  return nextPlacement === (getCatalogEntry(source.catalogId).placement ?? 'floor')
+}
+
+/** Replace one object in place; identity and plan transform stay stable for both views. */
+export function replaceObject(id: Id, catalogId: string): boolean {
+  if (!canReplaceObject(get().scene, id, catalogId)) return false
+  let replaced = false
+  mutateScene((scene) => {
+    if (!canReplaceObject(scene, id, catalogId)) return
+    const source = scene.objects[id]
+    const sourcePlacement = getCatalogEntry(source.catalogId).placement ?? 'floor'
+    const replacement = createObject(catalogId, source.transform.position, scene.venue)
+    const nextPlacement = getCatalogEntry(catalogId).placement ?? 'floor'
+
+    replacement.id = id
+    replacement.name = source.name
+    replacement.flags = { ...source.flags }
+    replacement.transform.position = { ...source.transform.position }
+    replacement.transform.rotation = source.transform.rotation
+    if (sourcePlacement === nextPlacement) replacement.transform.elevation = source.transform.elevation
+
+    if (source.parentId) {
+      replacement.parentId = source.parentId
+      replacement.attachment = source.attachment
+      replacement.transform = { ...source.transform, position: { ...source.transform.position } }
+    }
+
+    replacement.meta = source.seating && replacement.seating ? { ...source.meta } : {}
+    if (replacement.seating && typeof replacement.meta.number !== 'number') {
+      const numbers = Object.values(scene.objects)
+        .filter((object) => object.id !== id && object.seating)
+        .map((object) => (typeof object.meta.number === 'number' ? object.meta.number : 0))
+      replacement.meta.number = Math.max(0, ...numbers) + 1
+    }
+
+    for (const child of childrenOf(scene, id)) delete scene.objects[child.id]
+    scene.objects[id] = replacement
+    unhideCategoryOf(scene, catalogId)
+    if (replacement.seating) {
+      reconcileSeats(scene, id)
+      unhideCategoryOf(scene, replacement.seating.chairCatalogId)
+    }
+    if (replacement.parentId) clampToSurface(scene, replacement)
+    else clampToVenue(scene, [id])
+    replaced = true
+  })
+  return replaced
+}
+
 export interface Subtree {
   root: SceneObject
   children: SceneObject[]

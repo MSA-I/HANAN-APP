@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { composeTransform, normalizeDeg, planToThree, relativeTransform, rotateVec } from './space'
+import {
+  composeTransform,
+  normalizeDeg,
+  planToThree,
+  relativeTransform,
+  rotateVec,
+  threeToPlan,
+} from './space'
 
 describe('rotateVec (clockwise, y-down plan space)', () => {
   it('rotates right-pointing vector down at 90°', () => {
@@ -47,6 +54,10 @@ describe('planToThree', () => {
     })
     expect(position).toEqual([2.5, 0.75, 1.2])
     expect(rotationY).toBeCloseTo(-Math.PI / 2)
+  })
+
+  it('round-trips a Three.js ground point back to plan centimetres', () => {
+    expect(threeToPlan(2.5, 1.2)).toEqual({ x: 250, y: 120 })
   })
 })
 

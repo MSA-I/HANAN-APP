@@ -37,26 +37,50 @@ export function isTypingTarget(e: KeyboardEvent): boolean {
 export function useEditorShortcuts(zoom: ZoomApi): void {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') overlay.setShiftHeld(true)
+
       // In full-3D mode the fly controls own the keyboard (Stage2D is only
-      // CSS-hidden, so this handler still fires) — keep just help + Escape.
+      // CSS-hidden, so this handler still fires). Keep navigation keys for the
+      // fly controls, but retain the editor actions that make 3D changes safe.
       // onKeyUp stays unconditional so spacePan/shiftHeld can't get stuck when
       // switching modes mid-hold. 'split' keeps normal 2D behavior.
       if (useEditorStore.getState().mode === '3d') {
-        if (!isTypingTarget(e)) {
-          if (e.code === 'Slash') {
-            overlay.toggleHelp()
+        if (isTypingTarget(e)) return
+        const s3 = useEditorStore.getState()
+        const ctrl = e.ctrlKey || e.metaKey
+        if (ctrl) {
+          if (e.code === 'KeyZ') {
+            if (e.shiftKey) redo()
+            else undo()
             e.preventDefault()
-          } else if (e.code === 'Escape') {
-            // objects are selectable in 3D too — Esc drills out / deselects
-            const s3 = useEditorStore.getState()
-            const drilled = s3.selection.length === 1 ? s3.scene.objects[s3.selection[0]] : null
-            if (drilled?.parentId) select([drilled.parentId])
-            else clearSelection()
+          } else if (e.code === 'KeyY') {
+            redo()
+            e.preventDefault()
+          } else if (e.code === 'KeyD') {
+            if (s3.selection.length) duplicateObjects(s3.selection)
+            e.preventDefault()
           }
+          return
+        }
+        if (e.code === 'Slash') {
+          overlay.toggleHelp()
+          e.preventDefault()
+        } else if (e.code === 'Delete' || e.code === 'Backspace') {
+          if (s3.selection.length) removeObjects(s3.selection)
+          e.preventDefault()
+        } else if (e.code === 'Escape') {
+          if (useOverlayStore.getState().placing) {
+            overlay.setPlacing(null)
+            overlay.setGhost(null)
+            return
+          }
+          // objects are selectable in 3D too — Esc drills out / deselects
+          const drilled = s3.selection.length === 1 ? s3.scene.objects[s3.selection[0]] : null
+          if (drilled?.parentId) select([drilled.parentId])
+          else clearSelection()
         }
         return
       }
-      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') overlay.setShiftHeld(true)
       if (isTypingTarget(e)) return
 
       const state = useEditorStore.getState()
