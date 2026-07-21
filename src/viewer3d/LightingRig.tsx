@@ -14,12 +14,16 @@ import { useLayoutEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { ContactShadows } from '@react-three/drei'
 import { cmToM } from '../core/space'
+import { lightingOf } from '../state/selectors'
 import { useEditorStore } from '../state/store'
+import { LIGHTING_MODES } from './lightingModes'
 
 export function LightingRig() {
   const width = useEditorStore((s) => s.scene.venue.size.width)
   const depth = useEditorStore((s) => s.scene.venue.size.depth)
   const wallHeight = useEditorStore((s) => s.scene.venue.wallHeight)
+  const lighting = useEditorStore((s) => lightingOf(s.scene))
+  const mode = LIGHTING_MODES[lighting.mode]
 
   const W = cmToM(width)
   const D = cmToM(depth)
@@ -29,6 +33,17 @@ export function LightingRig() {
   const diag = Math.hypot(W, D)
   const span = Math.max(W, D) * 0.9
 
+  // Sun stands on a sphere around the venue centre. Azimuth 0 = plan north
+  // (-z), clockwise from above; sunset's angles decompose the pre-v5 fixed
+  // vector, so the default render matches the old hardcoded position exactly.
+  const azRad = THREE.MathUtils.degToRad(lighting.sunAzimuth)
+  const elRad = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(lighting.sunElevation, 5, 90))
+  const sunPos: [number, number, number] = [
+    cx - diag * Math.cos(elRad) * Math.sin(azRad),
+    diag * Math.sin(elRad),
+    cz - diag * Math.cos(elRad) * Math.cos(azRad),
+  ]
+
   const target = useMemo(() => new THREE.Object3D(), [])
   const lightRef = useRef<THREE.DirectionalLight>(null)
   useLayoutEffect(() => {
@@ -37,13 +52,14 @@ export function LightingRig() {
 
   return (
     <>
-      <hemisphereLight args={['#ffffff', '#d8d2c8', 0.2]} />
+      <hemisphereLight args={[mode.hemisphere.sky, mode.hemisphere.ground, mode.hemisphere.intensity]} />
 
       <primitive object={target} position={[cx, 0, cz]} />
       <directionalLight
         ref={lightRef}
-        position={[cx - W * 0.35, H * 1.6 + diag * 0.5, cz - D * 0.2 - diag * 0.15]}
-        intensity={0.9}
+        position={sunPos}
+        color={mode.sun.color}
+        intensity={lighting.sunIntensity}
         castShadow
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}

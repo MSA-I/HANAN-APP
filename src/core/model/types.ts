@@ -90,6 +90,26 @@ export interface LayerFlags {
   locked?: boolean
 }
 
+export type LightingMode = 'day' | 'sunset' | 'night'
+
+/** Outdoor lighting: a mode preset plus the sun the user may steer off it. */
+export interface LightingSettings {
+  mode: LightingMode
+  /** degrees clockwise from plan north (-y); where the sun stands */
+  sunAzimuth: number
+  /** degrees above the horizon */
+  sunElevation: number
+  sunIntensity: number
+}
+
+/** Sunset seeded from the pre-v5 hardcoded sun so the default render is unchanged. */
+export const DEFAULT_LIGHTING: LightingSettings = {
+  mode: 'sunset',
+  sunAzimuth: 50.6,
+  sunElevation: 65.6,
+  sunIntensity: 0.9,
+}
+
 export interface SceneSettings {
   /** cm */
   gridSize: number
@@ -98,6 +118,8 @@ export interface SceneSettings {
   showLabels: boolean
   /** category layers (schema v4); optional so pre-v4 data parses — factory + migration materialize {} */
   layers?: Partial<Record<Category, LayerFlags>>
+  /** outdoor lighting (schema v5); optional so pre-v5 data parses — read via lightingOf() */
+  lighting?: LightingSettings
 }
 
 export interface SceneState {

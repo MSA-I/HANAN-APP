@@ -245,6 +245,18 @@ describe('migrateAndValidate', () => {
     expect(revived.project.scene.venue.size.width).toBe(2400)
   })
 
+  it('round-trips stored lighting settings (v5)', () => {
+    const file = validFile()
+    file.project.scene.settings.lighting = { mode: 'night', sunAzimuth: 120, sunElevation: 30, sunIntensity: 0.1 }
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(file)))
+    expect(revived.project.scene.settings.lighting).toEqual({
+      mode: 'night',
+      sunAzimuth: 120,
+      sunElevation: 30,
+      sunIntensity: 0.1,
+    })
+  })
+
   it('rejects garbage', () => {
     expect(() => migrateAndValidate({ nope: true })).toThrow()
     expect(() => migrateAndValidate(null)).toThrow()

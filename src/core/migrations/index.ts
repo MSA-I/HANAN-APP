@@ -252,6 +252,15 @@ const sceneSettings = z.object({
   // removed 'staging') must never brick a load. Optional so pre-v4 files parse;
   // the v4 migration + factory materialize {}.
   layers: z.record(layerFlags).optional(),
+  // v5 outdoor lighting. Optional so pre-v5 files parse; lightingOf() defaults.
+  lighting: z
+    .object({
+      mode: z.enum(['day', 'sunset', 'night']),
+      sunAzimuth: z.number(),
+      sunElevation: z.number(),
+      sunIntensity: z.number(),
+    })
+    .optional(),
 })
 
 const sceneState = z.object({

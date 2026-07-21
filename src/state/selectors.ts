@@ -1,8 +1,21 @@
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import type { Category } from '../core/catalog/types'
 import { outlineAABB, type AABB } from '../core/layout/bounds'
-import { childSortKey, type Id, type SceneObject, type SceneState, type Transform2D } from '../core/model/types'
+import {
+  childSortKey,
+  DEFAULT_LIGHTING,
+  type Id,
+  type LightingSettings,
+  type SceneObject,
+  type SceneState,
+  type Transform2D,
+} from '../core/model/types'
 import { composeTransform } from '../core/space'
+
+/** The scene's outdoor lighting; pre-v5 scenes have none stored. */
+export function lightingOf(scene: SceneState): LightingSettings {
+  return scene.settings.lighting ?? DEFAULT_LIGHTING
+}
 
 /** World transform of any object (attached chairs compose with their table). */
 export function worldTransform(scene: SceneState, id: Id): Transform2D | null {

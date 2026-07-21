@@ -130,6 +130,43 @@ export function ColorField({ label, value, onChange }: ColorFieldProps) {
   )
 }
 
+interface SliderFieldProps {
+  label: string
+  value: number
+  min: number
+  max: number
+  step?: number
+  /** shown after the value, e.g. '°' */
+  unit?: string
+  onChange: (v: number) => void
+}
+
+/** Range slider: LTR track inside RTL layout, live value readout. */
+export function SliderField({ label, value, min, max, step = 1, unit = '', onChange }: SliderFieldProps) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-[12px] text-ink-soft">{label}</span>
+        <span className="ltr-nums text-[12px] font-medium text-ink">
+          {Math.round(value * 100) / 100}
+          {unit}
+        </span>
+      </div>
+      <input
+        dir="ltr"
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full accent-accent"
+        aria-label={label}
+      />
+    </div>
+  )
+}
+
 interface StepperProps {
   label: string
   value: number

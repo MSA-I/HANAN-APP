@@ -8,6 +8,7 @@ import { createObject, createProject, newId, type NewProjectOptions } from '../c
 import { attachedChairs, reconcileSeats } from '../core/model/seatingReconciler'
 import type {
   Id,
+  LightingSettings,
   Project,
   SceneObject,
   SceneSettings,
@@ -43,6 +44,7 @@ import {
   childrenOf,
   isEffectivelyLocked,
   isObjectVisible,
+  lightingOf,
   objectAABB as objectAABBOf,
   surfaceChildren,
 } from './selectors'
@@ -1000,6 +1002,13 @@ export function setFloorColor(color: string): void {
 export function updateSettings(patch: Partial<SceneSettings>): void {
   mutateScene((scene) => {
     Object.assign(scene.settings, patch)
+  })
+}
+
+/** Patch outdoor lighting, materializing the default on first touch. */
+export function setLighting(patch: Partial<LightingSettings>): void {
+  mutateScene((scene) => {
+    scene.settings.lighting = { ...lightingOf(scene), ...patch }
   })
 }
 

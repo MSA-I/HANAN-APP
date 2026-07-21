@@ -13,8 +13,9 @@ import { Box, Camera, Check, Download, Eye, Grid2x2, RotateCcw } from 'lucide-re
 import { useShallow } from 'zustand/react/shallow'
 import { getVenuePack } from '../core/venuePacks'
 import { clearSelection } from '../state/actions'
-import { visibleTopLevelIds } from '../state/selectors'
+import { lightingOf, visibleTopLevelIds } from '../state/selectors'
 import { useEditorStore } from '../state/store'
+import { LIGHTING_MODES } from './lightingModes'
 import { applyCameraPreset, applySealedCamera, type CameraPreset } from './cameraPresets'
 import { capture3d, registerCapture3d } from './captureBus3d'
 import { CameraRig } from './CameraRig'
@@ -58,27 +59,45 @@ class GLErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNo
 }
 
 /**
- * Sky and image-based fill in one. Every material in the venue GLB is metalness
- * 0.5, so with no scene.environment they have nothing to reflect and render
- * near-black — this is what actually lifts the walls, floor and columns, more
- * than any lamp does.
+ * Image-based fill. Every material in the venue GLB is metalness 0.5, so with no
+ * scene.environment they have nothing to reflect and render near-black — this is
+ * what actually lifts the walls, floor and columns, more than any lamp does.
+ *
+ * The photo LIGHTS the scene but is never seen: `background` is deliberately not
+ * set (user decision, 2026-07-21). It is an ordinary 3:2 landscape shot, and
+ * wrapped around the horizon it read as a stretched smear behind the hall. The
+ * backdrop is the flat canvas colour instead; only the reflections remain.
  *
  * drei's `<Environment files>` can't be used: it routes .webp to the gainmap
  * loader, which wants a gainmap-encoded image rather than a plain photo. Loading
  * the texture here and passing `map` takes the same path minus that loader —
  * three still builds the PMREM for scene.environment off the equirect itself.
  *
- * The photo is not a real panorama, so it is mirror-wrapped into a seamless 2:1
- * equirect by tools/glb-prep/env-prep.mjs. Checked in-app from the sealed camera
- * angles: no seam is visible, so the plain equirect stands — no cylindrical
- * backdrop mesh needed. `environmentIntensity` is below 1 because the sky should
- * stay bright while the light it throws into the hall should not.
+ * `environmentIntensity` is below 1 because the light thrown into the hall should
+ * be gentler than the source image.
  */
 function Backdrop() {
   const texture = useTexture('/env/backdrop.webp')
+  const envIntensity = useEditorStore((s) => LIGHTING_MODES[lightingOf(s.scene).mode].envIntensity)
   texture.mapping = EquirectangularReflectionMapping
   texture.colorSpace = SRGBColorSpace
-  return <Environment map={texture} background environmentIntensity={0.65} />
+  return <Environment map={texture} environmentIntensity={envIntensity} />
+}
+
+/**
+ * toneMappingExposure is a GL property, not a scene-graph prop — R3F won't
+ * re-render on its own when it changes, so set it imperatively + invalidate.
+ * The only real `frameloop="demand"` gotcha in the lighting path.
+ */
+function Exposure() {
+  const gl = useThree((s) => s.gl)
+  const invalidate = useThree((s) => s.invalidate)
+  const exposure = useEditorStore((s) => LIGHTING_MODES[lightingOf(s.scene).mode].exposure)
+  useEffect(() => {
+    gl.toneMappingExposure = exposure
+    invalidate()
+  }, [gl, exposure, invalidate])
+  return null
 }
 
 function Objects() {
@@ -243,6 +262,8 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
 export default function Scene3D() {
   const webglOk = useMemo(detectWebGL, [])
   const controlsRef = useRef<CameraControlsImpl>(null)
+  // sunset's #f6f5f2 matches --color-canvas in index.css, so 2D and 3D share a backdrop
+  const background = useEditorStore((s) => LIGHTING_MODES[lightingOf(s.scene).mode].background)
 
   if (!webglOk) return <Fallback />
 
@@ -256,9 +277,11 @@ export default function Scene3D() {
           gl={{ antialias: true, toneMappingExposure: 0.9 }}
           camera={{ fov: 45, near: 0.1, far: 4000, position: [10, 16, 28] }}
         >
+          <color attach="background" args={[background]} />
           <Suspense fallback={null}>
             <Backdrop />
           </Suspense>
+          <Exposure />
           <LightingRig />
           <VenueMesh />
           <Objects />

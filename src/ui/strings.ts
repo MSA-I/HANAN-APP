@@ -147,6 +147,15 @@ export const strings = {
       hallChandeliersCandelabra: 'נברשות קנדלברה',
     },
   },
+  lighting: {
+    title: 'תאורה חיצונית',
+    day: 'יום',
+    sunset: 'שקיעה',
+    night: 'לילה',
+    sunAzimuth: 'כיוון השמש',
+    sunElevation: 'גובה השמש',
+    sunIntensity: 'עוצמת השמש',
+  },
   inspector: {
     projectTitle: 'פרויקט ואולם',
     projectName: 'שם הפרויקט',

@@ -12,9 +12,9 @@ import {
 } from 'lucide-react'
 import { getCatalogEntry, hasCatalogEntry, listByCategory } from '../core/catalog/registry'
 import { slotColor } from '../core/catalog/types'
-import { computeMaxSeats } from '../core/layout/seatLayout'
+import { maxSeatsForEntry } from '../core/layout/seatLayout'
 import { attachedChairs } from '../core/model/seatingReconciler'
-import type { SceneObject } from '../core/model/types'
+import type { LightingMode, SceneObject } from '../core/model/types'
 import { composeTransform } from '../core/space'
 import { displayName } from '../editor2d/ObjectNode'
 import { getVenuePack } from '../core/venuePacks'
@@ -30,6 +30,7 @@ import {
   setChairAppearance,
   setLocked,
   setName,
+  setLighting,
   setPosition,
   setProjectName,
   setRotation,
@@ -37,10 +38,11 @@ import {
   setSeatingConfig,
   setSize,
 } from '../state/actions'
-import { isEffectivelyLocked, sceneCounts } from '../state/selectors'
+import { isEffectivelyLocked, lightingOf, sceneCounts } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { useShallow } from 'zustand/react/shallow'
-import { ColorField, FieldRow, NumberField, Section, Stepper } from './fields'
+import { LIGHTING_MODES } from '../viewer3d/lightingModes'
+import { ColorField, FieldRow, NumberField, Section, SliderField, Stepper } from './fields'
 import { LayersSection } from './LayersSection'
 import { ScenePresetsSection, TableDesignSection } from './PresetsSection'
 import { strings } from './strings'
@@ -54,6 +56,47 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <span className="text-[12px] text-ink-soft">{label}</span>
       <span className="ltr-nums text-[12px] font-medium text-ink">{value}</span>
     </div>
+  )
+}
+
+/** Outdoor lighting: mode chips + sun steering. Picking a mode resets the sun
+ *  to that mode's canonical stance; the sliders then steer off it. */
+function LightingSection() {
+  const lighting = useEditorStore((s) => lightingOf(s.scene))
+  const L = strings.lighting
+  const modes: { id: LightingMode; label: string }[] = [
+    { id: 'day', label: L.day },
+    { id: 'sunset', label: L.sunset },
+    { id: 'night', label: L.night },
+  ]
+  const pickMode = (id: LightingMode) => {
+    const sun = LIGHTING_MODES[id].sun
+    setLighting({ mode: id, sunAzimuth: sun.azimuth, sunElevation: sun.elevation, sunIntensity: sun.intensity })
+  }
+  return (
+    <Section title={L.title}>
+      <div className="flex gap-1">
+        {modes.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            aria-pressed={lighting.mode === m.id}
+            onClick={() => pickMode(m.id)}
+            className={
+              'flex-1 rounded-md border px-2 py-1 text-[12px] transition-colors ' +
+              (lighting.mode === m.id
+                ? 'border-accent bg-accent text-white'
+                : 'border-line text-ink-soft hover:border-accent hover:text-accent')
+            }
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+      <SliderField label={L.sunAzimuth} value={lighting.sunAzimuth} min={0} max={360} unit="°" onChange={(v) => setLighting({ sunAzimuth: v })} />
+      <SliderField label={L.sunElevation} value={lighting.sunElevation} min={10} max={90} unit="°" onChange={(v) => setLighting({ sunElevation: v })} />
+      <SliderField label={L.sunIntensity} value={lighting.sunIntensity} min={0} max={2} step={0.05} onChange={(v) => setLighting({ sunIntensity: v })} />
+    </Section>
   )
 }
 
@@ -87,6 +130,7 @@ function ProjectInspector() {
           <span className="ltr-nums">{counts.seats}</span> {strings.statusBar.seats}
         </p>
       </Section>
+      <LightingSection />
       <ScenePresetsSection />
       <LayersSection />
     </>
@@ -105,7 +149,7 @@ function SeatingSection({ obj }: { obj: SceneObject }) {
   const chairEntry = getCatalogEntry(obj.seating.chairCatalogId)
   const max = Math.min(
     cap.max,
-    computeMaxSeats(entry.footprint(obj.size).outline, obj.seating, chairEntry.defaultSize),
+    maxSeatsForEntry(entry, obj.size, obj.seating, chairEntry.defaultSize),
   )
   const chairModels = listByCategory('seating')
 
