@@ -33,6 +33,8 @@ const MAPPING = [
   { id: 'table.square', src: 'hf_20260716_114511_6d5a069c-3b5f-4383-bc51-e2e6f65f621d.png' },
   // bare alt: "ChatGPT Image Jul 15, 2026, 05_00_21 PM.png"
   { id: 'table.banquet', src: 'hf_20260716_113730_42d2df90-a847-41b5-b76f-8f6de67211a5.png' },
+  // the DOUBLE (two butted banquets) knights table with its cloth — matches table-knights-480.glb
+  { id: 'table.knights-480', src: 'שולחן אבירים.png' },
   // the double-counter station WITH its display wall (user-confirmed).
   // NOT "…05_36_28 PM.png" — that green-marble bar is the HALL's built-in bar.
   { id: 'bar.straight', src: 'hf_20260716_135125_47b47fe3-7f8f-4c59-9400-3df6bda50128.png' },

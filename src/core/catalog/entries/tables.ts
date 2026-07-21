@@ -115,10 +115,8 @@ export const banquetTable: CatalogEntry = {
  * table.banquet objects the user has to align by hand. Fixed size for the same reason
  * as its half: the join only lands where the real tables meet.
  *
- * No `model` — table-banquet-240.glb stretched 2× would stretch its baked drape folds
- * with it, so this one falls back to the procedural `leggedTable`. No `thumbnail`
- * either: the library then draws the footprint below, and the two butted rects read as
- * the joined table they are.
+ * Has its own dedicated GLB (two draped sections modelled as one, seam included) —
+ * NOT a stretched table-banquet-240.glb, which would stretch its baked drape folds.
  *
  * ⚠ `defaultGap: 8` is load-bearing, not cosmetic. Capacity is
  * 2·⌊480/(45+gap)⌋ + 2·⌊120/(45+gap)⌋, which is 2·9 + 2·2 = 22 at gap 8 but drops to
@@ -145,6 +143,9 @@ export const knightsTable: CatalogEntry = {
     outline: { kind: 'rect', w: s.width, h: s.depth },
   }),
   buildMesh: (s) => leggedTable(s.width, s.depth, s.height, 'cloth', 'legs'),
+  // dedicated double-table scan: "שולחן אבירים" (Tripo), cloth baked in.
+  model: '/props/table-knights-480.glb',
+  thumbnail: '/thumbs/table-knights-480.webp',
   seating: { min: 0, max: 22, defaultCount: 22, defaultChair: DEFAULT_CHAIR, defaultGap: 8, defaultOffset: 6 },
   labelByDefault: true,
 }
