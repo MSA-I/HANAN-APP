@@ -46,6 +46,9 @@ export interface VenuePack {
   size: { width: number; depth: number }
   /** cm */
   wallHeight: number
+  /** cm — ceiling anchor for hung items (the lighting-truss pipe level, not the
+   *  roof apex). Chandeliers pin their TOP here; missing → falls back to wallHeight. */
+  hangHeight?: number
   /** plan-cm rectangles where furniture may not be placed (pool, fixed stage…) */
   restricted?: RestrictedZone[]
   /** placeable-area polygons (plan cm, from ZONE_FLOOR). Furniture goes only here;
@@ -68,6 +71,8 @@ export const VENUE_PACKS: VenuePack[] = [
     offset: [0, 0, 24.861],
     size: { width: 4423, depth: 2544 },
     wallHeight: 1160,
+    // truss pipe level, measured by the user in the source SKP (2026-07-21)
+    hangHeight: 895,
     // extracted from ZONE_* marker faces via tools/extract-zones.mjs (plan cm).
     restricted: [
       { x: 766, y: 1408, width: 3196, depth: 1136, label: 'בריכה', kind: 'pool' },

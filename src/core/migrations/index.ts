@@ -99,6 +99,41 @@ function dropStagingAndAddLayers(raw: unknown): unknown {
 }
 
 /**
+ * v4 → v5: ceiling items in the resort pack used to hang from the roof apex
+ * (wallHeight 1160); they now hang from the lighting-truss pipe level. Re-pin
+ * every stored hung object's TOP to that anchor. Constants are frozen at the
+ * values this migration shipped with — the live pack config may drift later.
+ */
+const RESORT_HANG_HEIGHT_V5 = 895
+const CEILING_CATALOG_IDS_V5 = new Set([
+  'lamp.pendant',
+  'lamp.pendant-cluster',
+  'lamp.chandelier-diamond',
+  'lamp.chandelier-basket',
+  'lamp.chandelier-candelabra',
+])
+
+function repinCeilingToTruss(raw: unknown): unknown {
+  const file = raw as {
+    project?: {
+      scene?: {
+        venue?: { venuePackId?: string | null }
+        objects?: Record<string, { catalogId?: string; transform?: { elevation?: number }; size?: { height?: number } }>
+      }
+    }
+  }
+  const scene = file?.project?.scene
+  if (scene?.venue?.venuePackId === 'resort' && scene.objects) {
+    for (const obj of Object.values(scene.objects)) {
+      if (!obj.catalogId || !CEILING_CATALOG_IDS_V5.has(obj.catalogId)) continue
+      if (!obj.transform || typeof obj.size?.height !== 'number') continue
+      obj.transform.elevation = RESORT_HANG_HEIGHT_V5 - obj.size.height
+    }
+  }
+  return { ...(raw as object), schemaVersion: 5, project: { ...file.project, schemaVersion: 5 } }
+}
+
+/**
  * Keyed by the SOURCE version each function upgrades FROM. `migrations[0]`
  * turns a v0 file into a v1 file (and must set `schemaVersion` to 1).
  */
@@ -106,6 +141,7 @@ export const migrations: Record<number, (raw: unknown) => unknown> = {
   1: remapCatalogIds,
   2: bumpToV3,
   3: dropStagingAndAddLayers,
+  4: repinCeilingToTruss,
 }
 
 function schemaVersionOf(raw: unknown): number {

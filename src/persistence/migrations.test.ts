@@ -195,6 +195,48 @@ describe('v3 → v4 staging removal + layers', () => {
   })
 })
 
+describe('v4 → v5 ceiling re-pin to truss', () => {
+  const hang = (elevation: number, height: number) => ({
+    id: 'c1',
+    catalogId: 'lamp.chandelier-diamond',
+    name: '',
+    transform: { position: { x: 500, y: 500 }, rotation: 0, elevation },
+    size: { width: 48.1, depth: 48.2, height },
+    parentId: null,
+    appearance: {},
+    flags: { locked: false, visible: true },
+    meta: {},
+  })
+
+  function v4File(venuePackId?: string) {
+    const file = validFile() as unknown as Record<string, unknown>
+    const project = file.project as {
+      schemaVersion: number
+      scene: { venue: { venuePackId?: string }; objects: Record<string, unknown>; objectOrder: string[] }
+    }
+    file.schemaVersion = 4
+    project.schemaVersion = 4
+    if (venuePackId) project.scene.venue.venuePackId = venuePackId
+    // chandelier hung from the old roof-apex anchor (1160 − 90)
+    project.scene.objects = { c1: hang(1070, 90) }
+    project.scene.objectOrder = ['c1']
+    return file
+  }
+
+  it('re-pins a resort chandelier from the roof apex to the truss (895)', () => {
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(v4File('resort'))))
+    expect(revived.project.scene.objects.c1.transform.elevation).toBe(895 - 90)
+    expect(revived.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(revived.project.schemaVersion).toBe(SCHEMA_VERSION)
+  })
+
+  it('leaves a procedural-room chandelier alone', () => {
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(v4File())))
+    expect(revived.project.scene.objects.c1.transform.elevation).toBe(1070)
+    expect(revived.schemaVersion).toBe(SCHEMA_VERSION)
+  })
+})
+
 describe('migrateAndValidate', () => {
   it('accepts a current-version ProjectFile round-trip', () => {
     const file = validFile()

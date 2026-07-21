@@ -28,6 +28,19 @@ describe('ceiling placement', () => {
     expect(obj.transform.elevation).toBe(DEFAULT_WALL_HEIGHT - 50)
   })
 
+  // The resort's roof apex is 1160 but its lighting truss sits at 895 — hung
+  // items pin their top to the truss (hangHeight), not the ceiling.
+  it('hangs from the pack hangHeight, not wallHeight, when the pack defines one', () => {
+    const obj = createObject('lamp.chandelier-diamond', at, { wallHeight: 1160, venuePackId: 'resort' })
+    expect(obj.transform.elevation).toBe(895 - 90)
+    expect(obj.transform.elevation + obj.size.height).toBe(895)
+  })
+
+  it('falls back to wallHeight for an unknown pack id', () => {
+    const obj = createObject('lamp.pendant', at, { wallHeight: 1160, venuePackId: 'no-such-pack' })
+    expect(obj.transform.elevation).toBe(1110)
+  })
+
   it('stays a top-level object, not an attached child', () => {
     const obj = createObject('lamp.pendant', at, { wallHeight: 1160 })
     expect(obj.parentId).toBeNull()

@@ -123,4 +123,4 @@ export interface Project {
   scene: SceneState
 }
 
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5

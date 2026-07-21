@@ -68,20 +68,22 @@ export function createProject(opts: NewProjectOptions): Project {
 
 /**
  * `venue` is only consulted for placement:'ceiling' entries, which hang from
- * `wallHeight` instead of standing at 0 — core must stay store-free, so the
- * caller passes the venue in. Omitting it assumes a procedural room, which is
- * right for every venue except a pack hall.
+ * the pack's `hangHeight` (lighting-truss level) — or `wallHeight` where no
+ * pack/truss exists — instead of standing at 0. Core must stay store-free, so
+ * the caller passes the venue in. Omitting it assumes a procedural room, which
+ * is right for every venue except a pack hall.
  */
 export function createObject(
   catalogId: string,
   position: Vec2,
-  venue?: Pick<Venue, 'wallHeight'>,
+  venue?: Pick<Venue, 'wallHeight' | 'venuePackId'>,
 ): SceneObject {
   const entry = getCatalogEntry(catalogId)
-  // top of the object meets the ceiling; its height IS the drop length
+  // top of the object meets the hang anchor; its height IS the drop length
   const elevation =
     entry.placement === 'ceiling'
-      ? (venue?.wallHeight ?? DEFAULT_WALL_HEIGHT) - entry.defaultSize.height
+      ? (getVenuePack(venue?.venuePackId)?.hangHeight ?? venue?.wallHeight ?? DEFAULT_WALL_HEIGHT) -
+        entry.defaultSize.height
       : 0
   return {
     id: newId(),
