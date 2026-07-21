@@ -31,7 +31,7 @@ import {
   tableCellSize,
 } from '../core/layout/fillHall'
 import { seatItemTransforms } from '../core/layout/seatItemLayout'
-import { computeSeatTransforms } from '../core/layout/seatLayout'
+import { seatsForEntry } from '../core/layout/seatLayout'
 import { getHallLayout } from '../core/hallLayouts'
 import {
   getHallDesign,
@@ -170,12 +170,27 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>): void {
     const home = zoneKind ? zones.filter((z) => z.kind === zoneKind) : []
     if (home.length) {
       const center = (z: RestrictedZone) => ({ x: z.x + z.width / 2, y: z.y + z.depth / 2 })
-      const bc = { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 }
-      const nearest = home.reduce((a, b) => {
-        const da = Math.hypot(center(a).x - bc.x, center(a).y - bc.y)
-        const db = Math.hypot(center(b).x - bc.x, center(b).y - bc.y)
-        return db < da ? b : a
-      })
+      const nearestHome = (candidate: AABB) => {
+        const bc = { x: (candidate.minX + candidate.maxX) / 2, y: (candidate.minY + candidate.maxY) / 2 }
+        return home.reduce((a, b) => {
+          const da = Math.hypot(center(a).x - bc.x, center(a).y - bc.y)
+          const db = Math.hypot(center(b).x - bc.x, center(b).y - bc.y)
+          return db < da ? b : a
+        })
+      }
+      let nearest = nearestHome(box)
+
+      // Some zone-bound structures fit at cardinal angles but not diagonally.
+      // A translation cannot put an over-wide AABB inside its home zone, so snap
+      // only those impossible rotations to the nearest quarter turn and measure
+      // again. Smaller stations keep their free rotation.
+      if (box.maxX - box.minX > nearest.width || box.maxY - box.minY > nearest.depth) {
+        obj.transform.rotation = Math.round(obj.transform.rotation / 90) * 90
+        box = subtreeAABB(scene, id) ?? box
+        d = floorShift(box, width, depth)
+        if (d.x || d.y) box = shift(obj, box, d)
+        nearest = nearestHome(box)
+      }
       d = zoneShift(box, nearest)
       if (d.x || d.y) shift(obj, box, d)
       continue
@@ -374,10 +389,16 @@ export function addSeatItemsToTable(catalogId: string, tableId: Id): Id[] {
     const table = scene.objects[tableId]
     if (!table?.seating || table.parentId || isEffectivelyLocked(scene, table)) return
     for (const stale of seatItems(scene, tableId)) delete scene.objects[stale.id]
-    const outline = getCatalogEntry(table.catalogId).footprint(table.size).outline
     const chair = getCatalogEntry(table.seating.chairCatalogId).defaultSize
     const item = getCatalogEntry(catalogId).defaultSize
-    const seats = computeSeatTransforms(outline, table.seating, chair)
+    // seatsForEntry, not the outline math: on the serpentine the seats follow the
+    // curve, and settings laid on rect positions would float beside the table
+    const seats = seatsForEntry(
+      getCatalogEntry(table.catalogId),
+      table.size,
+      table.seating,
+      chair,
+    )
     for (const t of seatItemTransforms(seats, chair, item, table.seating.offset)) {
       const obj = createObject(catalogId, { x: 0, y: 0 })
       obj.parentId = tableId
@@ -515,10 +536,9 @@ function layTableDesign(scene: SceneState, design: TableDesign, tableId: Id): Id
     })
   }
   if (design.seatItem) {
-    const outline = entry.footprint(table.size).outline
     const chair = getCatalogEntry(table.seating.chairCatalogId).defaultSize
     const item = getCatalogEntry(design.seatItem).defaultSize
-    const seats = computeSeatTransforms(outline, table.seating, chair)
+    const seats = seatsForEntry(entry, table.size, table.seating, chair)
     for (const t of seatItemTransforms(seats, chair, item, table.seating.offset)) {
       lay(design.seatItem, t)
     }

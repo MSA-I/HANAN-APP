@@ -8,7 +8,7 @@ import { getCatalogEntry } from '../catalog/registry'
 import type { SeatingConfig, Vec2, Venue } from '../model/types'
 import type { RestrictedZone, VenuePack } from '../venuePacks'
 import { aabbIntersects, aabbUnion, outlineAABB, pointInPolygon, type AABB } from './bounds'
-import { computeSeatTransforms } from './seatLayout'
+import { seatsForEntry } from './seatLayout'
 
 /** Service aisle between two table cells, cm. */
 export const DEFAULT_AISLE = 90
@@ -70,7 +70,7 @@ export function tableCellSize(
   const chair = getCatalogEntry(seating.chairCatalogId)
   const chairOutline = chair.footprint(chair.defaultSize).outline
   const boxes: AABB[] = [outlineAABB(ORIGIN, outline)]
-  for (const t of computeSeatTransforms(outline, seating, chair.defaultSize)) {
+  for (const t of seatsForEntry(table, table.defaultSize, seating, chair.defaultSize)) {
     boxes.push(outlineAABB(t, chairOutline))
   }
   const b = aabbUnion(boxes)

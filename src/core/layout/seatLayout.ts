@@ -2,9 +2,40 @@
  * Pure seat-placement math. Given a table outline and a seating config,
  * returns parent-relative chair transforms (chair front faces the table).
  */
-import type { Outline } from '../catalog/types'
+import type { CatalogEntry, Outline } from '../catalog/types'
 import type { SeatingConfig, Size3D, Transform2D } from '../model/types'
 import { degToRad } from '../space'
+
+/**
+ * Seats for a catalog entry: its own `seats` function when it has one (the
+ * serpentine, whose seat line is neither a circle nor a rectangle), otherwise
+ * the generic outline math. Callers that have an entry should use these two
+ * rather than computeSeatTransforms/computeMaxSeats directly.
+ */
+export function seatsForEntry(
+  entry: CatalogEntry,
+  size: Size3D,
+  seating: SeatingConfig,
+  chair: Size3D,
+): Transform2D[] {
+  if (entry.seats) return entry.seats(seating, chair)
+  return computeSeatTransforms(entry.footprint(size).outline, seating, chair)
+}
+
+/**
+ * Capacity for a catalog entry. For a custom `seats` it asks for more chairs
+ * than could possibly fit and counts what comes back, so capacity is defined by
+ * the placement code itself and the two cannot drift apart.
+ */
+export function maxSeatsForEntry(
+  entry: CatalogEntry,
+  size: Size3D,
+  seating: SeatingConfig,
+  chair: Size3D,
+): number {
+  if (entry.seats) return entry.seats({ ...seating, count: Number.MAX_SAFE_INTEGER }, chair).length
+  return computeMaxSeats(entry.footprint(size).outline, seating, chair)
+}
 
 /** How many chairs physically fit around the outline. */
 export function computeMaxSeats(outline: Outline, seating: SeatingConfig, chair: Size3D): number {

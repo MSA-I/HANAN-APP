@@ -61,6 +61,7 @@ export const TABLE_PRESETS: TablePreset[] = [
   { id: 'preset.square-8-x-wood', labelKey: 'presetSquare8XWood', tableCatalogId: 'table.square', chairCatalogId: 'chair.x-wood', seatCount: 8 },
   { id: 'preset.banquet-12-black', labelKey: 'presetBanquet12Black', tableCatalogId: 'table.banquet', chairCatalogId: 'chair.black', seatCount: 12 },
   { id: 'preset.knights-22-brown', labelKey: 'presetKnights22Brown', tableCatalogId: 'table.knights-480', chairCatalogId: 'chair.brown', seatCount: 22 },
+  { id: 'preset.serpentine-20-x-white', labelKey: 'presetSerpentine20XWhite', tableCatalogId: 'table.serpentine', chairCatalogId: 'chair.x-white', seatCount: 20 },
 ]
 
 export const TABLE_DESIGNS: TableDesign[] = [

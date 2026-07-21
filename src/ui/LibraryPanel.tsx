@@ -1,8 +1,7 @@
 import { ChevronsLeft, ChevronsRight, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { CATEGORY_ORDER, getCatalogEntry, listByCategory } from '../core/catalog/registry'
-import type { CatalogEntry } from '../core/catalog/types'
-import { TABLE_PRESETS, type TablePreset } from '../core/presets'
+import { CATEGORY_ORDER, listByCategory } from '../core/catalog/registry'
+import type { CatalogEntry, FootprintPart } from '../core/catalog/types'
 import { overlay, useOverlayStore } from '../editor2d/overlayStore'
 import { strings } from './strings'
 
@@ -16,6 +15,45 @@ function formatFootprint(entry: CatalogEntry): string {
   return entry.linkWidthDepth ? `Ø ${m(width)} מ'` : `${m(width)} × ${m(depth)} מ'`
 }
 
+/**
+ * An 'arc' footprint part as an SVG path: out along the outer radius, back along
+ * the inner one. SVG has no arc primitive, so unlike Konva this cannot reuse the
+ * catalog fields directly. `large-arc` must be set past 180° or the renderer
+ * silently takes the short way round and draws the complement of the band.
+ */
+function arcPath(p: Extract<FootprintPart, { kind: 'arc' }>): string {
+  const at = (r: number, deg: number) => {
+    const a = (deg * Math.PI) / 180
+    return [p.cx + Math.cos(a) * r, p.cy + Math.sin(a) * r] as const
+  }
+  const end = p.startAngle + p.sweep
+  const large = Math.abs(p.sweep) > 180 ? 1 : 0
+  const [ox0, oy0] = at(p.outerR, p.startAngle)
+  const [ox1, oy1] = at(p.outerR, end)
+  const [ix1, iy1] = at(p.innerR, end)
+  const [ix0, iy0] = at(p.innerR, p.startAngle)
+  // sweep-flag 1 = increasing angle, which is clockwise in this y-down space
+  return (
+    `M ${ox0} ${oy0} A ${p.outerR} ${p.outerR} 0 ${large} 1 ${ox1} ${oy1} ` +
+    `L ${ix1} ${iy1} A ${p.innerR} ${p.innerR} 0 ${large} 0 ${ix0} ${iy0} Z`
+  )
+}
+
+/** Curved edges only — omitting the two radial closures prevents join seams. */
+function arcEdgePath(p: Extract<FootprintPart, { kind: 'arc' }>): string {
+  const at = (r: number, deg: number) => {
+    const a = (deg * Math.PI) / 180
+    return [p.cx + Math.cos(a) * r, p.cy + Math.sin(a) * r] as const
+  }
+  const end = p.startAngle + p.sweep
+  const large = Math.abs(p.sweep) > 180 ? 1 : 0
+  const [ox0, oy0] = at(p.outerR, p.startAngle)
+  const [ox1, oy1] = at(p.outerR, end)
+  const [ix0, iy0] = at(p.innerR, p.startAngle)
+  const [ix1, iy1] = at(p.innerR, end)
+  return `M ${ox0} ${oy0} A ${p.outerR} ${p.outerR} 0 ${large} 1 ${ox1} ${oy1} M ${ix0} ${iy0} A ${p.innerR} ${p.innerR} 0 ${large} 1 ${ix1} ${iy1}`
+}
+
 /** Top-view vector thumbnail rendered straight from the catalog footprint. */
 function VectorThumbnail({ entry }: { entry: CatalogEntry }) {
   const fp = entry.footprint(entry.defaultSize)
@@ -25,11 +63,17 @@ function VectorThumbnail({ entry }: { entry: CatalogEntry }) {
   const vb = `${-w / 2 - pad} ${-h / 2 - pad} ${w + pad * 2} ${h + pad * 2}`
   const fill = (slot: string) =>
     entry.materialSlots.find((s) => s.name === slot)?.defaultColor ?? '#ddd'
+  const stroke = Math.max(w, h) / 60
   return (
     <svg viewBox={vb} className="h-16 w-full" aria-hidden>
       {fp.parts.map((p, i) =>
         p.kind === 'circle' ? (
-          <circle key={i} r={p.r} fill={fill(p.slot)} stroke="#57534e" strokeWidth={Math.max(w, h) / 60} />
+          <circle key={i} r={p.r} fill={fill(p.slot)} stroke="#57534e" strokeWidth={stroke} />
+        ) : p.kind === 'arc' ? (
+          <g key={i}>
+            <path d={arcPath(p)} fill={fill(p.slot)} />
+            <path d={arcEdgePath(p)} fill="none" stroke="#57534e" strokeWidth={stroke} />
+          </g>
         ) : (
           <rect
             key={i}
@@ -40,7 +84,7 @@ function VectorThumbnail({ entry }: { entry: CatalogEntry }) {
             rx={p.cornerRadius ?? 0}
             fill={fill(p.slot)}
             stroke="#57534e"
-            strokeWidth={Math.max(w, h) / 60}
+            strokeWidth={stroke}
           />
         ),
       )}
@@ -61,53 +105,6 @@ function Thumbnail({ entry }: { entry: CatalogEntry }) {
       onError={() => setBroken(true)}
       className="h-16 w-full rounded object-cover"
     />
-  )
-}
-
-function presetLabel(preset: TablePreset): string {
-  return (
-    strings.presets.items[preset.labelKey as keyof typeof strings.presets.items] ?? preset.id
-  )
-}
-
-/**
- * Ready-made table+chairs units. First in the panel on purpose: dropping a laid
- * table is the common case, and a bare table is the advanced one. The thumbnail
- * is the table's own — a preset never introduces an asset of its own.
- */
-function LibraryPresets({ query }: { query: string }) {
-  const placingPreset = useOverlayStore((s) => s.placingPreset)
-  const items = TABLE_PRESETS.filter((p) => !query || presetLabel(p).includes(query.trim()))
-  if (!items.length) return null
-  return (
-    <div className="mb-3">
-      <h3 className="mb-1.5 text-[11px] font-semibold text-ink-soft">{strings.presets.library}</h3>
-      <div className="grid grid-cols-2 gap-1.5">
-        {items.map((preset) => {
-          const table = getCatalogEntry(preset.tableCatalogId)
-          const armed = placingPreset === preset.id
-          return (
-            <button
-              key={preset.id}
-              title={strings.library.placeHint}
-              onMouseDown={(e) => {
-                e.preventDefault()
-                overlay.setPlacingPreset(armed ? null : preset.id, preset.tableCatalogId)
-              }}
-              className={`select-none rounded-lg border p-1.5 text-center transition-colors ${
-                armed ? 'border-accent bg-accent-tint' : 'border-line bg-panel hover:border-accent/50'
-              }`}
-            >
-              <Thumbnail entry={table} />
-              <div className="mt-1 truncate text-[11px] font-medium">{presetLabel(preset)}</div>
-              <div className="ltr-nums text-[10px] text-ink-soft">
-                {preset.seatCount} {strings.presets.seatsSuffix}
-              </div>
-            </button>
-          )
-        })}
-      </div>
-    </div>
   )
 }
 
@@ -166,7 +163,6 @@ export function LibraryPanel() {
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-        <LibraryPresets query={query} />
         {categories.length === 0 && (
           <div className="py-6 text-center text-[12px] text-ink-soft">
             <p>

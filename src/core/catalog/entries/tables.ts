@@ -7,6 +7,7 @@
  * have their own scanned model and their own seat count (12 vs 22); one resizable
  * entry would stretch the wrong drape over the wrong table.
  */
+import { serpentineArcs, serpentineBounds, serpentineSeats } from '../../layout/serpentine'
 import type { CatalogEntry } from '../types'
 import { leggedTable, pedestalTable } from '../builders'
 
@@ -150,8 +151,78 @@ export const knightsTable: CatalogEntry = {
   labelByDefault: true,
 }
 
+/**
+ * "שולחן נחש" — the S-curved band. The only table in the catalog whose seat line
+ * is neither a circle nor a rectangle, so it carries a `seats` function instead
+ * of relying on its `outline` (see core/layout/serpentine.ts for why that beats a
+ * third `Outline` variant).
+ *
+ * ⚠ TWO THINGS HERE LOOK LIKE BUGS AND ARE NOT. Read before "fixing" the size.
+ *
+ * 1. This table's plan footprint is 4.22 × 4.22 m — LARGER than the ⌀380 round,
+ *    and the biggest item in the catalog. That is the direct consequence of
+ *    honouring the real table's 80 cm width on this particular model.
+ * 2. The Tripo model's band-to-length ratio is about 1:7; the real table is
+ *    80 × 300, which is 1:3.75. No uniform scale satisfies both, so the on-screen
+ *    curve is longer and more sweeping than the physical table. Width won,
+ *    because width is what decides whether people can eat at it. The width and
+ *    the seat capacity are right; the overall length is the model's, not the
+ *    inventory's.
+ *
+ * Measured on the prepped GLB (`--footprint 422x422 --fp-height 75`): band width
+ * median 80.0 (range 75…85 — the drape flares, so it is not perfectly constant),
+ * centre line 580.5 cm, bbox 422 × 75 × 422.
+ *
+ * `defaultSize` is the prepped GLB's own bbox, so the 3D model renders unscaled.
+ * `serpentineBounds()` returns the origin-centred box of the fitted arcs. It is
+ * a few centimetres larger on one axis, so the outline takes the larger value
+ * per axis and remains genuinely conservative.
+ *
+ * Seat count follows available space rather than a target, which is what the
+ * user asked for.
+ */
+export const serpentineTable: CatalogEntry = {
+  id: 'table.serpentine',
+  category: 'tables',
+  labelKey: 'tableSerpentine',
+  // = the prepped GLB bbox, verified after prepping: `size [4.22, 0.75, 4.22]` m
+  defaultSize: { width: 422, depth: 422, height: 75 },
+  resizable: [],
+  minSize: {},
+  maxSize: {},
+  materialSlots: [CLOTH, LEGS],
+  footprint: (s) => {
+    const band = serpentineBounds()
+    return {
+      parts: serpentineArcs().map((a) => ({ kind: 'arc' as const, ...a, slot: 'cloth' })),
+      // Use the larger of the measured GLB and the fitted band's centred box.
+      outline: { kind: 'rect', w: Math.max(s.width, band.width), h: Math.max(s.depth, band.depth) },
+    }
+  },
+  // fallback only, for the moment before the GLB loads and if it fails: a plain
+  // box, deliberately NOT an arc mesh — the GLB is the real render, and a second
+  // curved-band implementation in 3D would be a second thing to keep in sync
+  buildMesh: (s) => leggedTable(s.width, s.depth, s.height, 'cloth', 'legs'),
+  model: '/props/table-serpentine.glb',
+  thumbnail: '/thumbs/table-serpentine.webp',
+  seats: serpentineSeats,
+  // 20 = 11 on the long flank + 9 on the short. They differ because the arcs
+  // sweep through different angles, so the r+d / r−d offsets do not cancel —
+  // see the warning on `edgeLength`. Asserted against the geometry in
+  // serpentine.test.ts so the two cannot drift apart.
+  seating: { min: 0, max: 20, defaultCount: 20, defaultChair: DEFAULT_CHAIR, defaultGap: 10, defaultOffset: 6 },
+  labelByDefault: true,
+}
+
 // table.rect (180×90) and table.cocktail (⌀70) were generic placeholders with no
 // counterpart in the venue's inventory and no scanned model — they would have gone
 // into an AI frame as invented grey furniture. Dropped; migration v1→v2 remaps any
 // stored ones onto the real tables.
-export const tableEntries = [roundTable, roundTableLarge, squareTable, banquetTable, knightsTable]
+export const tableEntries = [
+  roundTable,
+  roundTableLarge,
+  squareTable,
+  banquetTable,
+  knightsTable,
+  serpentineTable,
+]

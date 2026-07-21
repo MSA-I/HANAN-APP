@@ -16,14 +16,14 @@
     "placeableAreas": "2 polygons (green) from ZONE_FLOOR = size-rectangle minus restricted zones; furniture confined here",
     "note2": "Real floor is non-rectangular & disconnected (left L + right rectangle). Room outline unions to a clean rectangle 4420×2540."
   },
-  "fixedElements": ["chuppah", "pool", "structure", "desert-backdrop"],
+  "fixedElements": ["pool", "structure", "desert-backdrop"],
   "heroFacing": "desert",
   "source": {
-    "skp": "HANAN-APP-DOCS/SKP/ריסורט גאמוס.skp",
+    "skp": "D:/משה פרוייקטים/מגרש 510/SKP/ריזורט גאמוס - אפליקציה.skp",
     "pipeline": "SketchUp -> SimLab (SKP->GLB) -> tools/glb-prep --mode venue",
-    "preparedOn": "2026-07-15",
-    "originalSizeMB": 58.7,
-    "optimizedSizeMB": 3.6
+    "preparedOn": "2026-07-21",
+    "originalSizeMB": 94.9,
+    "optimizedSizeMB": 5.4
   },
   "todo": ["footprint.json", "cameras.json", "refs/", "lighting.json"]
 }

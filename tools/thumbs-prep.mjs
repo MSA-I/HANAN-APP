@@ -10,7 +10,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 
-const SRC_DIR = process.argv[2] ?? 'A:\\פיתוח אתרים\\HANAN-APP-DOCS\\GPT'
+const DEFAULT_SRC_DIR = fileURLToPath(new URL('../../HANAN-APP-DOCS/GPT/', import.meta.url))
+const SRC_DIR = process.argv[2] ?? DEFAULT_SRC_DIR
 const OUT_DIR = fileURLToPath(new URL('../public/thumbs/', import.meta.url))
 const SIZE = 512
 
@@ -33,6 +34,9 @@ const MAPPING = [
   { id: 'table.square', src: 'hf_20260716_114511_6d5a069c-3b5f-4383-bc51-e2e6f65f621d.png' },
   // bare alt: "ChatGPT Image Jul 15, 2026, 05_00_21 PM.png"
   { id: 'table.banquet', src: 'hf_20260716_113730_42d2df90-a847-41b5-b76f-8f6de67211a5.png' },
+  // the shot the table.square note above warns about: it is the SERPENTINE, and
+  // here it belongs. Square already, so the centre-crop takes the whole frame.
+  { id: 'table.serpentine', src: 'שולחן נחש.png' },
   // the DOUBLE (two butted banquets) knights table with its cloth — matches table-knights-480.glb
   { id: 'table.knights-480', src: 'שולחן אבירים.png' },
   // the double-counter station WITH its display wall (user-confirmed).
@@ -95,6 +99,23 @@ const MAPPING = [
   { id: 'lamp.chandelier-basket', src: 'ChatGPT Image Jul 15, 2026, 06_34_18 PM.png' },
   // candelabra alt: "…02_12_05 PM.png" — same fixture, slightly narrower framing
   { id: 'lamp.chandelier-candelabra', src: 'ChatGPT Image Jul 16, 2026, 02_11_58 PM.png' },
+  // chuppot — 9 shots, 9 GLBs, but NOT the same nine: each pairing below was made
+  // by rendering the model and matching it to a shot (the filenames mislead), and
+  // two items are left over on purpose. Unmapped shot: "…06_11_07 PM.png", a peach
+  // four-post chuppah with dried florals that no model reproduces. Unmapped model:
+  // classical+gazebo (a masonry rotunda) — no shot, so no thumbnail and no entry.
+  { id: 'chuppah.draped-white', src: 'חופות/ChatGPT Image Jul 15, 2026, 06_07_04 PM.png' },
+  // the knotted top corner is what tells this apart from "…06_11_07 PM.png"
+  { id: 'chuppah.draped-blush', src: 'חופות/ChatGPT Image Jul 15, 2026, 06_14_15 PM.png' },
+  { id: 'chuppah.ruched-ivory', src: 'חופות/ChatGPT Image Jul 15, 2026, 06_18_33 PM.png' },
+  // the shot that proves "clear+acrylic+podium+3d+model.glb" is a chuppah
+  { id: 'chuppah.acrylic', src: 'חופות/ChatGPT Image Jul 15, 2026, 06_17_47 PM.png' },
+  // ditto for "metal+table+frame+3d+model.glb" — same chrome frame, no top surface
+  { id: 'chuppah.frame-chrome', src: 'חופות/ChatGPT Image Jul 15, 2026, 06_21_57 PM.png' },
+  { id: 'chuppah.round-white', src: 'חופות/ChatGPT Image Jul 15, 2026, 06_21_08 PM.png' },
+  { id: 'chuppah.round-beige', src: 'חופות/ChatGPT Image Jul 15, 2026, 06_09_40 PM.png' },
+  // the lattice ARCH, not a canopy — see entries/chuppah.ts
+  { id: 'chuppah.arch-lattice', src: 'חופות/ChatGPT Image Jul 15, 2026, 06_08_49 PM.png' },
 ]
 
 const outName = (id) => `${id.replaceAll('.', '-')}.webp`

@@ -19,6 +19,7 @@ import {
   onObjectDragStart,
   onObjectMouseDown,
 } from './dragController'
+import { FootprintPartShape } from './footprintShapes'
 
 const STROKE = '#57534e'
 const SELECTED_STROKE = '#3056d3'
@@ -91,37 +92,13 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
       onDragMove={(e) => (isChild ? onChildDragMove(id, e) : onObjectDragMove(id, e))}
       onDragEnd={(e) => (isChild ? onChildDragEnd(id, e) : onObjectDragEnd(id, e))}
     >
-      {footprint.parts.map((part, i) =>
-        part.kind === 'circle' ? (
-          <Circle
-            key={i}
-            radius={part.r}
-            fill={slotColor(entry, obj.appearance, part.slot)}
-            stroke={stroke}
-            strokeWidth={1}
-            dash={dash}
-            strokeScaleEnabled={false}
-            perfectDrawEnabled={false}
-          />
-        ) : (
-          <Rect
-            key={i}
-            x={part.cx ?? 0}
-            y={part.cy ?? 0}
-            offsetX={part.w / 2}
-            offsetY={part.h / 2}
-            width={part.w}
-            height={part.h}
-            cornerRadius={part.cornerRadius ?? 0}
-            fill={slotColor(entry, obj.appearance, part.slot)}
-            stroke={stroke}
-            strokeWidth={1}
-            dash={dash}
-            strokeScaleEnabled={false}
-            perfectDrawEnabled={false}
-          />
-        ),
-      )}
+      {footprint.parts.map((part, i) => (
+        <FootprintPartShape
+          key={i}
+          part={part}
+          style={{ fill: slotColor(entry, obj.appearance, part.slot), stroke, dash }}
+        />
+      ))}
       {isSelected &&
         (footprint.outline.kind === 'circle' ? (
           <Circle

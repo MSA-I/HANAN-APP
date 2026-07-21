@@ -89,7 +89,7 @@ export const VENUE_PACKS: VenuePack[] = [
     // SketchUp Scenes → app three-metres via (x, z, 24.861 − y). Extracted from
     // SimLab Scene nodes (tools flow: SimLab session on the SKP → read Scene N).
     cameras: [
-      { id: 's1', label: 'זווית 1', position: [0.34, 1.77, 0.79], target: [20.45, 1.7, 11.53], fov: 45 },
+      { id: 's1', label: 'זווית 1', position: [0.34, 1.77, 0.79], target: [21.79, 1.7, 12.24], fov: 45 },
       { id: 's2', label: 'זווית 2', position: [44.23, 1.6, 0.75], target: [28.71, 1.41, 8.77], fov: 45 },
       { id: 's3', label: 'זווית 3', position: [21.86, 1.55, 0.18], target: [22.22, 1.35, 16.27], fov: 45 },
       { id: 's4', label: 'זווית 4 (מוגבה)', position: [0.09, 6.71, 20.88], target: [20.1, 0.52, 2.0], fov: 45 },

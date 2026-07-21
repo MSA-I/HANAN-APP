@@ -42,6 +42,7 @@ export const djBooth: CatalogEntry = {
   category: 'bars',
   labelKey: 'djBooth',
   defaultSize: { width: 160, depth: 70, height: 110 },
+  defaultRotation: -180,
   resizable: [],
   minSize: {},
   maxSize: {},

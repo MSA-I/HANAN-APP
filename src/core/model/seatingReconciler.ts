@@ -7,7 +7,7 @@
  * objectOrder holds top-level objects only; children order by seatIndex.
  */
 import { getCatalogEntry } from '../catalog/registry'
-import { computeMaxSeats, computeSeatTransforms } from '../layout/seatLayout'
+import { maxSeatsForEntry, seatsForEntry } from '../layout/seatLayout'
 import { newId } from './factory'
 import { childSortKey, type Id, type SceneObject, type SceneState } from './types'
 
@@ -23,13 +23,12 @@ export function reconcileSeats(scene: SceneState, tableId: Id): void {
   const seating = table.seating
   const entry = getCatalogEntry(table.catalogId)
   const chairEntry = getCatalogEntry(seating.chairCatalogId)
-  const outline = entry.footprint(table.size).outline
 
-  const max = computeMaxSeats(outline, seating, chairEntry.defaultSize)
+  const max = maxSeatsForEntry(entry, table.size, seating, chairEntry.defaultSize)
   const target = seating.enabled ? Math.max(0, Math.min(seating.count, max)) : 0
   seating.count = target
 
-  const seats = computeSeatTransforms(outline, { ...seating, count: target }, chairEntry.defaultSize)
+  const seats = seatsForEntry(entry, table.size, { ...seating, count: target }, chairEntry.defaultSize)
   const existing = attachedChairs(scene, tableId)
 
   // drop extras (highest seat index first)

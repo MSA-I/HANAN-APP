@@ -5,6 +5,7 @@ import { barEntries } from './entries/bars'
 import { tableDecorEntries } from './entries/tableDecor'
 import { decorEntries } from './entries/decor'
 import { hangingEntries } from './entries/hanging'
+import { chuppahEntries } from './entries/chuppah'
 
 const all: CatalogEntry[] = [
   ...tableEntries,
@@ -13,6 +14,7 @@ const all: CatalogEntry[] = [
   ...tableDecorEntries,
   ...decorEntries,
   ...hangingEntries,
+  ...chuppahEntries,
 ]
 
 const byId = new Map(all.map((e) => [e.id, e]))

@@ -373,6 +373,7 @@ describe('fixed stations (zone lock)', () => {
   it('a DJ booth dropped anywhere in the resort snaps into its zone and cannot leave', () => {
     newProject({ name: 'resort', venuePackId: 'resort' })
     const id = addObject('dj.booth', { x: 300, y: 300 }) // far from the DJ zone
+    expect(scene().objects[id].transform.rotation).toBe(-180)
     const inZone = () => {
       const b = objectAABB(scene(), id)!
       return b.minX >= 2268.99 && b.maxX <= 2579.01 && b.minY >= 1407.99 && b.maxY <= 1641.01

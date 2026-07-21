@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { getCatalogEntry, hasCatalogEntry } from './catalog/registry'
 import { HALL_LAYOUTS, layoutStats } from './hallLayouts'
-import { computeMaxSeats } from './layout/seatLayout'
+import { maxSeatsForEntry } from './layout/seatLayout'
 import { HALL_DESIGNS, TABLE_DESIGNS, TABLE_PRESETS, getTablePreset, presetSeating } from './presets'
 import { getVenuePack } from './venuePacks'
 import { strings } from '../ui/strings'
@@ -27,11 +27,7 @@ describe('table presets', () => {
   it.each(TABLE_PRESETS)('$id asks for a seat count the table can take', (preset) => {
     const table = getCatalogEntry(preset.tableCatalogId)
     const seating = presetSeating(preset)
-    const fits = computeMaxSeats(
-      table.footprint(table.defaultSize).outline,
-      seating,
-      getCatalogEntry(preset.chairCatalogId).defaultSize,
-    )
+    const fits = maxSeatsForEntry(table, table.defaultSize, seating, getCatalogEntry(preset.chairCatalogId).defaultSize)
     expect(preset.seatCount).toBeGreaterThanOrEqual(table.seating!.min)
     expect(preset.seatCount).toBeLessThanOrEqual(table.seating!.max)
     // a preset that over-asks would silently lose chairs to the reconciler's clamp

@@ -154,6 +154,20 @@ for (const [name, z] of zones) {
   rects[name] = { x: Math.min(px0, px1), y: Math.min(py0, py1), width: Math.abs(px1 - px0), depth: Math.abs(py1 - py0) }
 }
 
+// ZONE_HUPA is the current model's spelling of legacy ZONE_CHUPPAH. Some SKPs
+// contain both aliases; emit one canonical rectangle, and stop if they ever
+// diverge instead of silently creating two home zones or unioning their bounds.
+if (rects.ZONE_HUPA) {
+  if (rects.ZONE_CHUPPAH) {
+    const keys = ['x', 'y', 'width', 'depth']
+    if (keys.some((key) => rects.ZONE_HUPA[key] !== rects.ZONE_CHUPPAH[key])) {
+      throw new Error('ZONE_HUPA and ZONE_CHUPPAH disagree — keep one marker or align them before export')
+    }
+  }
+  rects.ZONE_CHUPPAH = rects.ZONE_HUPA
+  delete rects.ZONE_HUPA
+}
+
 const label = { ZONE_POOL: 'בריכה', ZONE_DJ: 'עמדת DJ', ZONE_BAR: 'בר', ZONE_DANCEFLOOR: 'רחבת ריקודים', ZONE_CHUPPAH: 'חופה', ZONE_CORRIDOR: 'מסדרון' }
 
 console.log('=== plan origin (raw ZONE_FLOOR min corner) ===')

@@ -1,7 +1,8 @@
-import { Circle, Group, Layer, Line, Rect, Text } from 'react-konva'
+import { Group, Layer, Line, Rect, Text } from 'react-konva'
 import { getCatalogEntry } from '../core/catalog/registry'
 import { slotColor } from '../core/catalog/types'
 import { useEditorStore } from '../state/store'
+import { FootprintPartShape } from './footprintShapes'
 import { useOverlayStore } from './overlayStore'
 import { useViewportStore } from './viewportStore'
 
@@ -22,33 +23,16 @@ function PlacingGhostShape() {
   const invalidTint = 'rgba(214,69,69,0.25)'
   return (
     <Group x={ghost.x} y={ghost.y} opacity={0.6} listening={false}>
-      {footprint.parts.map((part, i) =>
-        part.kind === 'circle' ? (
-          <Circle
-            key={i}
-            radius={part.r}
-            fill={ghost.valid ? slotColor(entry, {}, part.slot) : invalidTint}
-            stroke={ghost.valid ? '#57534e' : '#d64545'}
-            strokeWidth={1}
-            strokeScaleEnabled={false}
-          />
-        ) : (
-          <Rect
-            key={i}
-            x={part.cx ?? 0}
-            y={part.cy ?? 0}
-            offsetX={part.w / 2}
-            offsetY={part.h / 2}
-            width={part.w}
-            height={part.h}
-            cornerRadius={part.cornerRadius ?? 0}
-            fill={ghost.valid ? slotColor(entry, {}, part.slot) : invalidTint}
-            stroke={ghost.valid ? '#57534e' : '#d64545'}
-            strokeWidth={1}
-            strokeScaleEnabled={false}
-          />
-        ),
-      )}
+      {footprint.parts.map((part, i) => (
+        <FootprintPartShape
+          key={i}
+          part={part}
+          style={{
+            fill: ghost.valid ? slotColor(entry, {}, part.slot) : invalidTint,
+            stroke: ghost.valid ? '#57534e' : '#d64545',
+          }}
+        />
+      ))}
     </Group>
   )
 }

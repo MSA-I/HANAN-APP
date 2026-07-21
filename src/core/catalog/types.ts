@@ -5,7 +5,7 @@
  * resize constraints and seating capability. Adding a furniture type means
  * adding an entry — never touching the renderers.
  */
-import type { Size3D, Vec2 } from '../model/types'
+import type { SeatingConfig, Size3D, Transform2D, Vec2 } from '../model/types'
 
 export type Category = 'tables' | 'seating' | 'bars' | 'tableDecor' | 'decor' | 'structure'
 
@@ -19,6 +19,30 @@ export interface MaterialSlotDef {
 export type FootprintPart =
   | { kind: 'circle'; r: number; slot: string }
   | { kind: 'rect'; w: number; h: number; cx?: number; cy?: number; cornerRadius?: number; slot: string }
+  /**
+   * Annular sector — a slice of a ring, for curved bands (the serpentine table).
+   * Plan space is y-down exactly like Konva's, so these map 1:1 onto <Arc>:
+   * `startAngle` → its `rotation`, `sweep` → its `angle`, no conversion.
+   *
+   * `sweep` must be POSITIVE (degrees, clockwise on screen). Konva hands `angle`
+   * to canvas `arc()` with counterClockwise=false, so a negative sweep would be
+   * drawn as the 360°-minus complement — the whole ring instead of the slice.
+   * Producers normalise by moving the start angle back instead.
+   *
+   * The one part that cannot be faked with what already exists: rect parts carry
+   * no rotation, so a curved band tiled out of rects or circles renders as a
+   * scalloped caterpillar once ObjectNode strokes every tile.
+   */
+  | {
+      kind: 'arc'
+      cx: number
+      cy: number
+      innerR: number
+      outerR: number
+      startAngle: number
+      sweep: number
+      slot: string
+    }
 
 export type Outline = { kind: 'circle'; r: number } | { kind: 'rect'; w: number; h: number }
 
@@ -52,6 +76,8 @@ export interface CatalogEntry {
   /** key into strings.catalog.items */
   labelKey: string
   defaultSize: Size3D
+  /** initial plan rotation for newly placed instances; existing saved objects are untouched */
+  defaultRotation?: number
   resizable: Array<'width' | 'depth' | 'height'>
   minSize: Partial<Size3D>
   maxSize: Partial<Size3D>
@@ -94,6 +120,22 @@ export interface CatalogEntry {
    */
   zoneKind?: string
   seating?: SeatingCapability
+  /**
+   * Seat placement for a table whose seat line is neither a circle nor a
+   * rectangle (the serpentine). When present, `seatsForEntry` uses this instead
+   * of the generic `computeSeatTransforms`, and capacity comes from asking for
+   * more seats than can fit and counting what comes back — so capacity and
+   * placement can never disagree.
+   *
+   * It is a function here rather than a third `Outline` variant on purpose: a
+   * new variant would force new geometry into all nine outline consumers —
+   * point-in-S-band, clamp-decor-to-S-band, a THREE.Shape and a Konva selection
+   * path among them — and every one of the 40+ existing entries would pay for a
+   * shape one table needs. Entries with `seats` still declare a rect `outline`
+   * of their bounding box, which is conservative in the safe direction: snapping
+   * and venue clamping keep MORE clearance than the real table needs.
+   */
+  seats?: (seating: SeatingConfig, chair: Size3D) => Transform2D[]
   /** show the name label on canvas by default (tables) */
   labelByDefault?: boolean
 }

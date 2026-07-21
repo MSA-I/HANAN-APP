@@ -89,7 +89,7 @@ export function createObject(
     id: newId(),
     catalogId,
     name: '',
-    transform: { position, rotation: 0, elevation },
+    transform: { position: { ...position }, rotation: entry.defaultRotation ?? 0, elevation },
     size: { ...entry.defaultSize },
     parentId: null,
     appearance: {},

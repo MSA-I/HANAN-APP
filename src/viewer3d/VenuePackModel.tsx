@@ -18,34 +18,20 @@ import type { VenuePack } from '../core/venuePacks'
  */
 const CEILING_FRACTION = 0.85
 
-/** Metres of slack when matching a face footprint to a zone rectangle. The zones
- *  were extracted FROM these faces, so a true match is exact — this only absorbs
- *  float noise and the cm rounding in venuePacks.ts. */
-const ZONE_MATCH_TOLERANCE = 0.15
-
 /**
- * A zero-thickness horizontal face whose footprint IS one of the pack's restricted
- * rectangles is a leftover ZONE_* marker, not architecture.
+ * Do NOT reintroduce a "hide faces whose footprint matches a restricted zone"
+ * filter here. It was tried, and it hid `Marble_01_1K1` — the pool's marble
+ * surround, a RING with 24% fill whose outer boundary shares vertices with the
+ * hole in the terrace slab. That deleted the 2 m walkway between the railing and
+ * the coping and let the backdrop show through.
  *
- * glb-prep strips markers by MATERIAL NAME (`ZONE_*`), which misses the ones that
- * kept their original material — in the resort that left `Marble_01_1K1`, an 18-tri
- * white marble slab at y=0 spanning the pool rect exactly, i.e. a lid over the pool.
- * Matching on geometry catches those without hardcoding a material name, and it
- * survives a re-prep. Faces are compared in world space, where three-metres are
- * plan-cm/100 (the pack offset is what makes that true).
+ * The premise was wrong twice over: the shipped GLB has no material whose name
+ * begins with `ZONE` (glb-prep strips them by name at prep time), and zone rects
+ * come from `extract-zones.mjs` as the AABB of the marker — so matching a zone
+ * rect to a real architectural face is structural, not a coincidence. If a marker
+ * ever does survive, test SOLIDITY (triangle area ≥ ~95% of the bbox) instead: a
+ * painted marker fills its rect, a surround ring fills a quarter of it.
  */
-function isZoneMarker(box: Box3, pack: VenuePack): boolean {
-  if (box.max.y - box.min.y > 0.01) return false // real geometry has thickness
-  const near = (a: number, b: number) => Math.abs(a - b) < ZONE_MATCH_TOLERANCE
-  return (pack.restricted ?? []).some(
-    (z) =>
-      near(box.min.x, cmToM(z.x)) &&
-      near(box.max.x, cmToM(z.x + z.width)) &&
-      near(box.min.z, cmToM(z.y)) &&
-      near(box.max.z, cmToM(z.y + z.depth)),
-  )
-}
-
 export function VenuePackModel({ pack }: { pack: VenuePack }) {
   const { scene } = useGLTF(pack.model, '/draco/')
 
@@ -62,10 +48,6 @@ export function VenuePackModel({ pack }: { pack: VenuePack }) {
       if (!mesh.isMesh) return
       if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox()
       box.copy(mesh.geometry.boundingBox!).applyMatrix4(mesh.matrixWorld)
-      if (isZoneMarker(box, pack)) {
-        mesh.visible = false
-        return
-      }
       mesh.receiveShadow = true
       mesh.castShadow = box.min.y < ceilingY
     })
