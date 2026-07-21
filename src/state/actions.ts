@@ -32,6 +32,7 @@ import {
 } from '../core/layout/fillHall'
 import { seatItemTransforms } from '../core/layout/seatItemLayout'
 import { computeSeatTransforms } from '../core/layout/seatLayout'
+import { getHallLayout } from '../core/hallLayouts'
 import {
   getHallDesign,
   getTableDesign,
@@ -611,6 +612,86 @@ export function removeHallDesign(): void {
     for (const id of hallDesignIds(scene)) delete scene.objects[id]
     scene.objectOrder = scene.objectOrder.filter((id) => !!scene.objects[id])
   })
+  pruneSelection()
+}
+
+// ---------------------------------------------------------------------------
+// named hall layouts (core/hallLayouts.ts)
+// ---------------------------------------------------------------------------
+
+/** Tables placed by a named hall layout. */
+function hallLayoutIds(scene: SceneState): Id[] {
+  return scene.objectOrder.filter((id) => scene.objects[id]?.meta.layout !== undefined)
+}
+
+export function hasHallLayout(scene: SceneState): boolean {
+  return hallLayoutIds(scene).length > 0
+}
+
+/** The id of the currently applied layout, or null. */
+export function appliedHallLayoutId(scene: SceneState): string | null {
+  const first = hallLayoutIds(scene)[0]
+  const tag = first ? scene.objects[first].meta.layout : undefined
+  return typeof tag === 'string' ? tag : null
+}
+
+/** Delete every layout-tagged table plus its children (chairs, decor, settings). */
+function deleteHallLayout(scene: SceneState): void {
+  for (const id of hallLayoutIds(scene)) {
+    for (const child of childrenOf(scene, id)) delete scene.objects[child.id]
+    delete scene.objects[id]
+  }
+  scene.objectOrder = scene.objectOrder.filter((id) => !!scene.objects[id])
+}
+
+/**
+ * Place a named layout's tables at their authored positions, replacing any
+ * previous layout (tag-scoped, like applyHallDesign) — hand-placed furniture is
+ * never touched, and collisions with it are not auto-resolved: the authored
+ * positions win, and the expected flow is layout first, personal touches after.
+ * One mutateScene = one undo entry.
+ */
+export function applyHallLayout(layoutId: string): Id[] {
+  const layout = getHallLayout(layoutId)
+  if (!layout) return []
+  const { venue } = get().scene
+  const ids: Id[] = []
+  mutateScene((scene) => {
+    deleteHallLayout(scene)
+    // number once up front — same O(n²) dodge as fillHallWithTables
+    let next =
+      Math.max(
+        0,
+        ...Object.values(scene.objects)
+          .filter((o) => o.seating)
+          .map((o) => (typeof o.meta.number === 'number' ? o.meta.number : 0)),
+      ) + 1
+    for (const placement of layout.placements) {
+      const preset = getTablePreset(placement.presetId)
+      if (!preset) continue
+      const obj = createObject(preset.tableCatalogId, { x: placement.x, y: placement.y }, venue)
+      obj.transform.rotation = placement.rotation ?? 0
+      if (obj.seating) {
+        obj.seating.chairCatalogId = preset.chairCatalogId
+        obj.seating.count = preset.seatCount
+      }
+      obj.meta.number = next++
+      obj.meta.layout = layout.id
+      scene.objects[obj.id] = obj
+      scene.objectOrder.push(obj.id)
+      reconcileSeats(scene, obj.id)
+      unhideCategoryOf(scene, preset.tableCatalogId)
+      unhideCategoryOf(scene, preset.chairCatalogId)
+      ids.push(obj.id)
+    }
+    clampToVenue(scene, ids)
+  })
+  pruneSelection()
+  return ids
+}
+
+export function removeHallLayout(): void {
+  mutateScene(deleteHallLayout)
   pruneSelection()
 }
 

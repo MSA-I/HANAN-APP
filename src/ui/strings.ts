@@ -39,6 +39,7 @@ export const strings = {
       // library, which would otherwise show two items both called 'שולחן אבירים'
       tableBanquet: 'שולחן אבירים בודד',
       tableKnights: 'שולחן אבירים כפול',
+      tableSerpentine: 'שולחן נחש',
       // the venue's six real chairs — the user's own names for them
       chairXWhite: 'לבן איקס',
       chairXWood: 'עץ איקס',
@@ -122,13 +123,16 @@ export const strings = {
     tableDesign: 'עיצוב שולחן',
     hallDesign: 'עיצוב אולם',
     layouts: 'פריסות אולם',
+    autoFill: 'מילוי אוטומטי',
     choose: 'בחרו…',
     apply: 'החל',
     applyAll: 'החל על כל השולחנות',
     remove: 'הסרת העיצוב',
+    removeLayout: 'הסרת הפריסה',
     fillHall: 'מלא אולם',
     fillHint: 'ממלא את השטח הפנוי בשולחנות מהפריסה שנבחרה — מוסיף בלבד, לא מזיז את הקיים',
     seatsSuffix: 'מקומות',
+    tablesSuffix: 'שולחנות',
     items: {
       presetRound12GoldWhite: 'עגול 180 · 12 · זהב לבן',
       presetRound10XWhite: 'עגול 180 · 10 · לבן איקס',
@@ -145,6 +149,8 @@ export const strings = {
       hallChandeliersDiamond: 'נברשות יהלום',
       hallChandeliersBasket: 'נברשות סל קריסטל',
       hallChandeliersCandelabra: 'נברשות קנדלברה',
+      layoutRoundsClassic: 'עגולים קלאסי (דוגמה)',
+      layoutKnightsRows: 'אבירים לאורך (דוגמה)',
     },
   },
   lighting: {

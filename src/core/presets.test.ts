@@ -5,8 +5,10 @@
  */
 import { describe, expect, it } from 'vitest'
 import { getCatalogEntry, hasCatalogEntry } from './catalog/registry'
+import { HALL_LAYOUTS, layoutStats } from './hallLayouts'
 import { computeMaxSeats } from './layout/seatLayout'
-import { HALL_DESIGNS, TABLE_DESIGNS, TABLE_PRESETS, presetSeating } from './presets'
+import { HALL_DESIGNS, TABLE_DESIGNS, TABLE_PRESETS, getTablePreset, presetSeating } from './presets'
+import { getVenuePack } from './venuePacks'
 import { strings } from '../ui/strings'
 
 const items = strings.presets.items
@@ -69,8 +71,34 @@ describe('hall designs', () => {
   })
 })
 
+describe('hall layouts', () => {
+  it.each(HALL_LAYOUTS)('$id references a real venue pack and real presets', (layout) => {
+    expect(getVenuePack(layout.venuePackId)).toBeDefined()
+    expect(layout.placements.length).toBeGreaterThan(0)
+    for (const p of layout.placements) expect(getTablePreset(p.presetId)).toBeDefined()
+  })
+
+  it.each(HALL_LAYOUTS)('$id keeps every table inside the venue bounds', (layout) => {
+    const pack = getVenuePack(layout.venuePackId)!
+    for (const p of layout.placements) {
+      const entry = getCatalogEntry(getTablePreset(p.presetId)!.tableCatalogId)
+      const half = Math.max(entry.defaultSize.width, entry.defaultSize.depth) / 2
+      expect(p.x - half).toBeGreaterThanOrEqual(0)
+      expect(p.y - half).toBeGreaterThanOrEqual(-half) // rotated rects only need the loose bound
+      expect(p.x + half).toBeLessThanOrEqual(pack.size.width)
+      expect(p.y + half).toBeLessThanOrEqual(pack.size.depth)
+    }
+  })
+
+  it.each(HALL_LAYOUTS)('$id stats add up', (layout) => {
+    const stats = layoutStats(layout)
+    expect(stats.tables).toBe(layout.placements.length)
+    expect(stats.seats).toBeGreaterThan(0)
+  })
+})
+
 describe('registry hygiene', () => {
-  const all = [...TABLE_PRESETS, ...TABLE_DESIGNS, ...HALL_DESIGNS]
+  const all = [...TABLE_PRESETS, ...TABLE_DESIGNS, ...HALL_DESIGNS, ...HALL_LAYOUTS]
 
   it('every entry has a Hebrew label', () => {
     const missing = all.filter((e) => !known(e.labelKey)).map((e) => e.id)

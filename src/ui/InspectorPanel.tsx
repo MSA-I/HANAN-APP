@@ -44,7 +44,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { LIGHTING_MODES } from '../viewer3d/lightingModes'
 import { ColorField, FieldRow, NumberField, Section, SliderField, Stepper } from './fields'
 import { LayersSection } from './LayersSection'
-import { ScenePresetsSection, TableDesignSection } from './PresetsSection'
+import { HallLayoutsSection, ScenePresetsSection, TableDesignSection } from './PresetsSection'
 import { strings } from './strings'
 
 const T = strings.inspector
@@ -131,6 +131,7 @@ function ProjectInspector() {
         </p>
       </Section>
       <LightingSection />
+      <HallLayoutsSection />
       <ScenePresetsSection />
       <LayersSection />
     </>

@@ -8,21 +8,26 @@
  */
 import { useState } from 'react'
 import { getCatalogEntry } from '../core/catalog/registry'
+import { layoutStats, layoutsForVenue } from '../core/hallLayouts'
 import type { SceneObject } from '../core/model/types'
 import { HALL_DESIGNS, TABLE_DESIGNS, TABLE_PRESETS } from '../core/presets'
 import {
+  appliedHallLayoutId,
   applyHallDesign,
+  applyHallLayout,
   applyTableDesign,
   applyTableDesignToAll,
   designItems,
   fillHallWithTables,
   hasHallDesign,
   removeHallDesign,
+  removeHallLayout,
   removeTableDesign,
 } from '../state/actions'
 import { isEffectivelyLocked } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { Section } from './fields'
+import { LayoutThumbnail } from './LayoutThumbnail'
 import { strings } from './strings'
 
 const T = strings.presets
@@ -98,6 +103,52 @@ export function TableDesignSection({ obj }: { obj: SceneObject }) {
   )
 }
 
+/**
+ * Named layout picker: a visual grid of top-view schematics, one card per
+ * authored layout for the current venue. Clicking applies (replace semantics —
+ * see applyHallLayout); the active card is marked via aria-pressed.
+ */
+export function HallLayoutsSection() {
+  const venuePackId = useEditorStore((s) => s.scene.venue.venuePackId)
+  const applied = useEditorStore((s) => appliedHallLayoutId(s.scene))
+  const layouts = layoutsForVenue(venuePackId)
+  if (!layouts.length) return null
+
+  return (
+    <Section title={T.layouts}>
+      <div className="grid grid-cols-2 gap-1.5">
+        {layouts.map((layout) => {
+          const stats = layoutStats(layout)
+          const active = applied === layout.id
+          return (
+            <button
+              key={layout.id}
+              type="button"
+              aria-pressed={active}
+              onClick={() => applyHallLayout(layout.id)}
+              className={
+                'flex flex-col gap-1 rounded-md border p-1.5 text-start transition-colors ' +
+                (active ? 'border-accent bg-accent-tint' : 'border-line hover:border-accent')
+              }
+            >
+              <LayoutThumbnail layout={layout} />
+              <span className="text-[11px] font-medium text-ink">{label(layout.labelKey)}</span>
+              <span className="ltr-nums text-[10px] text-ink-soft">
+                {stats.tables} {T.tablesSuffix} · {stats.seats} {T.seatsSuffix}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+      {applied && (
+        <button className={dangerClass} onClick={() => removeHallLayout()}>
+          {T.removeLayout}
+        </button>
+      )}
+    </Section>
+  )
+}
+
 /** Hall-wide operations: fill the floor with tables, hang a ceiling design. */
 export function ScenePresetsSection() {
   const [presetId, setPresetId] = useState(TABLE_PRESETS[0].id)
@@ -106,7 +157,7 @@ export function ScenePresetsSection() {
 
   return (
     <>
-      <Section title={T.layouts}>
+      <Section title={T.autoFill}>
         <Picker value={presetId} onChange={setPresetId} options={TABLE_PRESETS} />
         <button
           className={buttonClass}

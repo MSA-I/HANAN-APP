@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { getCatalogEntry } from '../core/catalog/registry'
+import { HALL_LAYOUTS } from '../core/hallLayouts'
 import { attachedChairs } from '../core/model/seatingReconciler'
 import { getHallDesign, getTableDesign, getTablePreset } from '../core/presets'
 import { getVenuePack } from '../core/venuePacks'
@@ -8,13 +9,17 @@ import {
   addObjectToSurface,
   addSeatItemsToTable,
   addTablePreset,
+  appliedHallLayoutId,
   applyHallDesign,
+  applyHallLayout,
   applyTableDesign,
   applyTableDesignToAll,
   beginGesture,
   designItems,
   fillHallWithTables,
+  hasHallLayout,
   removeHallDesign,
+  removeHallLayout,
   removeTableDesign,
   detachChair,
   duplicateObjects,
@@ -652,5 +657,37 @@ describe('hall designs', () => {
     const at = { x: zone.x + zone.width / 2, y: zone.y + zone.depth / 2 }
     const id = addObject('lamp.chandelier-diamond', at)
     expect(scene().objects[id].transform.position).toEqual(at)
+  })
+})
+
+describe('hall layouts', () => {
+  const LAYOUT = HALL_LAYOUTS[0]
+
+  it('places the authored tables seated and tagged, in one undo entry', () => {
+    newProject({ name: 'resort', venuePackId: 'resort' })
+    const ids = applyHallLayout(LAYOUT.id)
+    expect(ids).toHaveLength(LAYOUT.placements.length)
+    const first = scene().objects[ids[0]]
+    expect(first.meta.layout).toBe(LAYOUT.id)
+    expect(first.meta.number).toBe(1)
+    expect(attachedChairs(scene(), ids[0]).length).toBeGreaterThan(0)
+    expect(appliedHallLayoutId(scene())).toBe(LAYOUT.id)
+    undo()
+    expect(hasHallLayout(scene())).toBe(false)
+  })
+
+  it('re-applying replaces the previous layout; hand-placed furniture survives', () => {
+    newProject({ name: 'resort', venuePackId: 'resort' })
+    const table = addObject('table.round', { x: 400, y: 400 })
+    const first = applyHallLayout('layout.rounds-classic')
+    const second = applyHallLayout('layout.knights-rows')
+    for (const id of first) expect(scene().objects[id]).toBeUndefined()
+    expect(second.length).toBeGreaterThan(0)
+    expect(appliedHallLayoutId(scene())).toBe('layout.knights-rows')
+    expect(scene().objects[table]).toBeDefined()
+    removeHallLayout()
+    expect(hasHallLayout(scene())).toBe(false)
+    expect(scene().objects[table]).toBeDefined()
+    expect(attachedChairs(scene(), table).length).toBeGreaterThan(0)
   })
 })
