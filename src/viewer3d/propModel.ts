@@ -10,10 +10,9 @@
  * chair (a 45cm seat at 74° measures 55cm corner to corner). Scaling to that bbox
  * would squash every rotated model back down.
  *
- * Materials are BAKED (Tripo returns one opaque material per part; the linens are
- * painted into the texture), so unlike the procedural path there is no per-slot
- * colour to apply. That is the point: the frame sent to the AI in phase 3 must
- * carry the venue's real furniture identity.
+ * Materials are cached with the model. ObjectGroup clones them only when an
+ * explicitly editable catalog slot has a color override, preserving maps and PBR
+ * settings while keeping the cached originals untouched.
  */
 import { useMemo } from 'react'
 import { useGLTF } from '@react-three/drei'

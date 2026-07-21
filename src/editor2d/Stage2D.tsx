@@ -13,7 +13,6 @@ import {
   addTablePreset,
   addSeatItemsToTable,
   clearSelection,
-  detachChair,
   duplicateObjects,
   removeObjects,
   reorder,
@@ -441,7 +440,6 @@ export function Stage2D() {
         }
         // drilled-in attached chair
         return [
-          { label: strings.menu.detachChair, onClick: () => detachChair(childId) },
           { label: strings.menu.deleteChair, danger: true, onClick: () => removeObjects([childId]) },
         ]
       }

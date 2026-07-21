@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { getCatalogEntry, listCatalog } from '../catalog/registry'
+import { strings } from '../../ui/strings'
 import { createObject, DEFAULT_WALL_HEIGHT } from './factory'
 
 const at = { x: 100, y: 100 }
@@ -76,7 +77,25 @@ describe('chandelier entries', () => {
 })
 
 describe('every other placement still starts on the floor', () => {
-  it.each(['plant.potted', 'lamp.arc-crystal', 'decor.vase-ceramic'])('%s', (id) => {
+  it.each(['plant.potted', 'plant.potted-2', 'lamp.arc-crystal', 'decor.vase-ceramic'])('%s', (id) => {
     expect(createObject(id, at, { wallHeight: 1160 }).transform.elevation).toBe(0)
+  })
+})
+
+describe('vegetation catalog entries', () => {
+  it.each([
+    ['plant.potted', 'plant', '/props/plant-vegetation-1.glb', '/thumbs/plant-potted.webp', 101, 94.6],
+    ['plant.potted-2', 'plant2', '/props/plant-vegetation-2.glb', '/thumbs/plant-potted-2.webp', 47.5, 43.8],
+  ])('%s matches its prepared model and thumbnail', (id, labelKey, model, thumbnail, width, depth) => {
+    const entry = getCatalogEntry(id as string)
+    expect(entry.labelKey).toBe(labelKey)
+    expect(entry.model).toBe(model)
+    expect(entry.thumbnail).toBe(thumbnail)
+    expect(entry.defaultSize).toEqual({ width, depth, height: 160 })
+  })
+
+  it('uses the approved Hebrew labels', () => {
+    expect(strings.catalog.items.plant).toBe('צמחייה 1')
+    expect(strings.catalog.items.plant2).toBe('צמחייה 2')
   })
 })

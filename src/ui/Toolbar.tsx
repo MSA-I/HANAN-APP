@@ -10,6 +10,7 @@ import {
   MousePointer2,
   Redo2,
   Tag,
+  Trash2,
   Undo2,
 } from 'lucide-react'
 import { useRef, useState } from 'react'
@@ -17,7 +18,7 @@ import { useStore } from 'zustand'
 import { indexedDbRepository } from '../persistence/indexedDbRepository'
 import { makeProjectFile, saveNow } from '../persistence/autosave'
 import { downloadProjectJson, exportFloorPlanPng, importProjectJson } from '../persistence/export'
-import { closeProject, loadProject, redo, setMode, setProjectName, undo, updateSettings } from '../state/actions'
+import { clearAllObjects, closeProject, loadProject, redo, setMode, setProjectName, undo, updateSettings } from '../state/actions'
 import { temporalStore, useEditorStore, type ViewMode } from '../state/store'
 import { overlay, useOverlayStore } from '../editor2d/overlayStore'
 import { strings } from './strings'
@@ -63,6 +64,7 @@ export function Toolbar() {
   const handTool = useOverlayStore((s) => s.handTool)
   const canUndo = useStore(temporalStore, (s) => s.pastStates.length > 0)
   const canRedo = useStore(temporalStore, (s) => s.futureStates.length > 0)
+  const hasObjects = useEditorStore((s) => Object.keys(s.scene.objects).length > 0)
 
   const modes: Array<{ id: ViewMode; label: string }> = [
     { id: '2d', label: strings.viewMode.d2 },
@@ -94,6 +96,9 @@ export function Toolbar() {
         </IconButton>
         <IconButton title={`${strings.toolbar.redo} · Ctrl+Y`} disabled={!canRedo} onClick={redo}>
           <Redo2 size={18} className="rtl:-scale-x-100" />
+        </IconButton>
+        <IconButton title={strings.toolbar.clearAll} disabled={!hasObjects} onClick={clearAllObjects}>
+          <Trash2 size={18} />
         </IconButton>
         <Divider />
         <IconButton title="בחירה · V" active={!handTool} onClick={() => overlay.setHandTool(false)}>

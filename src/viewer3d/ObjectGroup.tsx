@@ -13,7 +13,7 @@
  * - A table's chairs render as one InstancedMesh per material slot, so 10 chairs
  *   cost 2 draw calls and follow the table for free (they live in its group).
  */
-import { Component, Suspense, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
+import { Component, Suspense, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import * as THREE from 'three'
 import { useThree, type ThreeEvent } from '@react-three/fiber'
 import { useShallow } from 'zustand/react/shallow'
@@ -96,7 +96,12 @@ export function ObjectGroup({ id }: { id: Id }) {
     <group ref={groupRef} onClick={handleClick}>
       {entry.model ? (
         <ModelFallback fallback={procedural}>
-          <ModelParts catalogId={catalogId} url={entry.model} size={size} />
+          <ModelParts
+            catalogId={catalogId}
+            url={entry.model}
+            size={size}
+            color={entry.editableColorSlot ? appearance[entry.editableColorSlot]?.color : undefined}
+          />
         </ModelFallback>
       ) : (
         procedural
@@ -189,7 +194,12 @@ function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
     <group ref={groupRef} onClick={handleClick}>
       {entry.model ? (
         <ModelFallback fallback={procedural}>
-          <ModelParts catalogId={catalogId} url={entry.model} size={size} />
+          <ModelParts
+            catalogId={catalogId}
+            url={entry.model}
+            size={size}
+            color={entry.editableColorSlot ? appearance[entry.editableColorSlot]?.color : undefined}
+          />
         </ModelFallback>
       ) : (
         procedural
@@ -200,16 +210,49 @@ function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
 }
 
 /**
- * The real GLB of a catalog entry. Selection is shown by the floor outline only —
- * baked materials are shared across every instance of the model, so tinting one
- * selected object would tint them all.
+ * The real GLB of a catalog entry. An editable appearance override gets private
+ * cloned materials, keeping textures/PBR data intact without tinting other instances.
  */
-function ModelParts({ catalogId, url, size }: { catalogId: string; url: string; size: Size3D }) {
+function ModelParts({
+  catalogId,
+  url,
+  size,
+  color,
+}: {
+  catalogId: string
+  url: string
+  size: Size3D
+  color?: string
+}) {
   const parts = useModelParts(catalogId, url, size)
+  const tintedMaterials = useMemo(
+    () =>
+      color
+        ? parts.map(({ material }) => {
+            const clone = material.clone()
+            const tintable = clone as THREE.Material & { color?: THREE.Color }
+            if (tintable.color?.isColor) tintable.color.set(color)
+            return clone
+          })
+        : null,
+    [color, parts],
+  )
+  useEffect(
+    () => () => {
+      tintedMaterials?.forEach((material) => material.dispose())
+    },
+    [tintedMaterials],
+  )
   return (
     <>
-      {parts.map(({ key, geometry, material }) => (
-        <mesh key={key} geometry={geometry} material={material} castShadow receiveShadow />
+      {parts.map(({ key, geometry, material }, index) => (
+        <mesh
+          key={key}
+          geometry={geometry}
+          material={tintedMaterials?.[index] ?? material}
+          castShadow
+          receiveShadow
+        />
       ))}
     </>
   )

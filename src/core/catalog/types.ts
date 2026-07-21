@@ -84,13 +84,16 @@ export interface CatalogEntry {
   /** round tables etc.: diameter — width and depth stay equal */
   linkWidthDepth?: boolean
   materialSlots: MaterialSlotDef[]
+  /** the only material slot the user may recolor; omitted means appearance is fixed */
+  editableColorSlot?: string
   footprint: (size: Size3D) => FootprintSpec
   buildMesh: (size: Size3D) => MeshPart[]
   /**
    * URL of a real GLB (public/props/, prepped by glb-prep --mode prop). When set,
-   * the 3D viewer renders this model instead of `buildMesh` — its materials are
-   * baked, so `materialSlots` colours no longer apply in 3D (they still drive the
-   * 2D footprint). `buildMesh` stays as the loading/error fallback.
+   * the 3D viewer renders this model instead of `buildMesh`. When
+   * `editableColorSlot` is set, an explicit override tints cloned model materials
+   * while preserving their textures and PBR properties. `buildMesh` stays as the
+   * loading/error fallback.
    */
   model?: string
   /**

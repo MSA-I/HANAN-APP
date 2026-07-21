@@ -14,6 +14,7 @@ export const strings = {
     backToDashboard: 'חזרה לפרויקטים',
     undo: 'ביטול',
     redo: 'ביצוע חוזר',
+    clearAll: 'ניקוי כל האלמנטים',
     export: 'ייצוא',
     exportPng: 'תוכנית רצפה (PNG)',
     exportJson: 'קובץ פרויקט (JSON)',
@@ -58,7 +59,8 @@ export const strings = {
       djBooth: 'עמדת DJ',
       bar: 'בר',
       buffet: 'עמדת בופה',
-      plant: 'צמח',
+      plant: 'צמחייה 1',
+      plant2: 'צמחייה 2',
       divider: 'מחיצה',
       // ceiling-hung — the height in each entry IS the drop from the ceiling
       lampPendant: 'מנורה תלויה',
@@ -199,8 +201,6 @@ export const strings = {
     maxSeats: 'מקסימום',
     spacing: 'מרווח כיסאות (ס״מ)',
     chairModel: 'דגם כיסא',
-    chairColors: 'צבעי הכיסאות',
-    detachAll: 'ניתוק כל הכיסאות',
     removeSettings: 'הסרת ערכות סכו״ם',
     appearance: 'מראה',
     name: 'שם',
@@ -218,7 +218,6 @@ export const strings = {
     distributeX: 'פיזור אופקי',
     distributeY: 'פיזור אנכי',
     deleteSelected: 'מחיקת הנבחרים',
-    detachChair: 'ניתוק כיסא',
     belongsTo: 'משתייך לשולחן',
   },
   statusBar: {
@@ -294,8 +293,6 @@ export const strings = {
     selectAll: 'בחירת הכול',
     fitVenue: 'התאמה לאולם',
     zoom100: 'תצוגה 100%',
-    detachChair: 'ניתוק כיסא',
-    detachAll: 'ניתוק כל הכיסאות',
     deleteChair: 'מחיקת כיסא',
   },
 } as const

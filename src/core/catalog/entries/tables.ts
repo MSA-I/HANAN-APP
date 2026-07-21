@@ -27,6 +27,7 @@ export const roundTable: CatalogEntry = {
   maxSize: {},
   linkWidthDepth: true,
   materialSlots: [CLOTH, LEGS],
+  editableColorSlot: 'cloth',
   footprint: (s) => ({
     parts: [{ kind: 'circle', r: s.width / 2, slot: 'cloth' }],
     outline: { kind: 'circle', r: s.width / 2 },
@@ -49,6 +50,7 @@ export const roundTableLarge: CatalogEntry = {
   maxSize: {},
   linkWidthDepth: true,
   materialSlots: [CLOTH, LEGS],
+  editableColorSlot: 'cloth',
   footprint: (s) => ({
     parts: [{ kind: 'circle', r: s.width / 2, slot: 'cloth' }],
     outline: { kind: 'circle', r: s.width / 2 },
@@ -71,6 +73,7 @@ export const squareTable: CatalogEntry = {
   maxSize: {},
   linkWidthDepth: true,
   materialSlots: [CLOTH, LEGS],
+  editableColorSlot: 'cloth',
   footprint: (s) => ({
     parts: [{ kind: 'rect', w: s.width, h: s.depth, cornerRadius: 3, slot: 'cloth' }],
     outline: { kind: 'rect', w: s.width, h: s.depth },
@@ -98,6 +101,7 @@ export const banquetTable: CatalogEntry = {
   minSize: {},
   maxSize: {},
   materialSlots: [CLOTH, LEGS],
+  editableColorSlot: 'cloth',
   footprint: (s) => ({
     parts: [{ kind: 'rect', w: s.width, h: s.depth, cornerRadius: 2, slot: 'cloth' }],
     outline: { kind: 'rect', w: s.width, h: s.depth },
@@ -134,6 +138,7 @@ export const knightsTable: CatalogEntry = {
   minSize: {},
   maxSize: {},
   materialSlots: [CLOTH, LEGS],
+  editableColorSlot: 'cloth',
   footprint: (s) => ({
     // two halves drawn separately so the join between the butted tables shows
     parts: [
@@ -191,6 +196,7 @@ export const serpentineTable: CatalogEntry = {
   minSize: {},
   maxSize: {},
   materialSlots: [CLOTH, LEGS],
+  editableColorSlot: 'cloth',
   footprint: (s) => {
     const band = serpentineBounds()
     return {

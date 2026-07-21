@@ -102,13 +102,6 @@ export function ColorField({ label, value, onChange }: ColorFieldProps) {
     <div>
       <div className="mb-1.5 flex items-center justify-between">
         <span className="text-[12px] text-ink-soft">{label}</span>
-        <input
-          type="color"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="h-6 w-8 cursor-pointer rounded border border-line bg-panel p-0.5"
-          aria-label={label}
-        />
       </div>
       <div className="flex flex-wrap gap-1">
         {EVENT_SWATCHES.map((c) => (
@@ -123,6 +116,7 @@ export function ColorField({ label, value, onChange }: ColorFieldProps) {
             style={{ background: c }}
             onClick={() => onChange(c)}
             aria-label={c}
+            aria-pressed={value.toLowerCase() === c}
           />
         ))}
       </div>

@@ -15,13 +15,13 @@ import {
   applyTableDesign,
   applyTableDesignToAll,
   beginGesture,
+  clearAllObjects,
   designItems,
   fillHallWithTables,
   hasHallLayout,
   removeHallDesign,
   removeHallLayout,
   removeTableDesign,
-  detachChair,
   duplicateObjects,
   endGesture,
   moveObjectsBy,
@@ -40,6 +40,7 @@ import {
   setSize,
   undo,
 } from './actions'
+import { overlay, useOverlayStore } from '../editor2d/overlayStore'
 import { isObjectVisible, objectAABB, visibleTopLevelIds } from './selectors'
 import { projectFromState, temporalStore, useEditorStore } from './store'
 
@@ -143,25 +144,80 @@ describe('seating reconciliation', () => {
     expect(att?.kind === 'seat' && att.manual).toBe(true)
   })
 
-  it('detaching a chair bakes world position and shrinks the seat count', () => {
-    const id = addObject('table.round', { x: 500, y: 500 })
-    const chair = attachedChairs(scene(), id)[0]
-    const localX = chair.transform.position.x
-    detachChair(chair.id)
-    const detached = scene().objects[chair.id]
-    expect(detached.parentId).toBeNull()
-    expect(detached.attachment).toBeUndefined()
-    expect(detached.transform.position.x).toBeCloseTo(500 + localX)
-    expect(scene().objects[id].seating?.count).toBe(SEATS - 1)
-    expect(attachedChairs(scene(), id)).toHaveLength(SEATS - 1)
-    expect(scene().objectOrder).toContain(chair.id)
-  })
-
   it('seat count clamps to physical capacity', () => {
     const id = addObject('table.round', { x: 0, y: 0 })
     setSeatCount(id, 99)
     expect(scene().objects[id].seating?.count).toBe(13)
     expect(attachedChairs(scene(), id)).toHaveLength(13)
+  })
+})
+
+describe('appearance permissions', () => {
+  it('allows only the cloth slot on every table', () => {
+    const tableIds = [
+      'table.round',
+      'table.round-large',
+      'table.square',
+      'table.banquet',
+      'table.knights-480',
+      'table.serpentine',
+    ]
+    for (const catalogId of tableIds) {
+      expect(getCatalogEntry(catalogId).editableColorSlot).toBe('cloth')
+      const id = addObject(catalogId, { x: 800, y: 800 })
+      setAppearance([id], 'cloth', '#33518f')
+      setAppearance([id], 'legs', '#ffffff')
+      expect(scene().objects[id].appearance).toEqual({ cloth: { color: '#33518f' } })
+    }
+  })
+
+  it('allows body on the two napkins and rejects every other item and slot', () => {
+    const tableId = addObject('table.round', { x: 500, y: 500 })
+    for (const catalogId of ['decor.napkin-folded', 'decor.napkin-white']) {
+      expect(getCatalogEntry(catalogId).editableColorSlot).toBe('body')
+      const id = addObjectToSurface(catalogId, tableId, { x: 500, y: 500 })!
+      setAppearance([id], 'body', '#7a2e3f')
+      setAppearance([id], 'cloth', '#ffffff')
+      expect(scene().objects[id].appearance).toEqual({ body: { color: '#7a2e3f' } })
+    }
+
+    const chairId = attachedChairs(scene(), tableId)[0].id
+    const plantId = addObject('plant.potted', { x: 900, y: 500 })
+    const decorId = addObjectToSurface('decor.vase-ceramic', tableId, { x: 500, y: 500 })!
+    setAppearance([chairId, plantId, decorId], 'body', '#ffffff')
+    expect(scene().objects[chairId].appearance).toEqual({})
+    expect(scene().objects[plantId].appearance).toEqual({})
+    expect(scene().objects[decorId].appearance).toEqual({})
+  })
+})
+
+describe('clear all objects', () => {
+  it('clears locked roots and children, cancels placement, and supports undo/redo', () => {
+    const venueBefore = scene().venue
+    const tableId = addObject('table.round', { x: 500, y: 500 })
+    const plantId = addObject('plant.potted', { x: 900, y: 500 })
+    setLocked([tableId], true)
+    setLayerLocked('decor', true)
+    select([tableId, plantId])
+    overlay.setPlacing('plant.potted-2')
+
+    const objectCount = Object.keys(scene().objects).length
+    clearAllObjects()
+    expect(scene().objectOrder).toEqual([])
+    expect(scene().objects).toEqual({})
+    expect(scene().venue).toEqual(venueBefore)
+    expect(useEditorStore.getState().selection).toEqual([])
+    expect(useOverlayStore.getState().placing).toBeNull()
+    expect(useOverlayStore.getState().ghost).toBeNull()
+
+    undo()
+    expect(Object.keys(scene().objects)).toHaveLength(objectCount)
+    expect(scene().objects[tableId].flags.locked).toBe(true)
+    expect(scene().objects[plantId]).toBeDefined()
+
+    redo()
+    expect(scene().objects).toEqual({})
+    expect(scene().objectOrder).toEqual([])
   })
 })
 

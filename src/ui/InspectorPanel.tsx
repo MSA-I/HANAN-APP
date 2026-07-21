@@ -13,21 +13,17 @@ import {
 import { getCatalogEntry, hasCatalogEntry, listByCategory } from '../core/catalog/registry'
 import { slotColor } from '../core/catalog/types'
 import { maxSeatsForEntry } from '../core/layout/seatLayout'
-import { attachedChairs } from '../core/model/seatingReconciler'
 import type { LightingMode, SceneObject } from '../core/model/types'
 import { composeTransform } from '../core/space'
 import { displayName } from '../editor2d/ObjectNode'
 import { getVenuePack } from '../core/venuePacks'
 import {
   alignObjects,
-  detachAllChairs,
-  detachChair,
   distributeObjects,
   removeObjects,
   removeSeatItems,
   seatItems,
   setAppearance,
-  setChairAppearance,
   setLocked,
   setName,
   setLighting,
@@ -139,8 +135,6 @@ function ProjectInspector() {
 }
 
 function SeatingSection({ obj }: { obj: SceneObject }) {
-  // reflect the actual chairs' colors, not just the catalog defaults
-  const firstChair = useEditorStore((s) => attachedChairs(s.scene, obj.id)[0] ?? null)
   // adding place settings is the drop gesture itself; only removal needs a button
   const settingCount = useEditorStore((s) => seatItems(s.scene, obj.id).length)
   if (!obj.seating) return null
@@ -185,22 +179,6 @@ function SeatingSection({ obj }: { obj: SceneObject }) {
           ))}
         </select>
       </FieldRow>
-      {chairEntry.materialSlots.map((slot) => (
-        <ColorField
-          key={slot.name}
-          label={`${strings.catalog.slots[slot.labelKey as keyof typeof strings.catalog.slots]} (כיסאות)`}
-          value={firstChair?.appearance[slot.name]?.color ?? slot.defaultColor}
-          onChange={(c) => setChairAppearance(obj.id, slot.name, c)}
-        />
-      ))}
-      {obj.seating.count > 0 && (
-        <button
-          className="mt-1 rounded-md border border-line px-2 py-1.5 text-[12px] text-ink-soft hover:border-danger hover:text-danger"
-          onClick={() => detachAllChairs(obj.id)}
-        >
-          {T.detachAll}
-        </button>
-      )}
       {settingCount > 0 && (
         <button
           className="rounded-md border border-line px-2 py-1.5 text-[12px] text-ink-soft hover:border-danger hover:text-danger"
@@ -221,6 +199,9 @@ function ChairInspector({ obj }: { obj: SceneObject }) {
   const world = parent ? composeTransform(parent.transform, obj.transform) : obj.transform
   const parentName = parent ? displayName(parent.name, parent.catalogId, parent.meta.number) : ''
   const fmt = (cm: number) => (Math.round(cm) / 100).toFixed(2)
+  const editableSlot = entry.editableColorSlot
+    ? entry.materialSlots.find((slot) => slot.name === entry.editableColorSlot)
+    : undefined
 
   return (
     <>
@@ -245,28 +226,19 @@ function ChairInspector({ obj }: { obj: SceneObject }) {
           onCommit={(v) => setRotation(obj.id, v)}
         />
       </Section>
-      <Section title={T.appearance}>
-        {entry.materialSlots.map((slot) => (
+      {editableSlot && (
+        <Section title={T.appearance}>
           <ColorField
-            key={slot.name}
-            label={strings.catalog.slots[slot.labelKey as keyof typeof strings.catalog.slots] ?? slot.name}
-            value={slotColor(entry, obj.appearance, slot.name)}
-            onChange={(c) => setAppearance([obj.id], slot.name, c)}
+            label={strings.catalog.slots[editableSlot.labelKey as keyof typeof strings.catalog.slots] ?? editableSlot.name}
+            value={slotColor(entry, obj.appearance, editableSlot.name)}
+            onChange={(c) => setAppearance([obj.id], editableSlot.name, c)}
           />
-        ))}
-      </Section>
+        </Section>
+      )}
       <Section title={obj.attachment?.kind === 'surface' ? strings.drill.decor : strings.drill.chair}>
         <p className="text-[12px] text-ink-soft">
           {T.belongsTo} <span className="font-semibold text-ink">{parentName}</span>
         </p>
-        {obj.attachment?.kind !== 'surface' && (
-          <button
-            className="mt-1 rounded-md border border-line px-2 py-1.5 text-[12px] text-ink-soft hover:border-danger hover:text-danger"
-            onClick={() => detachChair(obj.id)}
-          >
-            {T.detachChair}
-          </button>
-        )}
       </Section>
     </>
   )
@@ -284,6 +256,9 @@ function SingleInspector({ obj }: { obj: SceneObject }) {
   const canW = entry.resizable.includes('width')
   const canD = entry.resizable.includes('depth') && !entry.linkWidthDepth
   const canH = entry.resizable.includes('height')
+  const editableSlot = entry.editableColorSlot
+    ? entry.materialSlots.find((slot) => slot.name === entry.editableColorSlot)
+    : undefined
 
   return (
     <>
@@ -332,16 +307,15 @@ function SingleInspector({ obj }: { obj: SceneObject }) {
       </Section>
       <SeatingSection obj={obj} />
       <TableDesignSection obj={obj} />
-      <Section title={T.appearance}>
-        {entry.materialSlots.map((slot) => (
+      {editableSlot && (
+        <Section title={T.appearance}>
           <ColorField
-            key={slot.name}
-            label={strings.catalog.slots[slot.labelKey as keyof typeof strings.catalog.slots] ?? slot.name}
-            value={slotColor(entry, obj.appearance, slot.name)}
-            onChange={(c) => setAppearance([obj.id], slot.name, c)}
+            label={strings.catalog.slots[editableSlot.labelKey as keyof typeof strings.catalog.slots] ?? editableSlot.name}
+            value={slotColor(entry, obj.appearance, editableSlot.name)}
+            onChange={(c) => setAppearance([obj.id], editableSlot.name, c)}
           />
-        ))}
-      </Section>
+        </Section>
+      )}
     </>
   )
 }

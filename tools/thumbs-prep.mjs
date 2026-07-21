@@ -43,6 +43,8 @@ const MAPPING = [
   // NOT "…05_36_28 PM.png" — that green-marble bar is the HALL's built-in bar.
   { id: 'bar.straight', src: 'hf_20260716_135125_47b47fe3-7f8f-4c59-9400-3df6bda50128.png' },
   { id: 'dj.booth', src: 'ChatGPT Image Jul 15, 2026, 06_13_32 PM.png' },
+  { id: 'plant.potted', src: 'צמחייה 1.png' },
+  { id: 'plant.potted-2', src: 'צמחייה 2.png' },
   // table decor — product shots from עיצובי בסיס ריזורט, matched by rendering
   // every GLB next to every candidate photo (2026-07-19; several models are a
   // different item than their filename suggests). One photo is NOT mapped:

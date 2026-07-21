@@ -18,7 +18,7 @@ import type {
   Transform2D,
   Vec2,
 } from '../core/model/types'
-import { composeTransform, relativeTransform, rotateVec } from '../core/space'
+import { relativeTransform, rotateVec } from '../core/space'
 import { aabbUnion, outlineAABB, type AABB } from '../core/layout/bounds'
 import {
   CEILING_INSET,
@@ -41,6 +41,7 @@ import {
   type TableDesign,
 } from '../core/presets'
 import { getVenuePack, type RestrictedZone } from '../core/venuePacks'
+import { overlay } from '../editor2d/overlayStore'
 import {
   childrenOf,
   isEffectivelyLocked,
@@ -746,6 +747,17 @@ export function removeObjects(ids: Id[]): void {
   pruneSelection()
 }
 
+/** Remove the complete object graph in one undo step, regardless of locks. */
+export function clearAllObjects(): void {
+  mutateScene((scene) => {
+    scene.objects = {}
+    scene.objectOrder = []
+  })
+  pruneSelection()
+  overlay.setPlacing(null)
+  overlay.setGhost(null)
+}
+
 export function duplicateObjects(ids: Id[], offset: Vec2 = { x: 50, y: 50 }): Id[] {
   const newIds: Id[] = []
   mutateScene((scene) => {
@@ -916,36 +928,6 @@ export function setSeatingConfig(id: Id, patch: Partial<SeatingConfig>): void {
   })
 }
 
-export function detachChair(chairId: Id): void {
-  mutateScene((scene) => {
-    const chair = scene.objects[chairId]
-    if (!chair?.parentId || !chair.attachment) return
-    const table = scene.objects[chair.parentId]
-    chair.transform = table ? composeTransform(table.transform, chair.transform) : chair.transform
-    chair.parentId = null
-    delete chair.attachment
-    scene.objectOrder.push(chairId)
-    if (table?.seating) {
-      table.seating.count = Math.max(0, table.seating.count - 1)
-      reconcileSeats(scene, table.id)
-    }
-  })
-}
-
-export function detachAllChairs(tableId: Id): void {
-  mutateScene((scene) => {
-    const table = scene.objects[tableId]
-    if (!table?.seating) return
-    for (const chair of attachedChairs(scene, tableId)) {
-      chair.transform = composeTransform(table.transform, chair.transform)
-      chair.parentId = null
-      delete chair.attachment
-      scene.objectOrder.push(chair.id)
-    }
-    table.seating.count = 0
-  })
-}
-
 // ---------------------------------------------------------------------------
 // appearance, naming, flags, order
 // ---------------------------------------------------------------------------
@@ -953,16 +935,8 @@ export function detachAllChairs(tableId: Id): void {
 export function setAppearance(ids: Id[], slot: string, color: string): void {
   mutateScene((scene) => {
     for (const obj of editable(scene, ids)) {
+      if (getCatalogEntry(obj.catalogId).editableColorSlot !== slot) continue
       obj.appearance[slot] = { color }
-    }
-  })
-}
-
-/** Recolor every chair attached to a table (and remember for future chairs). */
-export function setChairAppearance(tableId: Id, slot: string, color: string): void {
-  mutateScene((scene) => {
-    for (const chair of attachedChairs(scene, tableId)) {
-      chair.appearance[slot] = { color }
     }
   })
 }
@@ -1091,12 +1065,6 @@ export function setVenueSize(width: number, depth: number): void {
 export function setWallHeight(height: number): void {
   mutateScene((scene) => {
     scene.venue.wallHeight = Math.max(100, height)
-  })
-}
-
-export function setFloorColor(color: string): void {
-  mutateScene((scene) => {
-    scene.venue.floor.color = color
   })
 }
 

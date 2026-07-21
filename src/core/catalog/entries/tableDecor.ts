@@ -73,7 +73,10 @@ export const tableDecorEntries: CatalogEntry[] = [
   surfaceProp('decor.vase-flowers-a', 'decorVaseFlowersA', P('decor-vase-flowers-a.glb'), { width: 10.9, depth: 42, height: 45 }, '#c98ba0', 'rect'),
   surfaceProp('decor.vase-flowers-b', 'decorVaseFlowersB', P('decor-vase-flowers-b.glb'), { width: 16.9, depth: 19.1, height: 45 }, '#c98ba0'),
   surfaceProp('decor.fabric-folded', 'decorFabricFolded', P('decor-fabric-folded.glb'), { width: 6, depth: 10.8, height: 12 }, '#e8e2d8', 'rect'),
-  surfaceProp('decor.napkin-folded', 'decorNapkinFolded', P('decor-napkin-folded.glb'), { width: 12.2, depth: 30.8, height: 10 }, '#f0ece4', 'rect'),
+  {
+    ...surfaceProp('decor.napkin-folded', 'decorNapkinFolded', P('decor-napkin-folded.glb'), { width: 12.2, depth: 30.8, height: 10 }, '#f0ece4', 'rect'),
+    editableColorSlot: 'body',
+  },
   surfaceProp('decor.candleholders-glass', 'decorCandleholdersGlass', P('decor-candleholders-glass.glb'), { width: 5.4, depth: 29.4, height: 20 }, '#ccd6da', 'rect'),
   surfaceProp('decor.candelabrum-gold', 'decorCandelabrumGold', P('decor-candelabrum-gold.glb'), { width: 30.3, depth: 36.8, height: 55 }, '#c9a86a'),
   surfaceProp('decor.candlestick-gold', 'decorCandlestickGold', P('decor-candlestick-gold.glb'), { width: 6.1, depth: 12.5, height: 40 }, '#c9a86a'),
@@ -86,7 +89,10 @@ export const tableDecorEntries: CatalogEntry[] = [
   surfaceProp('decor.vases-rose-gold', 'decorVasesRoseGold', P('decor-vases-rose-gold.glb'), { width: 51.9, depth: 71.7, height: 38 }, '#d2a08a', 'rect'),
   surfaceProp('decor.vase-striped', 'decorVaseStriped', P('decor-vase-striped.glb'), { width: 17.9, depth: 18.9, height: 35 }, '#8f8a80'),
   surfaceProp('decor.vases-white-ceramic', 'decorVasesWhiteCeramic', P('decor-vases-white-ceramic.glb'), { width: 28.4, depth: 33.6, height: 35 }, '#e9e5dd'),
-  surfaceProp('decor.napkin-white', 'decorNapkinWhite', P('decor-napkin-white.glb'), { width: 8.6, depth: 5.4, height: 8 }, '#f3f0ea', 'rect'),
+  {
+    ...surfaceProp('decor.napkin-white', 'decorNapkinWhite', P('decor-napkin-white.glb'), { width: 8.6, depth: 5.4, height: 8 }, '#f3f0ea', 'rect'),
+    editableColorSlot: 'body',
+  },
   surfaceProp('decor.candleholders-wood', 'decorCandleholdersWood', P('decor-candleholders-wood.glb'), { width: 5.3, depth: 21.1, height: 25 }, '#8a6b4f', 'rect'),
   surfaceProp('decor.candlestick-wood', 'decorCandlestickWood', P('decor-candlestick-wood.glb'), { width: 6.3, depth: 25.1, height: 30 }, '#8a6b4f', 'rect'),
   // The only 'seat'-placement entry: dropping it on a table lays one out in front

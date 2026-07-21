@@ -1,31 +1,54 @@
 import type { CatalogEntry } from '../types'
 
-export const pottedPlant: CatalogEntry = {
-  id: 'plant.potted',
-  category: 'decor',
-  labelKey: 'plant',
-  defaultSize: { width: 50, depth: 50, height: 160 },
-  resizable: ['width', 'height'],
-  minSize: { width: 30, height: 80 },
-  maxSize: { width: 100, height: 300 },
-  linkWidthDepth: true,
-  materialSlots: [
-    { name: 'pot', labelKey: 'pot', defaultColor: '#b8afa3' },
-    { name: 'foliage', labelKey: 'foliage', defaultColor: '#5f7f4f' },
-  ],
-  footprint: (s) => ({
-    parts: [{ kind: 'circle', r: s.width / 2, slot: 'foliage' }],
-    outline: { kind: 'circle', r: s.width / 2 },
-  }),
-  buildMesh: (s) => {
-    const potH = s.height * 0.25
-    const foliageR = s.width * 0.65
-    return [
-      { shape: 'cylinder', dims: [s.width * 0.35, s.width * 0.28, potH], offset: [0, potH / 2, 0], slot: 'pot' },
-      { shape: 'sphere', dims: [foliageR], offset: [0, potH + (s.height - potH) * 0.55, 0], slot: 'foliage' },
-    ]
-  },
+function vegetationEntry(
+  id: string,
+  labelKey: string,
+  size: { width: number; depth: number; height: number },
+  model: string,
+): CatalogEntry {
+  return {
+    id,
+    category: 'decor',
+    labelKey,
+    defaultSize: size,
+    resizable: ['width', 'depth', 'height'],
+    minSize: { width: 30, depth: 30, height: 80 },
+    maxSize: { width: 200, depth: 200, height: 300 },
+    materialSlots: [
+      { name: 'pot', labelKey: 'pot', defaultColor: '#b8afa3' },
+      { name: 'foliage', labelKey: 'foliage', defaultColor: '#5f7f4f' },
+    ],
+    footprint: (s) => ({
+      parts: [{ kind: 'rect', w: s.width, h: s.depth, cornerRadius: Math.min(s.width, s.depth) / 2, slot: 'foliage' }],
+      outline: { kind: 'rect', w: s.width, h: s.depth },
+    }),
+    buildMesh: (s) => {
+      const potH = s.height * 0.25
+      const foliageR = s.width * 0.65
+      return [
+        { shape: 'cylinder', dims: [s.width * 0.35, s.width * 0.28, potH], offset: [0, potH / 2, 0], slot: 'pot' },
+        { shape: 'sphere', dims: [foliageR], offset: [0, potH + (s.height - potH) * 0.55, 0], slot: 'foliage' },
+      ]
+    },
+    model,
+    thumbnail: `/thumbs/${id.replaceAll('.', '-')}.webp`,
+  }
 }
+
+/** `plant.potted` is retained so saved projects continue to load as vegetation 1. */
+export const pottedPlant = vegetationEntry(
+  'plant.potted',
+  'plant',
+  { width: 101, depth: 94.6, height: 160 },
+  '/props/plant-vegetation-1.glb',
+)
+
+export const pottedPlant2 = vegetationEntry(
+  'plant.potted-2',
+  'plant2',
+  { width: 47.5, depth: 43.8, height: 160 },
+  '/props/plant-vegetation-2.glb',
+)
 
 export const dividerScreen: CatalogEntry = {
   id: 'divider.screen',
@@ -76,4 +99,4 @@ export const arcLampCrystal: CatalogEntry = {
   thumbnail: '/thumbs/lamp-arc-crystal.webp',
 }
 
-export const decorEntries = [pottedPlant, dividerScreen, arcLampCrystal]
+export const decorEntries = [pottedPlant, pottedPlant2, dividerScreen, arcLampCrystal]

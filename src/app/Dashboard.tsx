@@ -15,7 +15,6 @@ import { makeProjectFile } from '../persistence/autosave'
 import { indexedDbRepository } from '../persistence/indexedDbRepository'
 import { stringsPersist as S } from '../persistence/stringsPersist'
 import type { ProjectSummary } from '../persistence/types'
-import { ColorField } from '../ui/fields'
 
 const repo = indexedDbRepository
 
@@ -94,7 +93,6 @@ interface NewProjectResult {
   eventDate?: string
   widthM: number
   depthM: number
-  floorColor: string
   sample: boolean
   venuePackId: string | null
 }
@@ -319,7 +317,6 @@ function NewProjectModal({
   const [date, setDate] = useState('')
   const [width, setWidth] = useState('24')
   const [depth, setDepth] = useState('16')
-  const [floorColor, setFloorColor] = useState('#efebe4') // factory default
   const [sample, setSample] = useState(false)
   const [venuePackId, setVenuePackId] = useState<string | null>(null)
   const [submitted, setSubmitted] = useState(false)
@@ -350,7 +347,6 @@ function NewProjectModal({
       eventDate: date || undefined,
       widthM: toMeters(width, 24),
       depthM: toMeters(depth, 16),
-      floorColor,
       sample,
       venuePackId,
     })
@@ -438,9 +434,6 @@ function NewProjectModal({
                 className={`${inputClass} ltr-nums`}
               />
             </label>
-            <div className="col-span-2">
-              <ColorField label={S.newModal.floorColor} value={floorColor} onChange={setFloorColor} />
-            </div>
           </div>
         )}
         <div>
@@ -569,7 +562,6 @@ export function Dashboard({ onOpen }: { onOpen: (project: Project) => void }) {
         venueWidth: Math.round(r.widthM * 100),
         venueDepth: Math.round(r.depthM * 100),
         venuePackId: r.venuePackId,
-        floorColor: r.venuePackId ? undefined : r.floorColor,
       })
       if (r.sample) buildSampleScene(project)
       await repo.save(makeProjectFile(project))
