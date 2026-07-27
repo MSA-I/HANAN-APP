@@ -14,9 +14,8 @@
  *
  * Sizing. Each entry declares the size glb-prep left in its GLB and the catalog
  * derives `defaultSize` from it, so the two can never drift apart — see
- * CATALOG_SCALE. Six of the eight end up deeper than the shallow 425 cm ceremony
- * marker and are centred on it by the zone clamp, which also quantises their
- * rotation to quarter turns.
+ * CATALOG_SCALE. All eight fit inside the 425 cm ceremony marker, so none is
+ * force-centred or quarter-turned by the zone clamp.
  *
  * ⚠ The Tripo filenames lie harder here than usual, so every mapping below came
  * from rendering the model and matching it to a product shot, never from the
@@ -37,20 +36,20 @@ const POST = 10
 const TOP = 8
 
 /**
- * Catalogued size ÷ the model's own size. 1.5 is the real-world upscale the
- * group has always carried (the GLBs are prepped at the Tripo-measured size and
- * the resort's structures are half again bigger); 1.2 is the further rescale
- * asked for in §14 of the corrections document.
+ * Catalogued size ÷ the model's own size. §14 of the corrections document reads
+ * "a scale was applied to the chuppot in the past, return them to the ORIGINAL
+ * size and rescale by 1.2" — the past scale is the 1.5 this group used to carry,
+ * so the instruction drops it and leaves 1.2 over the GLB's own size. Confirmed
+ * by the user 2026-07-28 (BLOCKED-01-A3.md §4).
  *
- * ⚠ §14 reads "return them to the original size and rescale by 1.2", which can
- * also mean DROP the 1.5 and keep only the 1.2 — i.e. this constant would be
- * 1.2, and every chuppah would fit the 425 cm ceremony zone instead of
- * overhanging it. Open question, see Plans/handoff/BLOCKED-01-A3.md. It is one
- * constant either way because nothing else states these sizes.
+ * At 1.2 all eight fit inside the 760×425 ceremony marker the user drew — the
+ * deepest is 417.6 cm — so none is centred-and-quarter-turned by the zone clamp,
+ * and all keep free rotation. It is one constant because nothing else states
+ * these sizes: `defaultSize` is derived from `modelSize × CATALOG_SCALE`.
  */
-const CATALOG_SCALE = 1.5 * 1.2
+const CATALOG_SCALE = 1.2
 
-/** cm, at the 0.1 the source measurements carry — ×1.8 in binary floats drifts */
+/** cm, at the 0.1 the source measurements carry — scaling in binary floats drifts */
 const round1 = (n: number) => Math.round(n * 10) / 10
 
 function chuppah(

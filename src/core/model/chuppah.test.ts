@@ -59,20 +59,25 @@ const MODEL_SIZES = [
 ] as const
 
 /**
- * What the catalog must end up publishing: the models above at 1.5 × 1.2 (see
+ * What the catalog must end up publishing: the models above at 1.2 (see
  * CATALOG_SCALE in entries/chuppah.ts). Spelled out rather than computed, so the
  * numbers are asserted and not merely restated — recomputing the derivation here
  * would pass for any factor.
+ *
+ * Every depth here is under the 425 cm ceremony marker, which is what the 1.2
+ * (rather than 1.5 × 1.2) buys: the zone clamp never has to centre a chuppah or
+ * quantise its rotation. `fits the ceremony zone at any rotation` below is the
+ * assertion that would fail first if the factor were raised again.
  */
 const CATALOG_SIZES = [
-  ['chuppah.draped-white', 626.4, 624.6, 477],
-  ['chuppah.draped-blush', 610.2, 588.6, 486],
-  ['chuppah.ruched-ivory', 568.8, 520.2, 486],
-  ['chuppah.acrylic', 628.2, 505.8, 486],
-  ['chuppah.frame-chrome', 450, 291.6, 504],
-  ['chuppah.round-white', 608.4, 608.4, 459],
-  ['chuppah.round-beige', 484.2, 484.2, 477],
-  ['chuppah.arch-lattice', 532.8, 381.6, 522],
+  ['chuppah.draped-white', 417.6, 416.4, 318],
+  ['chuppah.draped-blush', 406.8, 392.4, 324],
+  ['chuppah.ruched-ivory', 379.2, 346.8, 324],
+  ['chuppah.acrylic', 418.8, 337.2, 324],
+  ['chuppah.frame-chrome', 300, 194.4, 336],
+  ['chuppah.round-white', 405.6, 405.6, 306],
+  ['chuppah.round-beige', 322.8, 322.8, 318],
+  ['chuppah.arch-lattice', 355.2, 254.4, 348],
 ] as const
 
 // The four corners of the resort floor, plus one point deep inside the pool.
