@@ -73,15 +73,18 @@ export const dividerScreen: CatalogEntry = {
  * rendering it (2026-07-20) shows an arched brass stand on a weighted disc base
  * carrying a crystal-basket shade — exactly its product shot. So it is a floor
  * object, not a ceiling one (see entries/hanging.ts). The arch leans out along
- * +depth, which is why the 43.7 cm footprint is deeper than it is wide.
- * Size = the exact normalised GLB bounds; the slot colour is the model's
- * measured mean base colour (baked materials, so 2D only).
+ * +depth, which is why the footprint is deeper than it is wide.
+ * Size = the normalised GLB bounds (`modelSize` below) at 2×, the height the
+ * real stand reads at (§10 of the corrections document); the loader grows the
+ * model to `defaultSize` so the plan footprint and the rendered stand stay the
+ * same object. The slot colour is the model's measured mean base colour (baked
+ * materials, so 2D only).
  */
 export const arcLampCrystal: CatalogEntry = {
   id: 'lamp.arc-crystal',
   category: 'decor',
   labelKey: 'lampArcCrystal',
-  defaultSize: { width: 27.2, depth: 43.7, height: 80 },
+  defaultSize: { width: 54.4, depth: 87.4, height: 160 },
   resizable: [],
   minSize: {},
   maxSize: {},
@@ -96,6 +99,7 @@ export const arcLampCrystal: CatalogEntry = {
     { shape: 'cylinder', dims: [s.width * 0.3, s.width * 0.45, s.height * 0.3], offset: [0, s.height * 0.7, s.depth * 0.3], slot: 'body' },
   ],
   model: '/props/decor-chandelier-crystal.glb',
+  modelSize: { width: 27.2, depth: 43.7, height: 80 },
   thumbnail: '/thumbs/lamp-arc-crystal.webp',
 }
 

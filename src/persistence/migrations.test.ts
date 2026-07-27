@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getCatalogEntry } from '../core/catalog/registry'
+import { CATEGORY_ORDER, getCatalogEntry } from '../core/catalog/registry'
 import { createProject } from '../core/model/factory'
 import { SCHEMA_VERSION, migrateAndValidate, runMigrations } from '../core/migrations'
 import type { ProjectFile } from './types'
@@ -234,6 +234,89 @@ describe('v4 → v5 ceiling re-pin to truss', () => {
     const revived = migrateAndValidate(JSON.parse(JSON.stringify(v4File())))
     expect(revived.project.scene.objects.c1.transform.elevation).toBe(1070)
     expect(revived.schemaVersion).toBe(SCHEMA_VERSION)
+  })
+})
+
+describe('v5 → v6 category layer rename', () => {
+  /**
+   * Read layers as a plain string map: the model types them by Category, but the
+   * whole point here is what happens to keys that are NO LONGER categories.
+   */
+  const layersOf = (file: ProjectFile) =>
+    file.project.scene.settings.layers as unknown as Record<string, { hidden?: boolean; locked?: boolean }>
+
+  /** A v5 file whose layers hold whatever the caller set. */
+  function v5FileWithLayers(layers: Record<string, { hidden?: boolean; locked?: boolean }>) {
+    const file = validFile() as unknown as Record<string, unknown>
+    const project = file.project as {
+      schemaVersion: number
+      scene: { settings: Record<string, unknown> }
+    }
+    file.schemaVersion = 5
+    project.schemaVersion = 5
+    project.scene.settings.layers = layers
+    return JSON.parse(JSON.stringify(file))
+  }
+
+  it('renames the retired structure layer onto chuppah', () => {
+    const revived = migrateAndValidate(v5FileWithLayers({ structure: { hidden: true, locked: true } }))
+    const layers = layersOf(revived)
+    expect(layers.structure).toBeUndefined()
+    expect(layers.chuppah).toEqual({ hidden: true, locked: true })
+    expect(revived.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(revived.project.schemaVersion).toBe(SCHEMA_VERSION)
+  })
+
+  it('gives each split-off category the state of the layer it left', () => {
+    const revived = migrateAndValidate(
+      v5FileWithLayers({
+        decor: { hidden: true },
+        tableDecor: { locked: true },
+        seating: { hidden: true, locked: true },
+      }),
+    )
+    const layers = layersOf(revived)
+    // the source layers keep their own state...
+    expect(layers.decor).toEqual({ hidden: true })
+    expect(layers.tableDecor).toEqual({ locked: true })
+    expect(layers.seating).toEqual({ hidden: true, locked: true })
+    // ...and the categories carved out of them inherit it
+    expect(layers.lighting).toEqual({ hidden: true })
+    expect(layers.tableware).toEqual({ locked: true })
+    expect(layers.bridalChair).toEqual({ hidden: true, locked: true })
+  })
+
+  it('creates nothing for absent or all-off layers', () => {
+    const revived = migrateAndValidate(v5FileWithLayers({ structure: {}, decor: { hidden: false } }))
+    const layers = layersOf(revived)
+    expect(layers).toEqual({ decor: { hidden: false } })
+  })
+
+  it('leaves a v5 file with no layers key untouched apart from the version', () => {
+    const file = validFile() as unknown as {
+      schemaVersion: number
+      project: { schemaVersion: number; scene: { settings: Record<string, unknown> } }
+    }
+    file.schemaVersion = 5
+    file.project.schemaVersion = 5
+    delete file.project.scene.settings.layers
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(file)))
+    expect(revived.project.scene.settings.layers).toBeUndefined()
+    expect(revived.schemaVersion).toBe(SCHEMA_VERSION)
+  })
+
+  it('every category the migration can write is a real catalog category', () => {
+    const revived = migrateAndValidate(
+      v5FileWithLayers({
+        structure: { hidden: true },
+        decor: { hidden: true },
+        tableDecor: { hidden: true },
+        seating: { hidden: true },
+      }),
+    )
+    for (const key of Object.keys(revived.project.scene.settings.layers!)) {
+      expect(CATEGORY_ORDER).toContain(key)
+    }
   })
 })
 

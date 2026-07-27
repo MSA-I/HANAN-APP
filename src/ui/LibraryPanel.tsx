@@ -1,12 +1,38 @@
 import { ChevronsLeft, ChevronsRight, RefreshCw, Search } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { CATEGORY_ORDER, listByCategory } from '../core/catalog/registry'
 import type { CatalogEntry, FootprintPart } from '../core/catalog/types'
 import { overlay, useOverlayStore } from '../editor2d/overlayStore'
 import { canReplaceObject, replaceObject } from '../state/actions'
 import { isEffectivelyLocked } from '../state/selectors'
 import { useEditorStore } from '../state/store'
+import { SliderField } from './fields'
 import { strings } from './strings'
+
+const SIZE_KEY = 'hanan.librarySize'
+
+/**
+ * The three display densities of the grid. One slider drives all four classes at
+ * once — thumbnail height, column count and both text sizes — so the tiles stay
+ * proportioned at every stop. Written out as whole literals because Tailwind
+ * scans the source for class names and cannot see composed strings.
+ */
+const SIZE_STOPS = [
+  { thumb: 'h-16', cols: 'grid-cols-3', name: 'text-[12px]', dims: 'text-[12px]' },
+  { thumb: 'h-24', cols: 'grid-cols-2', name: 'text-[14px]', dims: 'text-[15px]' },
+  { thumb: 'h-32', cols: 'grid-cols-1', name: 'text-[16px]', dims: 'text-[17px]' },
+] as const
+
+const DEFAULT_STEP = 2
+
+/** A view preference, not project data — localStorage, never the scene. */
+function readSizeStep(): number {
+  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(SIZE_KEY) : null
+  const parsed = stored ? Number(stored) : NaN
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= SIZE_STOPS.length
+    ? parsed
+    : DEFAULT_STEP
+}
 
 function itemLabel(entry: CatalogEntry): string {
   return strings.catalog.items[entry.labelKey as keyof typeof strings.catalog.items] ?? entry.id
@@ -58,7 +84,7 @@ function arcEdgePath(p: Extract<FootprintPart, { kind: 'arc' }>): string {
 }
 
 /** Top-view vector thumbnail rendered straight from the catalog footprint. */
-function VectorThumbnail({ entry }: { entry: CatalogEntry }) {
+function VectorThumbnail({ entry, heightClass }: { entry: CatalogEntry; heightClass: string }) {
   const fp = entry.footprint(entry.defaultSize)
   const w = fp.outline.kind === 'circle' ? fp.outline.r * 2 : fp.outline.w
   const h = fp.outline.kind === 'circle' ? fp.outline.r * 2 : fp.outline.h
@@ -68,7 +94,7 @@ function VectorThumbnail({ entry }: { entry: CatalogEntry }) {
     entry.materialSlots.find((s) => s.name === slot)?.defaultColor ?? '#ddd'
   const stroke = Math.max(w, h) / 60
   return (
-    <svg viewBox={vb} className="h-16 w-full" aria-hidden>
+    <svg viewBox={vb} className={`${heightClass} w-full rounded bg-canvas`} aria-hidden>
       {fp.parts.map((p, i) =>
         p.kind === 'circle' ? (
           <circle key={i} r={p.r} fill={fill(p.slot)} stroke="#57534e" strokeWidth={stroke} />
@@ -95,10 +121,14 @@ function VectorThumbnail({ entry }: { entry: CatalogEntry }) {
   )
 }
 
-/** Photo thumbnail when the entry has one; the vector top-view otherwise / on error. */
-function Thumbnail({ entry }: { entry: CatalogEntry }) {
+/**
+ * Photo thumbnail when the entry has one; the vector top-view otherwise / on error.
+ * `object-contain` shows the whole product — the thumbnails are generated on a
+ * transparent canvas, so the tile itself supplies the neutral backdrop.
+ */
+function Thumbnail({ entry, heightClass }: { entry: CatalogEntry; heightClass: string }) {
   const [broken, setBroken] = useState(false)
-  if (!entry.thumbnail || broken) return <VectorThumbnail entry={entry} />
+  if (!entry.thumbnail || broken) return <VectorThumbnail entry={entry} heightClass={heightClass} />
   return (
     <img
       src={entry.thumbnail}
@@ -106,7 +136,7 @@ function Thumbnail({ entry }: { entry: CatalogEntry }) {
       loading="lazy"
       draggable={false}
       onError={() => setBroken(true)}
-      className="h-16 w-full rounded object-cover"
+      className={`${heightClass} w-full rounded bg-canvas object-contain`}
     />
   )
 }
@@ -114,7 +144,18 @@ function Thumbnail({ entry }: { entry: CatalogEntry }) {
 export function LibraryPanel() {
   const [collapsed, setCollapsed] = useState(false)
   const [query, setQuery] = useState('')
+  const [sizeStep, setSizeStep] = useState<number>(readSizeStep)
   const [replaceTarget, setReplaceTarget] = useState<string | null>(null)
+  const size = SIZE_STOPS[sizeStep - 1]
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIZE_KEY, String(sizeStep))
+    } catch {
+      // storage may be unavailable (private mode) — ignore
+    }
+  }, [sizeStep])
+
   const placing = useOverlayStore((s) => s.placing)
   const selectedObject = useEditorStore((s) => {
     if (s.selection.length !== 1) return null
@@ -165,6 +206,15 @@ export function LibraryPanel() {
         </button>
       </div>
       <div className="border-b border-line px-3 py-3">
+        <div className="mb-3">
+          <SliderField
+            label={strings.library.size}
+            value={sizeStep}
+            min={1}
+            max={SIZE_STOPS.length}
+            onChange={setSizeStep}
+          />
+        </div>
         <div className="flex min-h-10 items-center gap-2 rounded-md border border-line px-2.5 py-2 focus-within:border-accent">
           <Search size={16} className="text-ink-soft" />
           <input
@@ -209,7 +259,7 @@ export function LibraryPanel() {
         {categories.map(({ cat, label, items }) => (
           <div key={cat} className="mb-4">
             <h3 className="mb-2 text-[16px] font-semibold text-ink">{label}</h3>
-            <div className="grid grid-cols-2 gap-2">
+            <div className={`grid ${size.cols} gap-2`}>
               {items.map((entry) => {
                 const compatible =
                   !!selectedId && canReplaceObject(useEditorStore.getState().scene, selectedId, entry.id)
@@ -239,9 +289,11 @@ export function LibraryPanel() {
                         : 'border-line bg-panel hover:border-accent/50'
                     }`}
                   >
-                    <Thumbnail entry={entry} />
-                    <div className="mt-1.5 truncate text-[14px] font-medium">{itemLabel(entry)}</div>
-                    <div className="ltr-nums text-[13px] text-ink-soft">{formatFootprint(entry)}</div>
+                    <Thumbnail entry={entry} heightClass={size.thumb} />
+                    <div className={`mt-1.5 truncate ${size.name} font-medium`}>{itemLabel(entry)}</div>
+                    <div className={`ltr-nums ${size.dims} font-medium text-ink-soft`}>
+                      {formatFootprint(entry)}
+                    </div>
                   </button>
                 )
               })}

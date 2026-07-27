@@ -134,6 +134,52 @@ function repinCeilingToTruss(raw: unknown): unknown {
 }
 
 /**
+ * v5 → v6: the catalog's six categories became nine — the chuppot left the
+ * catch-all 'structure' for their own 'chuppah', ceiling fixtures split out of
+ * 'decor' into 'lighting', the place setting and the napkins out of 'tableDecor'
+ * into 'tableware', and the bridal settee out of 'seating' into 'bridalChair'.
+ *
+ * Category names ARE the keys of `settings.layers`, so without this the stored
+ * show/lock flags would be orphaned. A renamed category carries its flags across;
+ * a category that SPLIT OFF inherits the flags of the layer its items used to
+ * live in, so someone who hid "עיצוב" does not suddenly see chandeliers reappear.
+ * Objects themselves need no change: they store a catalogId, and the category is
+ * looked up from the catalog.
+ *
+ * Empty flags are not written. `setLayerFlag` (state/actions.ts) deletes a layer
+ * entry once both flags are off, so `{}` is not a state worth propagating.
+ */
+const LAYER_RENAMED_V6: Record<string, string> = { structure: 'chuppah' }
+/** new category ← the layer whose state it inherits */
+const LAYER_SPLIT_FROM_V6: Record<string, string> = {
+  lighting: 'decor',
+  tableware: 'tableDecor',
+  bridalChair: 'seating',
+}
+
+type LayerFlagsRaw = { hidden?: boolean; locked?: boolean }
+const isSet = (f: LayerFlagsRaw | undefined) => !!f && (f.hidden === true || f.locked === true)
+
+function renameCategoryLayers(raw: unknown): unknown {
+  const file = raw as {
+    project?: { scene?: { settings?: { layers?: Record<string, LayerFlagsRaw> } } }
+  }
+  const layers = file?.project?.scene?.settings?.layers
+  if (layers) {
+    for (const [from, to] of Object.entries(LAYER_RENAMED_V6)) {
+      const flags = layers[from]
+      delete layers[from]
+      if (isSet(flags)) layers[to] = flags
+    }
+    for (const [to, from] of Object.entries(LAYER_SPLIT_FROM_V6)) {
+      const flags = layers[from]
+      if (isSet(flags)) layers[to] = { ...flags }
+    }
+  }
+  return { ...(raw as object), schemaVersion: 6, project: { ...file.project, schemaVersion: 6 } }
+}
+
+/**
  * Keyed by the SOURCE version each function upgrades FROM. `migrations[0]`
  * turns a v0 file into a v1 file (and must set `schemaVersion` to 1).
  */
@@ -142,6 +188,7 @@ export const migrations: Record<number, (raw: unknown) => unknown> = {
   2: bumpToV3,
   3: dropStagingAndAddLayers,
   4: repinCeilingToTruss,
+  5: renameCategoryLayers,
 }
 
 function schemaVersionOf(raw: unknown): number {
@@ -249,8 +296,10 @@ const sceneSettings = z.object({
   showGrid: z.boolean(),
   showLabels: z.boolean(),
   // v4 category layers. String-keyed on purpose: a stale category key (e.g. a
-  // removed 'staging') must never brick a load. Optional so pre-v4 files parse;
-  // the v4 migration + factory materialize {}.
+  // removed 'staging', or 'structure' from before the v6 rename) must never
+  // brick a load — which is also why the v6 category rename needs no change
+  // here. Optional so pre-v4 files parse; the v4 migration + factory
+  // materialize {}.
   layers: z.record(layerFlags).optional(),
   // v5 outdoor lighting. Optional so pre-v5 files parse; lightingOf() defaults.
   lighting: z

@@ -10,8 +10,11 @@
  *  - `zoneKind` is matched by string. A typo does not mean "places freely", it
  *    means the object is pushed out of every restricted zone — so the entries
  *    are checked against the pack's real zone kinds, not against a literal;
- *  - the 1.5× real-world scale makes some models deeper than the 425cm marker, so
- *    oversized axes must stay centred while smaller axes remain clamped inside.
+ *  - these are catalogued larger than the GLBs they render (CATALOG_SCALE), and
+ *    the two sizes are what 2D and 3D respectively start from, so both are
+ *    pinned here; at the current factor six of the eight come out deeper than
+ *    the 425cm marker, so oversized axes must stay centred while smaller axes
+ *    remain clamped inside.
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { getCatalogEntry } from '../catalog/registry'
@@ -37,15 +40,44 @@ const settledOnZone = (id: string) => {
   return settled(b.minX, b.maxX, ZONE.x, ZONE.width) && settled(b.minY, b.maxY, ZONE.y, ZONE.depth)
 }
 
-const SCALED_SIZES = [
-  ['chuppah.draped-white', 522, 520.5, 397.5],
-  ['chuppah.draped-blush', 508.5, 490.5, 405],
-  ['chuppah.ruched-ivory', 474, 433.5, 405],
-  ['chuppah.acrylic', 523.5, 421.5, 405],
-  ['chuppah.frame-chrome', 375, 243, 420],
-  ['chuppah.round-white', 507, 507, 382.5],
-  ['chuppah.round-beige', 403.5, 403.5, 397.5],
-  ['chuppah.arch-lattice', 444, 318, 435],
+/**
+ * The real size glb-prep left in each file, read straight out of public/props
+ * (gltf-transform getBounds, 2026-07-28). `modelSize` is what the 3D loader
+ * divides by, so if an entry's copy of it were wrong the model would render at
+ * the wrong size while the plan drew the right one — the exact failure this
+ * group used to be one edit away from.
+ */
+const MODEL_SIZES = [
+  ['chuppah.draped-white', 348, 347, 265],
+  ['chuppah.draped-blush', 339, 327, 270],
+  ['chuppah.ruched-ivory', 316, 289, 270],
+  ['chuppah.acrylic', 349, 281, 270],
+  ['chuppah.frame-chrome', 250, 162, 280],
+  ['chuppah.round-white', 338, 338, 255],
+  ['chuppah.round-beige', 269, 269, 265],
+  ['chuppah.arch-lattice', 296, 212, 290],
+] as const
+
+/**
+ * What the catalog must end up publishing: the models above at 1.2 (see
+ * CATALOG_SCALE in entries/chuppah.ts). Spelled out rather than computed, so the
+ * numbers are asserted and not merely restated — recomputing the derivation here
+ * would pass for any factor.
+ *
+ * Every depth here is under the 425 cm ceremony marker, which is what the 1.2
+ * (rather than 1.5 × 1.2) buys: the zone clamp never has to centre a chuppah or
+ * quantise its rotation. `fits the ceremony zone at any rotation` below is the
+ * assertion that would fail first if the factor were raised again.
+ */
+const CATALOG_SIZES = [
+  ['chuppah.draped-white', 417.6, 416.4, 318],
+  ['chuppah.draped-blush', 406.8, 392.4, 324],
+  ['chuppah.ruched-ivory', 379.2, 346.8, 324],
+  ['chuppah.acrylic', 418.8, 337.2, 324],
+  ['chuppah.frame-chrome', 300, 194.4, 336],
+  ['chuppah.round-white', 405.6, 405.6, 306],
+  ['chuppah.round-beige', 322.8, 322.8, 318],
+  ['chuppah.arch-lattice', 355.2, 254.4, 348],
 ] as const
 
 // The four corners of the resort floor, plus one point deep inside the pool.
@@ -76,10 +108,12 @@ describe('the chuppah group', () => {
     expect(getCatalogEntry(id).zoneKind).toBe(ZONE.kind)
   })
 
-  it.each(SCALED_SIZES)('%s uses the requested 1.5× size', (id, width, depth, height) => {
-    const entry = getCatalogEntry(id)
-    expect(entry.defaultSize).toEqual({ width, depth, height })
-    expect(entry.modelScale).toBe(1.5)
+  it.each(CATALOG_SIZES)('%s is catalogued at the rescaled size', (id, width, depth, height) => {
+    expect(getCatalogEntry(id).defaultSize).toEqual({ width, depth, height })
+  })
+
+  it.each(MODEL_SIZES)('%s declares the size its GLB was prepped at', (id, width, depth, height) => {
+    expect(getCatalogEntry(id).modelSize).toEqual({ width, depth, height })
   })
 
   it.each(ids)('%s stands on the floor, not the ceiling', (id) => {

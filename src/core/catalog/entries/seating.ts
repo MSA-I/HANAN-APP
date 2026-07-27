@@ -5,6 +5,11 @@
  * finishes of the same frame (gold+white / gold+black) are two entries, not one
  * entry with a colour picker.
  *
+ * Plus the bridal settee at the bottom, which is `category: 'bridalChair'` and
+ * NOT part of `seatingEntries`: the inspector reads listByCategory('seating') to
+ * fill the "chair model" dropdown for a table, and a two-metre settee must never
+ * turn up there as something to ring a table with.
+ *
  * Chair geometry convention: front faces -y (plan) / -z (three-local) at
  * rotation 0, so the backrest sits at +z. The GLBs were yawed to match at prep
  * time (tools/glb-prep/suggest-yaw.mjs) — Tripo's own yaw is arbitrary.
@@ -95,3 +100,48 @@ export const chairBrown = chair('chair.brown', 'chairBrown', '/props/chair-brown
 export const chairBlack = chair('chair.black', 'chairBlack', '/props/chair-black.glb', '#26241f', '#1a1917')
 
 export const seatingEntries = [chairXWhite, chairXWood, chairGoldWhite, chairGoldBlack, chairBrown, chairBlack]
+
+/**
+ * כסא כלה — the couple's seat. Not a chair at all: the source model
+ * (HANAN-APP-DOCS\מודלים GLB\כסא כלה.glb, rendered to identify it) is a CURVED
+ * seven-channel button-back settee on eight tapered legs, wide enough for two.
+ * Its own category so it never mixes with the guest chairs.
+ *
+ * Sizing. Tripo normalises to a unit box, so the model carries proportions and
+ * no scale; the bbox is 0.980 × 0.360 × 0.451 (W × H × D). The anchor that turns
+ * that into centimetres is the seat: the body's full width holds up to y=0.208
+ * and collapses to the backrest above it, so 0.208 IS the cushion top, and the
+ * venue seats at 45 cm (the `seatH` every chair fallback below uses). 45/0.208 =
+ * 216.3 cm per model unit gives the size below — a 212 cm settee, 78 cm to the
+ * top of the back. ⚠ The seat height is the only assumed number here; a tape
+ * measure on the real piece would replace it and everything else follows.
+ * Handoff: Plans\handoff\01-bridal-chair-dims.md.
+ *
+ * The product shot took finding: it sat unmapped among the chandelier photos
+ * because everyone was looking for a chair. Matched to the model by rendering
+ * both — seven channel-tufted cushions inset from the ends, kidney seat with a
+ * double welt, splayed tapered legs (Plans\handoff\BLOCKED-01-A1.md, gate 3).
+ */
+export const chairBridal: CatalogEntry = {
+  id: 'chair.bridal',
+  category: 'bridalChair',
+  labelKey: 'chairBridal',
+  defaultSize: { width: 212, depth: 97.6, height: 77.9 },
+  resizable: [],
+  minSize: {},
+  maxSize: {},
+  materialSlots: [
+    // one baked Tripo material for the whole piece, so both slots start from its
+    // measured mean base colour (#d5c9b9) — they exist to let the plan view tell
+    // the upholstery from the legs, not to describe two real finishes.
+    { name: 'upholstery', labelKey: 'upholstery', defaultColor: '#d5c9b9' },
+    { name: 'frame', labelKey: 'frame', defaultColor: '#d5c9b9' },
+  ],
+  footprint: chairFootprint,
+  // thicker legs than a guest chair carries, at the settee's scale
+  buildMesh: (s) => chairMesh(s, 3),
+  model: '/props/chair-bridal.glb',
+  thumbnail: '/thumbs/chair-bridal.webp',
+}
+
+export const bridalChairEntries = [chairBridal]

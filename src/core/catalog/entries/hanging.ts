@@ -1,9 +1,14 @@
 /**
- * Ceiling-hung decor (phase 2.6). placement:'ceiling' is what makes these
+ * Ceiling-hung lighting (phase 2.6). placement:'ceiling' is what makes these
  * different from every other entry: they are still TOP-LEVEL objects (not
  * attached children like table decor), but factory.createObject seeds their
  * elevation to `venue.wallHeight − height` so the model's top meets the ceiling
  * and it hangs down — the drop length IS the entry height.
+ *
+ * These five ARE the 'lighting' category: it holds exactly the ceiling-hung
+ * fixtures, so `placement: 'ceiling'` and `category: 'lighting'` say the same
+ * thing here. The floor-standing arc lamp stays in 'decor' — it is furniture
+ * that happens to light, not something hung from the truss.
  *
  * The GLBs are Tripo models normalised by glb-prep --mode prop; sizes below are
  * the EXACT normalised bounds, so 2D footprint and 3D fit agree. Materials are
@@ -36,7 +41,7 @@ function ceilingProp(
 ): CatalogEntry {
   return {
     id,
-    category: 'decor',
+    category: 'lighting',
     labelKey,
     defaultSize: size,
     resizable: [],

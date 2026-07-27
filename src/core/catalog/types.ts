@@ -7,13 +7,34 @@
  */
 import type { SeatingConfig, Size3D, Transform2D, Vec2 } from '../model/types'
 
-export type Category = 'tables' | 'seating' | 'bars' | 'tableDecor' | 'decor' | 'structure'
+/**
+ * Library groups, in no particular order here — CATEGORY_ORDER (registry.ts) is
+ * what the library and the layers panel read. They are also the layer keys
+ * (`settings.layers`), so renaming one needs a migration; see migrations/index.ts
+ * for the v5→v6 rename that split this list out of the original six.
+ */
+export type Category =
+  | 'tables'
+  | 'seating'
+  | 'bridalChair'
+  | 'bars'
+  | 'tableware'
+  | 'tableDecor'
+  | 'lighting'
+  | 'decor'
+  | 'chuppah'
 
 export interface MaterialSlotDef {
   name: string
   /** key into strings.catalog.slots for the UI label */
   labelKey: string
   defaultColor: string
+  /**
+   * This slot takes ANY colour, not just the fixed event palette every other
+   * editable slot offers. Set only on the two napkins, whose colour is chosen
+   * per event to match the linen rather than picked from the house palette.
+   */
+  allowCustomColor?: boolean
 }
 
 export type FootprintPart =
@@ -96,8 +117,23 @@ export interface CatalogEntry {
    * loading/error fallback.
    */
   model?: string
-  /** uniform scale applied to the real GLB before fitting it to stored object size */
-  modelScale?: number
+  /**
+   * The prepped GLB's OWN real size, for the few entries catalogued at a size the
+   * file was not prepped at (the chuppot, the DJ booth, the arc lamp). The loader
+   * fits the model by `size / (modelSize ?? defaultSize)`, so the model always
+   * ends up at the object's stored size — the same number the plan footprint, the
+   * selection outline, snapping and the zone clamp use.
+   *
+   * It replaced a `modelScale` multiplier, which encoded the same ratio the other
+   * way round (`defaultSize / modelSize`) and applied on top of the fit. That was
+   * a derived number two edits away from its source: raising `defaultSize` without
+   * matching it silently shrank the model to `defaultSize / modelScale` in 3D
+   * while 2D drew `defaultSize`. Stating the model's own size instead cannot drift
+   * — it is a property of the file, not of the catalogue entry.
+   *
+   * Omit it whenever glb-prep was run at `defaultSize`, which is the normal case.
+   */
+  modelSize?: Size3D
   /**
    * URL of a square photo thumbnail (public/thumbs/, 512×512 webp prepped by
    * tools/thumbs-prep.mjs). The library shows it instead of the vector top-view;

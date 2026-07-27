@@ -91,17 +91,32 @@ export const EVENT_SWATCHES = [
   '#3a3633',
 ]
 
+/** Rainbow rim on the free-picker control — reads as "any colour" without a label. */
+const SPECTRUM =
+  'conic-gradient(#ef4444,#f59e0b,#eab308,#22c55e,#06b6d4,#3b82f6,#8b5cf6,#ec4899,#ef4444)'
+
+const HEX6 = /^#[0-9a-f]{6}$/i
+
 interface ColorFieldProps {
   label: string
   value: string
   onChange: (color: string) => void
+  /**
+   * Adds a native picker next to the fixed palette. Off by default: commit
+   * 57e15f9 deliberately narrowed this field to the twelve event colours, and
+   * only the slots that opt in via `MaterialSlotDef.allowCustomColor` (the two
+   * napkins) may reopen it.
+   */
+  allowCustom?: boolean
 }
 
-export function ColorField({ label, value, onChange }: ColorFieldProps) {
+export function ColorField({ label, value, onChange, allowCustom }: ColorFieldProps) {
+  const current = value.toLowerCase()
+  const offPalette = !EVENT_SWATCHES.includes(current)
   return (
     <div>
       <div className="mb-1.5 text-[14px] text-ink-soft">{label}</div>
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         {EVENT_SWATCHES.map((c) => (
           <button
             key={c}
@@ -109,14 +124,37 @@ export function ColorField({ label, value, onChange }: ColorFieldProps) {
             // submit-button swatch would submit on pick
             type="button"
             className={`h-6 w-6 rounded-full border ${
-              value.toLowerCase() === c ? 'border-accent ring-1 ring-accent' : 'border-line'
+              current === c ? 'border-accent ring-1 ring-accent' : 'border-line'
             }`}
             style={{ background: c }}
             onClick={() => onChange(c)}
             aria-label={c}
-            aria-pressed={value.toLowerCase() === c}
+            aria-pressed={current === c}
           />
         ))}
+        {allowCustom && (
+          // the input covers the whole control (opacity-0 rather than hidden, so
+          // it stays keyboard-reachable); focus-within carries the focus ring
+          <label
+            title={label}
+            className={`relative flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full border focus-within:ring-2 focus-within:ring-accent ${
+              offPalette ? 'border-accent ring-1 ring-accent' : 'border-line'
+            }`}
+            style={{ background: SPECTRUM }}
+          >
+            <span
+              className="h-3 w-3 rounded-full border border-white/70"
+              style={{ background: value }}
+            />
+            <input
+              type="color"
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              value={HEX6.test(current) ? current : '#ffffff'}
+              onChange={(e) => onChange(e.target.value)}
+              aria-label={label}
+            />
+          </label>
+        )}
       </div>
     </div>
   )

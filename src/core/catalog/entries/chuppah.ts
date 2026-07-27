@@ -7,13 +7,15 @@
  * `kind` exactly — a typo does NOT degrade to "places freely", it makes the
  * object get pushed OUT of every restricted zone instead.
  *
- * These are also the first `category: 'structure'` entries; the category was
- * declared in types.ts and listed in CATEGORY_ORDER but had no members.
+ * These eight are the whole of `category: 'chuppah'` — the category exists for
+ * them and nothing else. It replaced the old catch-all 'structure' group, which
+ * never held anything but these; the v5→v6 migration carries the stored layer
+ * flags across the rename.
  *
- * Sizing. The measured source proportions are preserved, then uniformly scaled
- * 1.5× to match the real ceremony structures in the resort. `defaultSize` is the
- * rendered bbox used by both 2D and 3D; some models deliberately overhang the
- * shallow ceremony marker and are centred on it by the zone clamp.
+ * Sizing. Each entry declares the size glb-prep left in its GLB and the catalog
+ * derives `defaultSize` from it, so the two can never drift apart — see
+ * CATALOG_SCALE. All eight fit inside the 425 cm ceremony marker, so none is
+ * force-centred or quarter-turned by the zone clamp.
  *
  * ⚠ The Tripo filenames lie harder here than usual, so every mapping below came
  * from rendering the model and matching it to a product shot, never from the
@@ -33,11 +35,29 @@ const POST = 10
 /** canopy slab / top rail thickness in the fallback mesh */
 const TOP = 8
 
+/**
+ * Catalogued size ÷ the model's own size. §14 of the corrections document reads
+ * "a scale was applied to the chuppot in the past, return them to the ORIGINAL
+ * size and rescale by 1.2" — the past scale is the 1.5 this group used to carry,
+ * so the instruction drops it and leaves 1.2 over the GLB's own size. Confirmed
+ * by the user 2026-07-28 (BLOCKED-01-A3.md §4).
+ *
+ * At 1.2 all eight fit inside the 760×425 ceremony marker the user drew — the
+ * deepest is 417.6 cm — so none is centred-and-quarter-turned by the zone clamp,
+ * and all keep free rotation. It is one constant because nothing else states
+ * these sizes: `defaultSize` is derived from `modelSize × CATALOG_SCALE`.
+ */
+const CATALOG_SCALE = 1.2
+
+/** cm, at the 0.1 the source measurements carry — scaling in binary floats drifts */
+const round1 = (n: number) => Math.round(n * 10) / 10
+
 function chuppah(
   id: string,
   labelKey: string,
   model: string,
-  size: Size3D,
+  /** the real size glb-prep left in the GLB — measured off public/props */
+  modelSize: Size3D,
   /** the GLB's measured mean baked base colour — 2D only, materials are baked */
   color: string,
   shape: 'rect' | 'round' = 'rect',
@@ -57,9 +77,13 @@ function chuppah(
   }
   return {
     id,
-    category: 'structure',
+    category: 'chuppah',
     labelKey,
-    defaultSize: size,
+    defaultSize: {
+      width: round1(modelSize.width * CATALOG_SCALE),
+      depth: round1(modelSize.depth * CATALOG_SCALE),
+      height: round1(modelSize.height * CATALOG_SCALE),
+    },
     resizable: [],
     minSize: {},
     maxSize: {},
@@ -107,7 +131,7 @@ function chuppah(
       return [...fourLegs(w, d, s.height - TOP, POST / 2, 'frame', POST), top]
     },
     model,
-    modelScale: 1.5,
+    modelSize,
     thumbnail: `/thumbs/${id.replaceAll('.', '-')}.webp`,
     // ceremony structure — lives only inside the venue's chuppah zone
     zoneKind: 'chuppah',
@@ -124,41 +148,41 @@ export const chuppahEntries: CatalogEntry[] = [
   // is the strongest confirmation of any mapping here. It is also the only
   // model already facing the app's way (its long plan axis was X), so it is the
   // only one prepped without --yaw 90.
-  chuppah('chuppah.draped-white', 'chuppahDrapedWhite', P('chuppah-draped-white.glb'), { width: 522, depth: 520.5, height: 397.5 }, '#d2d0d0', 'rect', 0.72),
+  chuppah('chuppah.draped-white', 'chuppahDrapedWhite', P('chuppah-draped-white.glb'), { width: 348, depth: 347, height: 265 }, '#d2d0d0', 'rect', 0.72),
   // Blush chiffon knotted at one top corner and swagged across, dried palm-fan
   // and rose sprays on two posts. src "wedding+arch+3d+model (2).glb" ↔ shot
   // 06_14_15 — the single knotted corner is what identifies it. Near-exact
   // proportions again (model 1.272 vs shot 1.256, a 1.3% stretch).
-  chuppah('chuppah.draped-blush', 'chuppahDrapedBlush', P('chuppah-draped-blush.glb'), { width: 508.5, depth: 490.5, height: 405 }, '#c5b39d', 'rect', 0.72),
+  chuppah('chuppah.draped-blush', 'chuppahDrapedBlush', P('chuppah-draped-blush.glb'), { width: 339, depth: 327, height: 270 }, '#c5b39d', 'rect', 0.72),
   // Ivory ruched jersey sleeving the posts and the canopy, with an arched
   // opening on each of the four faces. src "draped+archway+3d+model.glb" ↔ shot
   // 06_18_33. Stretched 9% taller than the model (1.278 → the shot's 1.169).
-  chuppah('chuppah.ruched-ivory', 'chuppahRuchedIvory', P('chuppah-ruched-ivory.glb'), { width: 474, depth: 433.5, height: 405 }, '#d2c7b8', 'rect', 0.8),
+  chuppah('chuppah.ruched-ivory', 'chuppahRuchedIvory', P('chuppah-ruched-ivory.glb'), { width: 316, depth: 289, height: 270 }, '#d2c7b8', 'rect', 0.8),
   // Clear acrylic posts, a slack white sheet, and a full-width white floral
   // garland along the top. src "clear+acrylic+podium+3d+model.glb" ↔ shot
   // 06_17_47 — "podium" is Tripo's invention, the acrylic is real. The garland
   // is what fixed the facing: it spans the model's Z axis, so --yaw 90 turns it
   // to the front. The garland overhangs both ends. Stretched 8% (1.401 → 1.292).
-  chuppah('chuppah.acrylic', 'chuppahAcrylic', P('chuppah-acrylic.glb'), { width: 523.5, depth: 421.5, height: 405 }, '#a6a49c', 'rect', 0.85),
+  chuppah('chuppah.acrylic', 'chuppahAcrylic', P('chuppah-acrylic.glb'), { width: 349, depth: 281, height: 270 }, '#a6a49c', 'rect', 0.85),
   // Mirror-polished steel: four square posts and a plain rectangular top rim,
   // no fabric at all. src "metal+table+frame+3d+model.glb" — the name is why
   // this one was flagged as suspect up front, and the render alone stays
   // ambiguous (a bare box frame reads as a table base). Shot 06_21_57 settles
   // it: the same chrome frame, taller than wide, no top surface. The narrowest
   // of the eight. Stretched 8% (0.965 → 0.893).
-  chuppah('chuppah.frame-chrome', 'chuppahFrameChrome', P('chuppah-frame-chrome.glb'), { width: 375, depth: 243, height: 420 }, '#a0a09f'),
+  chuppah('chuppah.frame-chrome', 'chuppahFrameChrome', P('chuppah-frame-chrome.glb'), { width: 250, depth: 162, height: 280 }, '#a0a09f'),
   // Round white chuppah: a ring of sheer curtain, drawn back at the front over
   // two rose clusters, with a back curtain closing the far side. src
   // "wedding+arch+3d+model (1).glb" ↔ shot 06_21_08. --yaw 90 turns the opening
   // to the front (−Z). Forced circular on purpose: the real product is round
   // and Tripo returned a 0.98×0.90 oval, so the 9% widening of the short axis
   // corrects the model rather than distorting it. Stretched 10% (1.464 → 1.327).
-  chuppah('chuppah.round-white', 'chuppahRoundWhite', P('chuppah-round-white.glb'), { width: 507, depth: 507, height: 382.5 }, '#d2d1d1', 'round'),
+  chuppah('chuppah.round-white', 'chuppahRoundWhite', P('chuppah-round-white.glb'), { width: 338, depth: 338, height: 255 }, '#d2d1d1', 'round'),
   // The same round form in champagne, tied back over pampas sprays. src
   // "beige+draped+arch+3d+model.glb" ↔ shot 06_09_40, and the smallest of the
   // eight. Also the biggest correction: Tripo returned 1.321 against the shot's
   // measured 1.016, so the height is stretched 30% before the uniform app scale.
-  chuppah('chuppah.round-beige', 'chuppahRoundBeige', P('chuppah-round-beige.glb'), { width: 403.5, depth: 403.5, height: 397.5 }, '#bfaf9b', 'round'),
+  chuppah('chuppah.round-beige', 'chuppahRoundBeige', P('chuppah-round-beige.glb'), { width: 269, depth: 269, height: 265 }, '#bfaf9b', 'round'),
   // ⚠ Not a canopy: a white lattice wedding ARCH — four panelled piers on
   // plinths carrying a dentil cornice, with a trellis-filled arch on each face
   // and nothing overhead. src "architectural+archway+3d+model.glb" ↔ shot
@@ -168,5 +192,5 @@ export const chuppahEntries: CatalogEntry[] = [
   // drop this one line if the group should be canopies only. It is near enough
   // to its shot to need almost no stretch (0.989 →
   // 1.021, 3%).
-  chuppah('chuppah.arch-lattice', 'chuppahArchLattice', P('chuppah-arch-lattice.glb'), { width: 444, depth: 318, height: 435 }, '#bfbfbe'),
+  chuppah('chuppah.arch-lattice', 'chuppahArchLattice', P('chuppah-arch-lattice.glb'), { width: 296, depth: 212, height: 290 }, '#bfbfbe'),
 ]

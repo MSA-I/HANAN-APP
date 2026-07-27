@@ -41,7 +41,11 @@ export const djBooth: CatalogEntry = {
   id: 'dj.booth',
   category: 'bars',
   labelKey: 'djBooth',
-  defaultSize: { width: 160, depth: 70, height: 110 },
+  // The real booth reads a third bigger against the resort's 310×233 DJ zone
+  // than the model was prepped at (§4 of the corrections document), so the
+  // catalogued size is the GLB's 160×70×110 at 1.3 and `modelSize` below tells
+  // the 3D loader to grow the model to match instead of leaving 2D alone with it.
+  defaultSize: { width: 208, depth: 91, height: 143 },
   defaultRotation: -180,
   resizable: [],
   minSize: {},
@@ -58,8 +62,9 @@ export const djBooth: CatalogEntry = {
     { shape: 'box', dims: [s.width, s.height - 4, s.depth], offset: [0, (s.height - 4) / 2, 0], slot: 'body' },
     { shape: 'box', dims: [s.width + 8, 4, s.depth + 8], offset: [0, s.height - 2, 0], slot: 'counter' },
   ],
-  // the venue's real DJ booth (Tripo), normalised to exactly 160×70×110
+  // the venue's real DJ booth (Tripo), normalised to 160×70×110 and shown at 1.3×
   model: '/props/dj-booth.glb',
+  modelSize: { width: 160, depth: 70, height: 110 },
   thumbnail: '/thumbs/dj-booth.webp',
   // fixed station — lives only inside the venue's DJ zone
   zoneKind: 'dj',

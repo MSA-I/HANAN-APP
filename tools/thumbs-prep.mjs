@@ -3,6 +3,17 @@
  * (HANAN-APP-DOCS/GPT) into square 512×512 webp thumbnails under public/thumbs/.
  * Idempotent — run `npm run thumbs` after adding or changing a mapping row.
  * Optional argv[2] overrides the source directory.
+ *
+ * The shot is FITTED inside the square (`contain`), not centre-cropped: a cover
+ * crop of a portrait product shot cut the top off tall items — chandeliers lost
+ * their canopy, a chuppah lost its canopy corner. The letterbox is left fully
+ * transparent so the library card's own background shows through and the CSS,
+ * not this file, decides what a thumbnail sits on.
+ *
+ * ⚠ Some MAPPING notes below argue for a shot because it survived the SQUARE
+ * CENTRE-CROP ("near-square", "centres the shade"). Those reasons predate the
+ * switch to `contain` and no longer apply; the choices themselves still stand —
+ * they are kept as the record of which alternates were rejected and why.
  */
 import { constants } from 'node:fs'
 import { access, mkdir, stat } from 'node:fs/promises'
@@ -24,6 +35,12 @@ const MAPPING = [
   { id: 'chair.gold-black', src: 'ChatGPT Image Jul 15, 2026, 04_27_26 PM.png' },
   { id: 'chair.brown', src: 'ChatGPT Image Jul 15, 2026, 04_22_19 PM.png' },
   { id: 'chair.black', src: 'ChatGPT Image Jul 15, 2026, 04_21_37 PM.png' },
+  // the bridal seat is a curved two-seater SETTEE, not a chair, which is why this
+  // shot sat unmapped among the chandeliers: matched to כסא כלה.glb by rendering
+  // the model (Plans/handoff/01-bridal-chair-front.png) against it — same seven
+  // channel-tufted back cushions inset from the ends, same kidney-shaped seat with
+  // its double welt, same splayed tapered metal legs
+  { id: 'chair.bridal', src: 'ChatGPT Image Jul 15, 2026, 06_33_50 PM.png' },
   // draped (tablecloth) versions match the cloth-baked table GLBs.
   // bare alt: "ChatGPT Image Jul 15, 2026, 05_43_20 PM.png"
   { id: 'table.round', src: 'hf_20260716_114455_f8458859-55ce-41e3-bbdf-715d4735e95a.png' },
@@ -142,7 +159,7 @@ if (missing.length) {
     // .rotate() honors EXIF orientation; sharp re-encoding also drops metadata
     await sharp(path.join(SRC_DIR, src))
       .rotate()
-      .resize(SIZE, SIZE, { fit: 'cover', position: 'centre' })
+      .resize(SIZE, SIZE, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
       .webp({ quality: 80 })
       .toFile(out)
     const kb = Math.round((await stat(out)).size / 1024)

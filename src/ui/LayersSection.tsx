@@ -1,11 +1,16 @@
 /**
  * Category layers — an eye (show/hide) and a lock per catalog category.
- * Layer state lives in scene.settings.layers (persisted per project, undoable);
- * rows derive from the live catalog, so an emptied category disappears on its own.
+ * Layer state lives in scene.settings.layers (persisted per project, undoable).
+ *
+ * Rows derive from the SCENE, not the catalog: a category with nothing placed in
+ * it has no row, so a brand-new project shows an empty panel instead of nine
+ * `(0)` rows that read as "something is already on the board". The one exception
+ * is a category that still carries a hidden/locked flag — dropping its row while
+ * it is hidden would strand the objects with no way to bring them back.
  */
 import { Eye, EyeOff, Lock, LockOpen } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import { CATEGORY_ORDER, listByCategory } from '../core/catalog/registry'
+import { CATEGORY_ORDER } from '../core/catalog/registry'
 import type { Category } from '../core/catalog/types'
 import { setLayerHidden, setLayerLocked } from '../state/actions'
 import { categoryCounts, isLayerHidden, isLayerLocked } from '../state/selectors'
@@ -14,7 +19,6 @@ import { Section } from './fields'
 import { strings } from './strings'
 
 const T = strings.inspector
-const CATEGORIES = CATEGORY_ORDER.filter((c) => listByCategory(c).length > 0)
 
 function LayerRow({ category, count }: { category: Category; count: number }) {
   const hidden = useEditorStore((s) => isLayerHidden(s.scene, category))
@@ -56,9 +60,17 @@ function LayerRow({ category, count }: { category: Category; count: number }) {
 
 export function LayersSection() {
   const counts = useEditorStore(useShallow((s) => categoryCounts(s.scene)))
+  // setLayerFlag drops all-default records, so a surviving flag is the only way
+  // an empty category can still need a row (to be un-hidden / un-locked again)
+  const flagged = useEditorStore(
+    useShallow((s) =>
+      CATEGORY_ORDER.filter((c) => isLayerHidden(s.scene, c) || isLayerLocked(s.scene, c)),
+    ),
+  )
+  const rows = CATEGORY_ORDER.filter((c) => (counts[c] ?? 0) > 0 || flagged.includes(c))
   return (
     <Section title={T.layers}>
-      {CATEGORIES.map((cat) => (
+      {rows.map((cat) => (
         <LayerRow key={cat} category={cat} count={counts[cat] ?? 0} />
       ))}
     </Section>
