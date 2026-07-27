@@ -229,7 +229,7 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
   }
 
   const chip = (isActive: boolean) =>
-    'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] transition-colors ' +
+    'flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[13px] transition-colors ' +
     (isActive ? 'bg-accent text-white' : 'text-ink-soft hover:bg-accent-tint hover:text-accent')
 
   /** Name the file after the view it shows, so a folder of captures stays readable. */
@@ -360,7 +360,7 @@ function FlyHint() {
   if (!is3d) return null
   return (
     <div
-      className="pointer-events-none absolute bottom-3 z-10 rounded-full border border-line bg-panel/90 px-3 py-1 text-[11px] text-ink-soft shadow-sm backdrop-blur"
+      className="pointer-events-none absolute bottom-3 z-10 rounded-full border border-line bg-panel/90 px-3 py-1.5 text-[13px] text-ink-soft shadow-sm backdrop-blur"
       style={{ insetInlineStart: '0.75rem' }}
     >
       {strings3d.fly.hint}

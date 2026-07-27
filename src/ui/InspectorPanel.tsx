@@ -40,7 +40,12 @@ import { useShallow } from 'zustand/react/shallow'
 import { LIGHTING_MODES } from '../viewer3d/lightingModes'
 import { ColorField, FieldRow, NumberField, Section, SliderField, Stepper } from './fields'
 import { LayersSection } from './LayersSection'
-import { HallLayoutsSection, ScenePresetsSection, TableDesignSection } from './PresetsSection'
+import {
+  HallLayoutsSection,
+  SaveSelectionSection,
+  ScenePresetsSection,
+  TableDesignSection,
+} from './PresetsSection'
 import { strings } from './strings'
 
 const T = strings.inspector
@@ -49,8 +54,8 @@ const T = strings.inspector
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className="text-[12px] text-ink-soft">{label}</span>
-      <span className="ltr-nums text-[12px] font-medium text-ink">{value}</span>
+      <span className="text-[14px] text-ink-soft">{label}</span>
+      <span className="ltr-nums text-[14px] font-medium text-ink">{value}</span>
     </div>
   )
 }
@@ -79,7 +84,7 @@ function LightingSection() {
             aria-pressed={lighting.mode === m.id}
             onClick={() => pickMode(m.id)}
             className={
-              'flex-1 rounded-md border px-2 py-1 text-[12px] transition-colors ' +
+              'min-h-9 flex-1 rounded-md border px-2 py-1.5 text-[14px] transition-colors ' +
               (lighting.mode === m.id
                 ? 'border-accent bg-accent text-white'
                 : 'border-line text-ink-soft hover:border-accent hover:text-accent')
@@ -108,7 +113,7 @@ function ProjectInspector() {
       <Section title={T.projectTitle}>
         <FieldRow label={T.projectName}>
           <input
-            className="w-36 rounded-md border border-line bg-panel px-2 py-1 text-[12px] focus:border-accent focus:outline-none"
+            className="min-h-9 w-40 rounded-md border border-line bg-panel px-2 py-1.5 text-[14px] focus:border-accent focus:outline-none"
             value={projectName}
             onChange={(e) => setProjectName(e.target.value)}
           />
@@ -120,7 +125,7 @@ function ProjectInspector() {
         <InfoRow label={T.wallHeightInfo} value={`${m(venue.wallHeight)} מ׳`} />
       </Section>
       <Section title={T.summary}>
-        <p className="text-[12px] text-ink-soft">
+        <p className="text-[14px] text-ink-soft">
           <span className="ltr-nums">{counts.tables}</span> {strings.statusBar.tables} ·{' '}
           <span className="ltr-nums">{counts.chairs}</span> {strings.statusBar.chairs} ·{' '}
           <span className="ltr-nums">{counts.seats}</span> {strings.statusBar.seats}
@@ -168,7 +173,7 @@ function SeatingSection({ obj }: { obj: SceneObject }) {
       />
       <FieldRow label={T.chairModel}>
         <select
-          className="w-32 rounded-md border border-line bg-panel px-1.5 py-1 text-[12px] focus:border-accent focus:outline-none"
+          className="min-h-9 w-36 rounded-md border border-line bg-panel px-2 py-1.5 text-[14px] focus:border-accent focus:outline-none"
           value={obj.seating.chairCatalogId}
           onChange={(e) => setSeatingConfig(obj.id, { chairCatalogId: e.target.value })}
         >
@@ -181,7 +186,7 @@ function SeatingSection({ obj }: { obj: SceneObject }) {
       </FieldRow>
       {settingCount > 0 && (
         <button
-          className="rounded-md border border-line px-2 py-1.5 text-[12px] text-ink-soft hover:border-danger hover:text-danger"
+          className="min-h-9 rounded-md border border-line px-3 py-1.5 text-[14px] text-ink-soft hover:border-danger hover:text-danger"
           onClick={() => removeSeatItems(obj.id)}
         >
           {T.removeSettings}
@@ -207,17 +212,17 @@ function ChairInspector({ obj }: { obj: SceneObject }) {
     <>
       <Section title={T.name}>
         <input
-          className="w-full rounded-md border border-line bg-panel px-2 py-1 text-[13px] font-semibold focus:border-accent focus:outline-none"
+          className="min-h-9 w-full rounded-md border border-line bg-panel px-2 py-1.5 text-[15px] font-semibold focus:border-accent focus:outline-none"
           value={obj.name || displayName(obj.name, obj.catalogId, obj.meta.number)}
           onChange={(e) => setName(obj.id, e.target.value)}
         />
       </Section>
       <Section title={T.transform}>
         <FieldRow label={T.posX}>
-          <span className="ltr-nums w-24 text-end text-[12px] text-ink-soft">{fmt(world.position.x)}</span>
+          <span className="ltr-nums w-24 text-end text-[14px] text-ink-soft">{fmt(world.position.x)}</span>
         </FieldRow>
         <FieldRow label={T.posY}>
-          <span className="ltr-nums w-24 text-end text-[12px] text-ink-soft">{fmt(world.position.y)}</span>
+          <span className="ltr-nums w-24 text-end text-[14px] text-ink-soft">{fmt(world.position.y)}</span>
         </FieldRow>
         <NumberField
           label={T.rotation}
@@ -236,7 +241,7 @@ function ChairInspector({ obj }: { obj: SceneObject }) {
         </Section>
       )}
       <Section title={obj.attachment?.kind === 'surface' ? strings.drill.decor : strings.drill.chair}>
-        <p className="text-[12px] text-ink-soft">
+        <p className="text-[14px] text-ink-soft">
           {T.belongsTo} <span className="font-semibold text-ink">{parentName}</span>
         </p>
       </Section>
@@ -264,12 +269,12 @@ function SingleInspector({ obj }: { obj: SceneObject }) {
     <>
       <Section title={T.name}>
         <input
-          className="w-full rounded-md border border-line bg-panel px-2 py-1 text-[13px] font-semibold focus:border-accent focus:outline-none"
+          className="min-h-9 w-full rounded-md border border-line bg-panel px-2 py-1.5 text-[15px] font-semibold focus:border-accent focus:outline-none"
           value={obj.name || displayName(obj.name, obj.catalogId, obj.meta.number)}
           onChange={(e) => setName(obj.id, e.target.value)}
         />
         {obj.flags.locked && (
-          <div className="flex items-center justify-between rounded-md bg-warning/10 px-2 py-1.5 text-[12px] text-warning">
+          <div className="flex items-center justify-between rounded-md bg-warning/10 px-2 py-1.5 text-[14px] text-warning">
             <span className="flex items-center gap-1">
               <Lock size={12} /> {T.lockedNotice}
             </span>
@@ -279,7 +284,7 @@ function SingleInspector({ obj }: { obj: SceneObject }) {
           </div>
         )}
         {layerLocked && (
-          <div className="flex items-center gap-1 rounded-md bg-warning/10 px-2 py-1.5 text-[12px] text-warning">
+          <div className="flex items-center gap-1 rounded-md bg-warning/10 px-2 py-1.5 text-[14px] text-warning">
             <Lock size={12} /> {T.layerLockedNotice}
           </div>
         )}
@@ -333,7 +338,7 @@ function MultiInspector({ ids }: { ids: string[] }) {
     <>
       <Section title={`${ids.length} ${T.itemsSelected}`}>
         <div>
-          <span className="mb-1.5 block text-[12px] text-ink-soft">{T.align}</span>
+          <span className="mb-1.5 block text-[14px] text-ink-soft">{T.align}</span>
           <div className="flex gap-1">
             {alignButtons.map((b) => (
               <button
@@ -348,7 +353,7 @@ function MultiInspector({ ids }: { ids: string[] }) {
           </div>
         </div>
         <div>
-          <span className="mb-1.5 block text-[12px] text-ink-soft">{T.distribute}</span>
+          <span className="mb-1.5 block text-[14px] text-ink-soft">{T.distribute}</span>
           <div className="flex gap-1">
             <button
               title={T.distributeX}
@@ -369,7 +374,7 @@ function MultiInspector({ ids }: { ids: string[] }) {
           </div>
         </div>
         <button
-          className="mt-1 flex items-center justify-center gap-1.5 rounded-md border border-danger/40 px-2 py-1.5 text-[12px] text-danger hover:bg-danger/10"
+          className="mt-1 flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-danger/40 px-3 py-1.5 text-[14px] text-danger hover:bg-danger/10"
           onClick={() => removeObjects(ids)}
         >
           <Trash2 size={13} />
@@ -385,7 +390,8 @@ export function InspectorPanel() {
   const first = useEditorStore((s) => (s.selection.length === 1 ? s.scene.objects[s.selection[0]] : null))
 
   return (
-    <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-e border-line bg-panel">
+    <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-e border-line bg-panel 2xl:w-96">
+      {selection.length > 0 && <SaveSelectionSection />}
       {selection.length === 0 && <ProjectInspector />}
       {selection.length === 1 && first && <SingleInspector obj={first} />}
       {selection.length > 1 && <MultiInspector ids={selection} />}

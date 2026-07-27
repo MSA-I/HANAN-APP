@@ -98,7 +98,7 @@ export function SplitView({ start, end, defaultRatio = 0.6, layout = 'both' }: S
             'relative z-10 shrink-0 grow-0 cursor-col-resize touch-none border-x border-line transition-colors ' +
             (dragging ? 'bg-accent' : 'bg-line hover:bg-accent-tint')
           }
-          style={{ flexBasis: 6 }}
+          style={{ flexBasis: 8 }}
         />
       )}
       <div className="min-w-0 flex-1 overflow-hidden" style={endHidden ? { display: 'none' } : undefined}>

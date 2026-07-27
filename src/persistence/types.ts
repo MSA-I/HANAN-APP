@@ -5,6 +5,7 @@
  * touching the project body.
  */
 import type { Project } from '../core/model/types'
+import type { SavedLayout, VenueSignature } from '../core/savedLayouts'
 
 export interface ProjectFile {
   schemaVersion: number
@@ -28,4 +29,7 @@ export interface ProjectRepository {
   remove(id: string): Promise<void>
   savePreview(id: string, png: Blob): Promise<void>
   loadPreviewUrl(id: string): Promise<string | null>
+  listLayouts(venue: VenueSignature): Promise<SavedLayout[]>
+  saveLayout(layout: SavedLayout): Promise<void>
+  removeLayout(id: string): Promise<void>
 }

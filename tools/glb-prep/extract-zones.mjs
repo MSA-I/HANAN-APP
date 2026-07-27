@@ -26,13 +26,14 @@ const io = new NodeIO()
 
 const doc = await io.read(inPath)
 
-// gather world-space triangles (x,z only — markers are flat) per ZONE_* material
-const zones = new Map() // name -> { tris: [[ax,az,bx,bz,cx,cz], …] }
+// gather world-space plan triangles plus their surface height per ZONE_* material
+const zones = new Map() // name -> { tris: [[ax,az,bx,bz,cx,cz], …], minY, maxY }
 for (const node of doc.getRoot().listNodes()) {
   const mesh = node.getMesh()
   if (!mesh) continue
   const m = node.getWorldMatrix()
   const wx = (x, y, z) => m[0] * x + m[4] * y + m[8] * z + m[12]
+  const wy = (x, y, z) => m[1] * x + m[5] * y + m[9] * z + m[13]
   const wz = (x, y, z) => m[2] * x + m[6] * y + m[10] * z + m[14]
   for (const prim of mesh.listPrimitives()) {
     const mat = prim.getMaterial()
@@ -42,10 +43,16 @@ for (const node of doc.getRoot().listNodes()) {
     const idx = prim.getIndices()
     if (!pos) continue
     let z = zones.get(name)
-    if (!z) { z = { tris: [] }; zones.set(name, z) }
+    if (!z) { z = { tris: [], minY: Infinity, maxY: -Infinity }; zones.set(name, z) }
     const count = idx ? idx.getCount() : pos.getCount()
     const el = [0, 0, 0]
-    const get = (i) => { pos.getElement(idx ? idx.getScalar(i) : i, el); return [wx(...el), wz(...el)] }
+    const get = (i) => {
+      pos.getElement(idx ? idx.getScalar(i) : i, el)
+      const y = wy(...el)
+      z.minY = Math.min(z.minY, y)
+      z.maxY = Math.max(z.maxY, y)
+      return [wx(...el), wz(...el)]
+    }
     for (let i = 0; i + 2 < count + 1 && i + 2 < count; i += 3) {
       const a = get(i), b = get(i + 1), c = get(i + 2)
       z.tris.push([...a, ...b, ...c])
@@ -151,7 +158,11 @@ for (const [name, z] of zones) {
   }
   const [px0, py0] = toPlan(x0, z0)
   const [px1, py1] = toPlan(x1, z1)
-  rects[name] = { x: Math.min(px0, px1), y: Math.min(py0, py1), width: Math.abs(px1 - px0), depth: Math.abs(py1 - py0) }
+  rects[name] = {
+    x: Math.min(px0, px1), y: Math.min(py0, py1),
+    width: Math.abs(px1 - px0), depth: Math.abs(py1 - py0),
+    elevation: Math.round(z.maxY * 100),
+  }
 }
 
 // ZONE_HUPA is the current model's spelling of legacy ZONE_CHUPPAH. Some SKPs
@@ -161,7 +172,7 @@ if (rects.ZONE_HUPA) {
   if (rects.ZONE_CHUPPAH) {
     const keys = ['x', 'y', 'width', 'depth']
     if (keys.some((key) => rects.ZONE_HUPA[key] !== rects.ZONE_CHUPPAH[key])) {
-      throw new Error('ZONE_HUPA and ZONE_CHUPPAH disagree — keep one marker or align them before export')
+      throw new Error(`ZONE_HUPA and ZONE_CHUPPAH disagree: ${JSON.stringify(rects.ZONE_HUPA)} vs ${JSON.stringify(rects.ZONE_CHUPPAH)}`)
     }
   }
   rects.ZONE_CHUPPAH = rects.ZONE_HUPA
@@ -179,5 +190,5 @@ console.log(`\n=== floorAreas (green placeable, ${floorAreas.length} pieces, pla
 console.log(JSON.stringify(floorAreas))
 console.log('\n=== restricted (plan cm) ===')
 for (const [name, r] of Object.entries(rects)) {
-  console.log(`{ x: ${r.x}, y: ${r.y}, width: ${r.width}, depth: ${r.depth}, label: '${label[name] ?? name}' },  // ${name}`)
+  console.log(`{ x: ${r.x}, y: ${r.y}, width: ${r.width}, depth: ${r.depth}, elevation: ${r.elevation}, label: '${label[name] ?? name}' },  // ${name}`)
 }

@@ -147,7 +147,7 @@ function KebabMenu({ onDelete }: { onDelete: () => void }) {
       <button
         type="button"
         aria-label={S.dashboard.moreActions}
-        className="rounded-md bg-panel/80 p-1.5 text-ink-soft backdrop-blur hover:bg-panel hover:text-ink"
+        className="min-h-10 min-w-10 rounded-md bg-panel/80 p-2 text-ink-soft backdrop-blur hover:bg-panel hover:text-ink"
         onClick={(e) => {
           e.stopPropagation()
           setOpen((v) => !v)
@@ -159,7 +159,7 @@ function KebabMenu({ onDelete }: { onDelete: () => void }) {
         <div className="absolute end-0 top-full z-10 mt-1 min-w-[140px] overflow-hidden rounded-lg border border-line bg-panel py-1 shadow-lg">
           <button
             type="button"
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-start text-danger hover:bg-danger/10"
+            className="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-start text-[14px] text-danger hover:bg-danger/10"
             onClick={(e) => {
               e.stopPropagation()
               setOpen(false)
@@ -207,12 +207,12 @@ function ProjectCard({
         </div>
       </div>
       <div className="p-3">
-        <div className="truncate text-[14px] font-semibold text-ink">{summary.name}</div>
-        <div className="mt-1 flex items-center gap-1.5 text-[12px] text-ink-soft">
-          <CalendarDays size={13} className="shrink-0" />
+        <div className="truncate text-[16px] font-semibold text-ink">{summary.name}</div>
+        <div className="mt-1 flex items-center gap-1.5 text-[14px] text-ink-soft">
+          <CalendarDays size={15} className="shrink-0" />
           <span className="truncate">{formatEventDate(summary.eventDate)}</span>
         </div>
-        <div className="mt-0.5 text-[11px] text-ink-soft/80">
+        <div className="mt-0.5 text-[13px] text-ink-soft/80">
           {formatRelativeTime(summary.updatedAt)}
         </div>
       </div>
@@ -248,11 +248,11 @@ function EmptyState({ onNew }: { onNew: () => void }) {
         <circle cx="98" cy="78" r="9" stroke="currentColor" strokeWidth="2" />
       </svg>
       <h2 className="text-lg font-semibold text-ink">{S.dashboard.emptyTitle}</h2>
-      <p className="mt-2 max-w-sm text-[13px] text-ink-soft">{S.dashboard.emptyBody}</p>
+      <p className="mt-2 max-w-sm text-[14px] text-ink-soft">{S.dashboard.emptyBody}</p>
       <button
         type="button"
         onClick={onNew}
-        className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-accent px-4 py-2 text-[13px] font-medium text-white hover:bg-accent-hover"
+        className="mt-6 inline-flex min-h-10 items-center gap-1.5 rounded-md bg-accent px-4 py-2 text-[14px] font-medium text-white hover:bg-accent-hover"
       >
         <Plus size={16} />
         {S.dashboard.newEvent}
@@ -299,11 +299,11 @@ function ModalShell({
 }
 
 function fieldLabel(text: string) {
-  return <span className="mb-1 block text-[12px] font-medium text-ink-soft">{text}</span>
+  return <span className="mb-1.5 block text-[14px] font-medium text-ink-soft">{text}</span>
 }
 
 const inputClass =
-  'w-full rounded-md border border-line bg-panel px-3 py-2 text-[13px] text-ink outline-none focus:border-accent'
+  'min-h-10 w-full rounded-md border border-line bg-panel px-3 py-2 text-[14px] text-ink outline-none focus:border-accent'
 
 function NewProjectModal({
   onCancel,
@@ -354,7 +354,7 @@ function NewProjectModal({
 
   return (
     <ModalShell onClose={onCancel} labelledBy="new-project-title">
-      <h2 id="new-project-title" className="mb-4 text-[15px] font-semibold text-ink">
+      <h2 id="new-project-title" className="mb-4 text-[18px] font-semibold text-ink">
         {S.newModal.title}
       </h2>
       <form onSubmit={submit} className="space-y-3.5">
@@ -397,7 +397,7 @@ function NewProjectModal({
                 key={opt.id ?? 'blank'}
                 type="button"
                 onClick={() => setVenuePackId(opt.id)}
-                className={`rounded-md border px-3 py-2 text-[13px] transition-colors ${
+                className={`min-h-10 rounded-md border px-3 py-2 text-[14px] transition-colors ${
                   venuePackId === opt.id
                     ? 'border-accent bg-accent-tint text-accent'
                     : 'border-line bg-panel text-ink-soft hover:border-accent/40'
@@ -447,7 +447,7 @@ function NewProjectModal({
                 key={String(opt.value)}
                 type="button"
                 onClick={() => setSample(opt.value)}
-                className={`rounded-md border px-3 py-2 text-[13px] transition-colors ${
+                className={`min-h-10 rounded-md border px-3 py-2 text-[14px] transition-colors ${
                   sample === opt.value
                     ? 'border-accent bg-accent-tint text-accent'
                     : 'border-line bg-panel text-ink-soft hover:border-accent/40'
@@ -462,13 +462,13 @@ function NewProjectModal({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-md px-4 py-2 text-[13px] font-medium text-ink-soft hover:bg-canvas"
+            className="min-h-10 rounded-md px-4 py-2 text-[14px] font-medium text-ink-soft hover:bg-canvas"
           >
             {S.newModal.cancel}
           </button>
           <button
             type="submit"
-            className="rounded-md bg-accent px-4 py-2 text-[13px] font-medium text-white hover:bg-accent-hover"
+            className="min-h-10 rounded-md bg-accent px-4 py-2 text-[14px] font-medium text-white hover:bg-accent-hover"
           >
             {S.newModal.create}
           </button>
@@ -493,23 +493,23 @@ function DeleteConfirmModal({
   }, [])
   return (
     <ModalShell onClose={onCancel} labelledBy="delete-title">
-      <h2 id="delete-title" className="mb-2 text-[15px] font-semibold text-ink">
+      <h2 id="delete-title" className="mb-2 text-[18px] font-semibold text-ink">
         {S.deleteModal.title}
       </h2>
-      <p className="text-[13px] text-ink-soft">{S.deleteModal.body(summary.name)}</p>
+      <p className="text-[14px] text-ink-soft">{S.deleteModal.body(summary.name)}</p>
       <div className="mt-5 flex justify-end gap-2">
         <button
           ref={cancelRef}
           type="button"
           onClick={onCancel}
-          className="rounded-md px-4 py-2 text-[13px] font-medium text-ink-soft hover:bg-canvas"
+          className="min-h-10 rounded-md px-4 py-2 text-[14px] font-medium text-ink-soft hover:bg-canvas"
         >
           {S.deleteModal.cancel}
         </button>
         <button
           type="button"
           onClick={onConfirm}
-          className="rounded-md bg-danger px-4 py-2 text-[13px] font-medium text-white hover:brightness-95"
+          className="min-h-10 rounded-md bg-danger px-4 py-2 text-[14px] font-medium text-white hover:brightness-95"
         >
           {S.deleteModal.confirm}
         </button>
@@ -585,12 +585,12 @@ export function Dashboard({ onOpen }: { onOpen: (project: Project) => void }) {
 
   return (
     <div className="h-full overflow-y-auto bg-chrome">
-      <header className="sticky top-0 z-20 flex h-[60px] items-center justify-between border-b border-line bg-chrome/90 px-6 backdrop-blur">
-        <h1 className="text-[17px] font-semibold text-ink">{S.dashboard.wordmark}</h1>
+      <header className="sticky top-0 z-20 flex h-[68px] items-center justify-between border-b border-line bg-chrome/90 px-6 backdrop-blur">
+        <h1 className="text-[20px] font-semibold text-ink">{S.dashboard.wordmark}</h1>
         <button
           type="button"
           onClick={() => setShowNew(true)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-accent px-4 py-2 text-[13px] font-medium text-white hover:bg-accent-hover"
+          className="inline-flex min-h-10 items-center gap-1.5 rounded-md bg-accent px-4 py-2 text-[14px] font-medium text-white hover:bg-accent-hover"
         >
           <Plus size={16} />
           {S.dashboard.newEvent}
@@ -600,11 +600,11 @@ export function Dashboard({ onOpen }: { onOpen: (project: Project) => void }) {
       <main className="mx-auto max-w-6xl px-6 py-8">
         {error ? (
           <div className="flex flex-col items-center justify-center py-24 text-center">
-            <p className="text-[14px] text-ink">{S.dashboard.loadError}</p>
+            <p className="text-[15px] text-ink">{S.dashboard.loadError}</p>
             <button
               type="button"
               onClick={() => void refresh()}
-              className="mt-4 rounded-md border border-line bg-panel px-4 py-2 text-[13px] font-medium text-ink hover:border-accent"
+              className="mt-4 min-h-10 rounded-md border border-line bg-panel px-4 py-2 text-[14px] font-medium text-ink hover:border-accent"
             >
               {S.dashboard.retry}
             </button>

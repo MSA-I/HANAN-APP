@@ -96,6 +96,8 @@ export interface CatalogEntry {
    * loading/error fallback.
    */
   model?: string
+  /** uniform scale applied to the real GLB before fitting it to stored object size */
+  modelScale?: number
   /**
    * URL of a square photo thumbnail (public/thumbs/, 512×512 webp prepped by
    * tools/thumbs-prep.mjs). The library shows it instead of the vector top-view;

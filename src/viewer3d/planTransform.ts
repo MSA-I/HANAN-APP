@@ -4,12 +4,12 @@
  */
 import * as THREE from 'three'
 import type { Transform2D } from '../core/model/types'
-import { planToThree } from '../core/space'
+import { cmToM, planToThree } from '../core/space'
 
 /** Position + Y-rotation a three Object3D from a plan transform (hot path). */
-export function applyPlanTransform(obj: THREE.Object3D, t: Transform2D): void {
+export function applyPlanTransform(obj: THREE.Object3D, t: Transform2D, baseElevation = 0): void {
   const { position, rotationY } = planToThree(t)
-  obj.position.set(position[0], position[1], position[2])
+  obj.position.set(position[0], position[1] + cmToM(baseElevation), position[2])
   obj.rotation.set(0, rotationY, 0)
 }
 

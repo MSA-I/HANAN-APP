@@ -65,7 +65,7 @@ function DrillBreadcrumb() {
   if (!tableName) return null
   return (
     <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
-      <div className="flex items-center gap-2 rounded-full border border-line bg-panel px-3 py-1 text-[11px] shadow-sm">
+      <div className="flex items-center gap-2 rounded-full border border-line bg-panel px-3 py-1.5 text-[13px] shadow-sm">
         <span className="font-semibold">{tableName}</span>
         <span className="text-ink-soft">◂</span>
         <span>{childLabel}</span>

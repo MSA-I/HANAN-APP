@@ -140,10 +140,10 @@ export function LibraryPanel() {
 
   if (collapsed) {
     return (
-      <aside className="flex w-12 shrink-0 flex-col items-center border-s border-line bg-panel py-2">
+      <aside className="flex w-14 shrink-0 flex-col items-center border-s border-line bg-panel py-3">
         <button
           title={strings.library.expand}
-          className="rounded-md p-1.5 text-ink-soft hover:bg-accent-tint hover:text-ink"
+          className="rounded-md p-2 text-ink-soft hover:bg-accent-tint hover:text-ink"
           onClick={() => setCollapsed(false)}
         >
           <ChevronsLeft size={16} className="rtl:-scale-x-100" />
@@ -153,22 +153,22 @@ export function LibraryPanel() {
   }
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col border-s border-line bg-panel">
-      <div className="flex items-center gap-2 border-b border-line px-3 py-2">
-        <h2 className="flex-1 text-[13px] font-semibold">{strings.library.title}</h2>
+    <aside className="flex w-72 shrink-0 flex-col border-s border-line bg-panel xl:w-80">
+      <div className="flex items-center gap-2 border-b border-line px-3 py-3">
+        <h2 className="flex-1 text-[16px] font-semibold">{strings.library.title}</h2>
         <button
           title={strings.library.collapse}
-          className="rounded-md p-1 text-ink-soft hover:bg-accent-tint hover:text-ink"
+          className="rounded-md p-2 text-ink-soft hover:bg-accent-tint hover:text-ink"
           onClick={() => setCollapsed(true)}
         >
           <ChevronsRight size={16} className="rtl:-scale-x-100" />
         </button>
       </div>
-      <div className="border-b border-line px-3 py-2">
-        <div className="flex items-center gap-2 rounded-md border border-line px-2 py-1.5 focus-within:border-accent">
-          <Search size={14} className="text-ink-soft" />
+      <div className="border-b border-line px-3 py-3">
+        <div className="flex min-h-10 items-center gap-2 rounded-md border border-line px-2.5 py-2 focus-within:border-accent">
+          <Search size={16} className="text-ink-soft" />
           <input
-            className="w-full bg-transparent text-[12px] focus:outline-none"
+            className="w-full bg-transparent text-[14px] focus:outline-none"
             placeholder={strings.library.search}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -184,20 +184,20 @@ export function LibraryPanel() {
               overlay.setPlacing(null)
               setReplaceTarget(replacing ? null : selectedId)
             }}
-            className={`mt-2 flex min-h-8 w-full items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-[11px] font-semibold transition-colors ${
+            className={`mt-2 flex min-h-9 w-full items-center justify-center gap-1.5 rounded-md border px-2 py-2 text-[13px] font-semibold transition-colors ${
               replacing
                 ? 'border-accent bg-accent text-white'
                 : 'border-line text-ink-soft hover:border-accent/50 hover:bg-accent-tint hover:text-accent'
             }`}
           >
-            <RefreshCw size={14} />
+            <RefreshCw size={15} />
             {replacing ? strings.library.replaceActive : strings.library.replaceSelected}
           </button>
         )}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {categories.length === 0 && (
-          <div className="py-6 text-center text-[12px] text-ink-soft">
+          <div className="py-6 text-center text-[14px] text-ink-soft">
             <p>
               {strings.library.noResults} "{query}"
             </p>
@@ -207,9 +207,9 @@ export function LibraryPanel() {
           </div>
         )}
         {categories.map(({ cat, label, items }) => (
-          <div key={cat} className="mb-3">
-            <h3 className="mb-1.5 text-[11px] font-semibold text-ink-soft">{label}</h3>
-            <div className="grid grid-cols-2 gap-1.5">
+          <div key={cat} className="mb-4">
+            <h3 className="mb-2 text-[16px] font-semibold text-ink">{label}</h3>
+            <div className="grid grid-cols-2 gap-2">
               {items.map((entry) => {
                 const compatible =
                   !!selectedId && canReplaceObject(useEditorStore.getState().scene, selectedId, entry.id)
@@ -233,15 +233,15 @@ export function LibraryPanel() {
                       }
                       overlay.setPlacing(placing === entry.id ? null : entry.id)
                     }}
-                    className={`select-none rounded-lg border p-1.5 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
+                    className={`select-none rounded-lg border p-2 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
                       placing === entry.id
                         ? 'border-accent bg-accent-tint'
                         : 'border-line bg-panel hover:border-accent/50'
                     }`}
                   >
                     <Thumbnail entry={entry} />
-                    <div className="mt-1 truncate text-[11px] font-medium">{itemLabel(entry)}</div>
-                    <div className="ltr-nums text-[10px] text-ink-soft">{formatFootprint(entry)}</div>
+                    <div className="mt-1.5 truncate text-[14px] font-medium">{itemLabel(entry)}</div>
+                    <div className="ltr-nums text-[13px] text-ink-soft">{formatFootprint(entry)}</div>
                   </button>
                 )
               })}

@@ -38,7 +38,7 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
   }, [onClose])
 
   const left = Math.min(x, window.innerWidth - 220)
-  const top = Math.min(y, window.innerHeight - items.length * 32 - 16)
+  const top = Math.min(y, window.innerHeight - items.length * 40 - 16)
 
   return (
     <div
@@ -55,7 +55,7 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
             key={i}
             role="menuitem"
             disabled={item.disabled}
-            className={`flex w-full items-center justify-between gap-6 px-3 py-1.5 text-start text-[13px] ${
+            className={`flex min-h-10 w-full items-center justify-between gap-6 px-3 py-2 text-start text-[14px] ${
               item.disabled
                 ? 'cursor-default text-ink-soft/50'
                 : item.danger
@@ -69,7 +69,7 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
             }}
           >
             <span>{item.label}</span>
-            {item.shortcut && <span className="ltr-nums text-[11px] text-ink-soft">{item.shortcut}</span>}
+            {item.shortcut && <span className="ltr-nums text-[13px] text-ink-soft">{item.shortcut}</span>}
           </button>
         ),
       )}

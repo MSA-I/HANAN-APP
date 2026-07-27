@@ -33,7 +33,8 @@ body {
   font-family: var(--font-sans);
   color: var(--color-ink);
   background: var(--color-chrome);
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
 }

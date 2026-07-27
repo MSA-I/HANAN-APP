@@ -3,9 +3,9 @@ import { useEffect, useState } from 'react'
 
 export function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="border-b border-line px-4 py-3">
-      <h3 className="mb-2.5 text-[11px] font-semibold text-ink-soft">{title}</h3>
-      <div className="flex flex-col gap-2">{children}</div>
+    <section className="border-b border-line px-4 py-3.5">
+      <h3 className="mb-3 text-[16px] font-semibold text-ink">{title}</h3>
+      <div className="flex flex-col gap-2.5">{children}</div>
     </section>
   )
 }
@@ -13,7 +13,7 @@ export function Section({ title, children }: { title: string; children: React.Re
 export function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex items-center justify-between gap-2">
-      <span className="text-[12px] text-ink-soft">{label}</span>
+      <span className="text-[14px] text-ink-soft">{label}</span>
       {children}
     </label>
   )
@@ -63,7 +63,7 @@ export function NumberField({ label, value, unit = 'm', step, min, max, onCommit
         dir="ltr"
         type="number"
         step={step ?? (unit === 'm' ? 0.1 : 1)}
-        className="w-24 rounded-md border border-line bg-panel px-2 py-1 text-end font-mono text-[12px] focus:border-accent focus:outline-none"
+        className="min-h-9 w-24 rounded-md border border-line bg-panel px-2 py-1.5 text-end font-mono text-[14px] focus:border-accent focus:outline-none"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onBlur={commit}
@@ -100,17 +100,15 @@ interface ColorFieldProps {
 export function ColorField({ label, value, onChange }: ColorFieldProps) {
   return (
     <div>
-      <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-[12px] text-ink-soft">{label}</span>
-      </div>
-      <div className="flex flex-wrap gap-1">
+      <div className="mb-1.5 text-[14px] text-ink-soft">{label}</div>
+      <div className="flex flex-wrap gap-1.5">
         {EVENT_SWATCHES.map((c) => (
           <button
             key={c}
             // explicit type — inside a form (new-project dialog) a default
             // submit-button swatch would submit on pick
             type="button"
-            className={`h-5 w-5 rounded-full border ${
+            className={`h-6 w-6 rounded-full border ${
               value.toLowerCase() === c ? 'border-accent ring-1 ring-accent' : 'border-line'
             }`}
             style={{ background: c }}
@@ -140,8 +138,8 @@ export function SliderField({ label, value, min, max, step = 1, unit = '', onCha
   return (
     <div>
       <div className="mb-1 flex items-center justify-between">
-        <span className="text-[12px] text-ink-soft">{label}</span>
-        <span className="ltr-nums text-[12px] font-medium text-ink">
+        <span className="text-[14px] text-ink-soft">{label}</span>
+        <span className="ltr-nums text-[14px] font-medium text-ink">
           {Math.round(value * 100) / 100}
           {unit}
         </span>
@@ -174,28 +172,28 @@ export function Stepper({ label, value, min, max, hint, onChange }: StepperProps
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[12px] text-ink-soft">{label}</span>
+        <span className="text-[14px] text-ink-soft">{label}</span>
         <div className="flex items-center gap-1">
           <button
-            className="rounded-md border border-line p-1 hover:border-accent hover:text-accent disabled:opacity-40"
+            className="rounded-md border border-line p-1.5 hover:border-accent hover:text-accent disabled:opacity-40"
             disabled={value <= min}
             onClick={() => onChange(value - 1)}
             aria-label="-"
           >
-            <Minus size={13} />
+            <Minus size={15} />
           </button>
-          <span className="ltr-nums w-8 text-center text-[13px] font-semibold">{value}</span>
+          <span className="ltr-nums w-8 text-center text-[14px] font-semibold">{value}</span>
           <button
-            className="rounded-md border border-line p-1 hover:border-accent hover:text-accent disabled:opacity-40"
+            className="rounded-md border border-line p-1.5 hover:border-accent hover:text-accent disabled:opacity-40"
             disabled={value >= max}
             onClick={() => onChange(value + 1)}
             aria-label="+"
           >
-            <Plus size={13} />
+            <Plus size={15} />
           </button>
         </div>
       </div>
-      {hint && <p className="mt-1 text-[11px] text-ink-soft">{hint}</p>}
+      {hint && <p className="mt-1 text-[13px] text-ink-soft">{hint}</p>}
     </div>
   )
 }

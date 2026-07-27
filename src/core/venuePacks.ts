@@ -20,6 +20,8 @@ export interface RestrictedZone {
   y: number
   width: number
   depth: number
+  /** cm — surface height; zone-bound objects use this as their local 0.00 */
+  elevation?: number
   /** hebrew label for the 2D overlay */
   label?: string
   /** stable id from the ZONE_* SketchUp marker (pool, bar, dj, dancefloor…) */
@@ -79,7 +81,7 @@ export const VENUE_PACKS: VenuePack[] = [
       { x: 1789, y: 0, width: 800, depth: 300, label: 'בר', kind: 'bar' },
       { x: 1789, y: 300, width: 800, depth: 1108, label: 'רחבת ריקודים', kind: 'dancefloor' },
       { x: 2269, y: 1408, width: 310, depth: 233, label: 'עמדת DJ', kind: 'dj' },
-      { x: 1809, y: 1651, width: 760, depth: 425, label: 'חופה', kind: 'chuppah' },
+      { x: 1809, y: 1651, width: 760, depth: 425, elevation: 50, label: 'חופה', kind: 'chuppah' },
       { x: 3962, y: 0, width: 461, depth: 2544, label: 'מסדרון', kind: 'corridor' },
     ],
     floorAreas: [

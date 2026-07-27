@@ -16,7 +16,7 @@ function ZoomButton({ title, onClick, children }: { title: string; onClick: () =
       title={title}
       aria-label={title}
       onClick={onClick}
-      className="rounded p-1 text-ink-soft transition-colors hover:bg-accent-tint hover:text-ink"
+      className="rounded p-1.5 text-ink-soft transition-colors hover:bg-accent-tint hover:text-ink"
     >
       {children}
     </button>
@@ -32,27 +32,27 @@ export function StatusBar() {
   const cursorText = cursor ? `${(cursor.x / 100).toFixed(2)}, ${(cursor.y / 100).toFixed(2)}` : '—'
 
   return (
-    <footer className="flex h-7 shrink-0 items-center justify-between border-t border-line bg-chrome px-3 text-[11px] text-ink-soft">
+    <footer className="flex h-9 shrink-0 items-center justify-between border-t border-line bg-chrome px-3 text-[13px] text-ink-soft">
       {/* start (right in RTL): cursor coordinates + zoom controls */}
       <div className="flex items-center gap-3">
         <span className="ltr-nums inline-block w-24 text-start">{cursorText}</span>
         <div className="flex items-center gap-0.5">
           <ZoomButton title={S.zoomOut} onClick={() => zoomApi()?.zoomOut()}>
-            <Minus size={13} />
+            <Minus size={15} />
           </ZoomButton>
           <button
             title={strings.menu.zoom100}
             aria-label={strings.menu.zoom100}
             onClick={() => zoomApi()?.zoom100()}
-            className="ltr-nums w-11 rounded py-0.5 text-center font-mono text-[11px] text-ink hover:bg-accent-tint"
+            className="ltr-nums min-h-7 w-12 rounded py-1 text-center font-mono text-[13px] text-ink hover:bg-accent-tint"
           >
             {pct}%
           </button>
           <ZoomButton title={S.zoomIn} onClick={() => zoomApi()?.zoomIn()}>
-            <Plus size={13} />
+            <Plus size={15} />
           </ZoomButton>
           <ZoomButton title={S.zoomFit} onClick={() => zoomApi()?.fitVenue()}>
-            <Maximize size={13} />
+            <Maximize size={15} />
           </ZoomButton>
         </div>
       </div>

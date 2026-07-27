@@ -35,6 +35,7 @@ import { snapValue } from '../core/layout/snapping'
 import { attachedChairs } from '../core/model/seatingReconciler'
 import type { Id, Size3D } from '../core/model/types'
 import { cmToM, degToRad, radToDeg } from '../core/space'
+import { getVenuePack } from '../core/venuePacks'
 import { useOverlayStore } from '../editor2d/overlayStore'
 import { beginGesture, endGesture, select, setPosition, setRotation, toggleSelect } from '../state/actions'
 import { isEffectivelyLocked, isLayerHidden, isObjectVisible } from '../state/selectors'
@@ -131,6 +132,10 @@ export function ObjectGroup({ id }: { id: Id }) {
     return s.selection.length === 1 && s.selection[0] === id && !!obj && !isEffectivelyLocked(s.scene, obj)
   })
   const placing = useOverlayStore((s) => s.placing)
+  const baseElevation = useEditorStore((s) => {
+    const zoneKind = catalogId ? getCatalogEntry(catalogId).zoneKind : undefined
+    return getVenuePack(s.scene.venue.venuePackId)?.restricted?.find((zone) => zone.kind === zoneKind)?.elevation ?? 0
+  })
 
   // Transient transform sync — the hot path. fireImmediately seeds the initial
   // placement; subsequent drag frames update the matrix without React.
@@ -139,13 +144,13 @@ export function ObjectGroup({ id }: { id: Id }) {
       (s) => s.scene.objects[id]?.transform,
       (t) => {
         if (t && groupRef.current) {
-          applyPlanTransform(groupRef.current, t)
+          applyPlanTransform(groupRef.current, t, baseElevation)
           invalidate()
         }
       },
       { equalityFn: shallow, fireImmediately: true },
     )
-  }, [id, invalidate])
+  }, [id, invalidate, baseElevation])
 
   useEffect(
     () => () => {
@@ -195,7 +200,7 @@ export function ObjectGroup({ id }: { id: Id }) {
 
     const plane = new THREE.Plane(
       new THREE.Vector3(0, 1, 0),
-      -cmToM(obj.transform.elevation),
+      -cmToM(baseElevation + obj.transform.elevation),
     )
     const hit = new THREE.Vector3()
     if (!e.ray.intersectPlane(plane, hit)) return

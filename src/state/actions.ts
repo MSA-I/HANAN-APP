@@ -34,6 +34,12 @@ import { seatItemTransforms } from '../core/layout/seatItemLayout'
 import { seatsForEntry } from '../core/layout/seatLayout'
 import { getHallLayout } from '../core/hallLayouts'
 import {
+  instantiateSavedLayout,
+  sameVenueSignature,
+  venueSignature,
+  type SavedLayout,
+} from '../core/savedLayouts'
+import {
   getHallDesign,
   getTableDesign,
   getTablePreset,
@@ -132,9 +138,11 @@ function zonePush(box: AABB, z: RestrictedZone, width: number, depth: number): V
 function zoneShift(box: AABB, z: RestrictedZone): Vec2 {
   let x = 0
   let y = 0
-  if (box.minX < z.x) x = z.x - box.minX
+  if (box.maxX - box.minX > z.width) x = z.x + z.width / 2 - (box.minX + box.maxX) / 2
+  else if (box.minX < z.x) x = z.x - box.minX
   else if (box.maxX > z.x + z.width) x = z.x + z.width - box.maxX
-  if (box.minY < z.y) y = z.y - box.minY
+  if (box.maxY - box.minY > z.depth) y = z.y + z.depth / 2 - (box.minY + box.maxY) / 2
+  else if (box.minY < z.y) y = z.y - box.minY
   else if (box.maxY > z.y + z.depth) y = z.y + z.depth - box.maxY
   return { x, y }
 }
@@ -704,6 +712,28 @@ export function applyHallLayout(layoutId: string): Id[] {
       unhideCategoryOf(scene, preset.tableCatalogId)
       unhideCategoryOf(scene, preset.chairCatalogId)
       ids.push(obj.id)
+    }
+    clampToVenue(scene, ids)
+  })
+  pruneSelection()
+  return ids
+}
+
+/** Apply a user-saved selection at its authored coordinates, replacing only
+ * the previous tagged layout. Hand-placed objects survive, matching the built-in
+ * hall-layout behaviour. */
+export function applySavedLayout(layout: SavedLayout): Id[] {
+  const current = get().scene
+  if (!sameVenueSignature(venueSignature(current.venue), layout.venue)) return []
+  const ids: Id[] = []
+  mutateScene((scene) => {
+    deleteHallLayout(scene)
+    ids.push(...instantiateSavedLayout(scene, layout))
+    for (const id of ids) {
+      const root = scene.objects[id]
+      if (!root) continue
+      unhideCategoryOf(scene, root.catalogId)
+      for (const child of childrenOf(scene, id)) unhideCategoryOf(scene, child.catalogId)
     }
     clampToVenue(scene, ids)
   })

@@ -21,14 +21,14 @@ function LayerRow({ category, count }: { category: Category; count: number }) {
   const locked = useEditorStore((s) => isLayerLocked(s.scene, category))
   const btn = (active: boolean) =>
     active
-      ? 'rounded-md border border-accent bg-accent-tint p-1 text-accent'
-      : 'rounded-md border border-line p-1 text-ink-soft hover:border-accent hover:text-accent'
+      ? 'rounded-md border border-accent bg-accent-tint p-1.5 text-accent'
+      : 'rounded-md border border-line p-1.5 text-ink-soft hover:border-accent hover:text-accent'
 
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className={`text-[12px] ${hidden ? 'text-ink-soft/60' : 'text-ink'}`}>
+      <span className={`text-[14px] ${hidden ? 'text-ink-soft/60' : 'text-ink'}`}>
         {strings.catalog.categories[category]}{' '}
-        <span className="ltr-nums text-[11px] text-ink-soft">({count})</span>
+        <span className="ltr-nums text-[13px] text-ink-soft">({count})</span>
       </span>
       <div className="flex items-center gap-1">
         <button
@@ -38,7 +38,7 @@ function LayerRow({ category, count }: { category: Category; count: number }) {
           className={btn(hidden)}
           onClick={() => setLayerHidden(category, !hidden)}
         >
-          {hidden ? <EyeOff size={14} /> : <Eye size={14} />}
+          {hidden ? <EyeOff size={16} /> : <Eye size={16} />}
         </button>
         <button
           type="button"
@@ -47,7 +47,7 @@ function LayerRow({ category, count }: { category: Category; count: number }) {
           className={btn(locked)}
           onClick={() => setLayerLocked(category, !locked)}
         >
-          {locked ? <Lock size={14} /> : <LockOpen size={14} />}
+          {locked ? <Lock size={16} /> : <LockOpen size={16} />}
         </button>
       </div>
     </div>

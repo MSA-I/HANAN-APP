@@ -25,22 +25,22 @@ export function ShortcutsHelp() {
       <div
         role="dialog"
         aria-label={strings.help.title}
-        className="max-h-full w-96 overflow-y-auto rounded-xl border border-line bg-panel p-5 shadow-xl"
+        className="max-h-full w-full max-w-md overflow-y-auto rounded-xl border border-line bg-panel p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold">{strings.help.title}</h2>
+          <h2 className="text-[18px] font-semibold">{strings.help.title}</h2>
           <button
             title={strings.help.close}
             aria-label={strings.help.close}
-            className="rounded-md p-1 text-ink-soft hover:bg-accent-tint hover:text-ink"
+            className="rounded-md p-2 text-ink-soft hover:bg-accent-tint hover:text-ink"
             onClick={() => overlay.setHelpOpen(false)}
           >
-            <X size={16} />
+            <X size={18} />
           </button>
         </div>
         <Rows rows={strings.help.rows} />
-        <h3 className="mt-4 mb-1 text-[13px] font-semibold">{strings.help.title3d}</h3>
+        <h3 className="mt-5 mb-1.5 text-[16px] font-semibold">{strings.help.title3d}</h3>
         <Rows rows={strings.help.rows3d} />
       </div>
     </div>
@@ -49,12 +49,12 @@ export function ShortcutsHelp() {
 
 function Rows({ rows }: { rows: ReadonlyArray<readonly [string, string]> }) {
   return (
-    <table className="w-full text-[12px]">
+    <table className="w-full text-[14px]">
       <tbody>
         {rows.map(([keys, label]) => (
           <tr key={keys} className="border-b border-line/60 last:border-0">
-            <td className="py-1.5 pe-3 text-ink-soft">{label}</td>
-            <td className="ltr-nums py-1.5 text-end font-mono text-[11px] text-ink">{keys}</td>
+            <td className="py-2 pe-3 text-ink-soft">{label}</td>
+            <td className="ltr-nums py-2 text-end font-mono text-[13px] text-ink">{keys}</td>
           </tr>
         ))}
       </tbody>

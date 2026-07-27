@@ -42,7 +42,7 @@ function IconButton({
       aria-label={title}
       disabled={disabled}
       onClick={onClick}
-      className={`rounded-md p-1.5 transition-colors ${
+      className={`rounded-md p-2 transition-colors ${
         active
           ? 'bg-accent-tint text-accent'
           : disabled
@@ -55,7 +55,7 @@ function IconButton({
   )
 }
 
-const Divider = () => <div className="mx-1.5 h-6 border-s border-line" />
+const Divider = () => <div className="mx-1.5 h-7 border-s border-line" />
 
 export function Toolbar() {
   const projectName = useEditorStore((s) => s.projectName)
@@ -73,7 +73,7 @@ export function Toolbar() {
   ]
 
   return (
-    <header className="flex h-[52px] shrink-0 items-center justify-between border-b border-line bg-chrome px-3">
+    <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-line bg-chrome px-3">
       {/* start (right in RTL): navigation + project + history + tools */}
       <div className="flex min-w-0 items-center gap-1">
         <IconButton
@@ -85,7 +85,7 @@ export function Toolbar() {
           <Home size={18} />
         </IconButton>
         <input
-          className="min-w-0 max-w-48 truncate rounded-md border border-transparent bg-transparent px-2 py-1 text-[14px] font-semibold hover:border-line focus:border-accent focus:outline-none"
+          className="min-h-9 min-w-0 max-w-48 truncate rounded-md border border-transparent bg-transparent px-2 py-1.5 text-[15px] font-semibold hover:border-line focus:border-accent focus:outline-none"
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
           aria-label={strings.inspector.projectName}
@@ -115,7 +115,7 @@ export function Toolbar() {
           <button
             key={m.id}
             onClick={() => setMode(m.id)}
-            className={`rounded-md px-3.5 py-1 text-[12px] font-semibold transition-colors ${
+            className={`min-h-9 rounded-md px-3.5 py-1.5 text-[14px] font-semibold transition-colors ${
               mode === m.id ? 'bg-accent text-white' : 'text-ink-soft hover:text-ink'
             }`}
           >
@@ -190,7 +190,7 @@ function ExportMenu() {
   return (
     <div className="relative">
       <button
-        className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-hover"
+        className="flex min-h-9 items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[14px] font-semibold text-white hover:bg-accent-hover"
         onClick={() => setOpen((v) => !v)}
         title={strings.toolbar.export}
       >
@@ -204,7 +204,7 @@ function ExportMenu() {
             {items.map((item) => (
               <button
                 key={item.label}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-start text-[13px] text-ink hover:bg-accent-tint"
+                className="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-start text-[14px] text-ink hover:bg-accent-tint"
                 onClick={() => {
                   setOpen(false)
                   item.run()
