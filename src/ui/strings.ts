@@ -318,4 +318,22 @@ export const strings = {
     zoom100: 'תצוגה 100%',
     deleteChair: 'מחיקת כיסא',
   },
+  /**
+   * Venue-zone names drawn on the plan. These used to be inline Hebrew in
+   * venuePacks.ts, which that file still carries as documentation and as the
+   * fallback for a pack whose `kind` has no entry here.
+   *
+   * `corridor` and `passage` are the same zone: PLAN-07 renames the pack's kind
+   * to 'passage', and until that lands both keys have to resolve.
+   */
+  zones: {
+    pool: 'בריכה',
+    bar: 'בר',
+    dancefloor: 'רחבת ריקודים',
+    dj: 'עמדת DJ',
+    chuppah: 'חופה',
+    corridor: 'מעבר',
+    passage: 'מעבר',
+    kabalatPanim: 'קבלת פנים',
+  } as Record<string, string>,
 } as const
