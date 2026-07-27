@@ -6,7 +6,7 @@
  * the same arc case twice and letting them drift. They differ only in styling,
  * so styling is what they pass in.
  */
-import { Circle, Rect, Shape } from 'react-konva'
+import { Circle, Rect, Ring, Shape } from 'react-konva'
 import type { FootprintPart } from '../core/catalog/types'
 
 export interface FootprintPartStyle {
@@ -41,7 +41,15 @@ export function FootprintPartShape({
     perfectDrawEnabled: style.perfectDrawEnabled ?? false,
   }
 
-  if (part.kind === 'circle') return <Circle radius={part.r} {...common} />
+  if (part.kind === 'circle') {
+    // A hole is a real hole: Konva's Ring strokes both edges and leaves the
+    // centre unpainted, so the floor shows through the ⌀380's opening instead of
+    // a second disc being painted over it in table colour.
+    if (part.rInner && part.rInner > 0) {
+      return <Ring innerRadius={part.rInner} outerRadius={part.r} {...common} />
+    }
+    return <Circle radius={part.r} {...common} />
+  }
 
   if (part.kind === 'arc') {
     // Konva's Arc strokes the two radial closing edges as well as the curved
