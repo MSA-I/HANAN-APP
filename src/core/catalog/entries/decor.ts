@@ -3,6 +3,8 @@ import type { CatalogEntry } from '../types'
 function vegetationEntry(
   id: string,
   labelKey: string,
+  /** what the item looks like, for the image prompt — see CatalogEntry.promptFragment */
+  promptFragment: string,
   size: { width: number; depth: number; height: number },
   model: string,
 ): CatalogEntry {
@@ -10,6 +12,7 @@ function vegetationEntry(
     id,
     category: 'decor',
     labelKey,
+    promptFragment,
     defaultSize: size,
     resizable: ['width', 'depth', 'height'],
     minSize: { width: 30, depth: 30, height: 80 },
@@ -39,6 +42,7 @@ function vegetationEntry(
 export const pottedPlant = vegetationEntry(
   'plant.potted',
   'plant',
+  'a large potted green plant',
   { width: 101, depth: 94.6, height: 160 },
   '/props/plant-vegetation-1.glb',
 )
@@ -46,6 +50,7 @@ export const pottedPlant = vegetationEntry(
 export const pottedPlant2 = vegetationEntry(
   'plant.potted-2',
   'plant2',
+  'a slim potted green plant',
   { width: 47.5, depth: 43.8, height: 160 },
   '/props/plant-vegetation-2.glb',
 )
@@ -54,6 +59,7 @@ export const dividerScreen: CatalogEntry = {
   id: 'divider.screen',
   category: 'decor',
   labelKey: 'divider',
+  promptFragment: 'a plain freestanding divider screen',
   defaultSize: { width: 180, depth: 6, height: 180 },
   resizable: ['width', 'height'],
   minSize: { width: 60, height: 100 },
@@ -84,6 +90,8 @@ export const arcLampCrystal: CatalogEntry = {
   id: 'lamp.arc-crystal',
   category: 'decor',
   labelKey: 'lampArcCrystal',
+  promptFragment:
+    'an arched brass floor lamp with a crystal basket shade on a weighted disc base',
   defaultSize: { width: 54.4, depth: 87.4, height: 160 },
   resizable: [],
   minSize: {},

@@ -28,6 +28,20 @@ export const strings = {
     kabalatPanim: 'קבלת פנים',
     hall: 'אולם',
   },
+  /**
+   * The AI-render export (PLAN-08): one angle leaves as a folder holding the
+   * capture, the prompt and the reference images. Owned here rather than in
+   * viewer3d/strings3d.ts because that file belongs to the 3D viewer.
+   */
+  promptExport: {
+    one: 'ייצוא הזווית הזו — צילום, פרומפט ורפרנסים',
+    all: 'ייצוא כל הזוויות',
+    allBusy: 'מייצא…',
+    done: 'הייצוא הושלם',
+    failed: 'הייצוא נכשל',
+    /** shown when there is no dev server to write to and we fall back to a download */
+    downloaded: 'אין שרת פיתוח — הורדו הצילום והפרומפט בלבד',
+  },
   status: {
     saved: 'נשמר',
     saving: 'שומר…',
