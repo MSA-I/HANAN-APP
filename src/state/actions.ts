@@ -56,7 +56,7 @@ import {
   objectAABB as objectAABBOf,
   surfaceChildren,
 } from './selectors'
-import { temporalStore, useEditorStore, type EditorState, type ViewMode } from './store'
+import { temporalStore, useEditorStore, type ActiveZone, type EditorState, type ViewMode } from './store'
 
 const set = useEditorStore.setState
 const get = useEditorStore.getState
@@ -134,6 +134,32 @@ function zonePush(box: AABB, z: RestrictedZone, width: number, depth: number): V
   return (fitting.length ? fitting : exits).reduce((a, b) => (mag(b) < mag(a) ? b : a))
 }
 
+/** Does a box touch a zone rectangle at all? */
+function overlapsZone(box: AABB, z: RestrictedZone): boolean {
+  return box.minX < z.x + z.width && box.maxX > z.x && box.minY < z.y + z.depth && box.maxY > z.y
+}
+
+/**
+ * The reception deck (`kind: 'kabalatPanim'`) is an INVERTED restricted zone: a
+ * whitelisted item dropped on it stays and is clamped in, everything else is
+ * pushed out like any other no-go rectangle. Only the ceremony itself belongs up
+ * there — a canopy, chairs for the guests, and buffet tables (source doc §41).
+ *
+ * TODO(PLAN-03): PLAN-03/A2 adds `allowedZones` to CatalogEntry and A3 turns the
+ * push into a hard block. This is the minimal form on purpose — fold it into
+ * that mechanism rather than keeping two.
+ */
+const ALLOWED_IN_KABALAT_PANIM_IDS = new Set(['buffet.table'])
+
+function allowedInKabalatPanim(catalogId: string): boolean {
+  const entry = getCatalogEntry(catalogId)
+  return (
+    entry.zoneKind === 'chuppah' ||
+    entry.category === 'seating' ||
+    ALLOWED_IN_KABALAT_PANIM_IDS.has(entry.id)
+  )
+}
+
 /** Shift to keep a box INSIDE a zone rectangle (a fixed station in its home zone). */
 function zoneShift(box: AABB, z: RestrictedZone): Vec2 {
   let x = 0
@@ -173,6 +199,16 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>): void {
     if (!box) continue
     let d = floorShift(box, width, depth)
     if (d.x || d.y) box = shift(obj, box, d)
+
+    // The reception deck wins over the home zone: a chuppah dropped up there is
+    // meant to stay there, and its `zoneKind` would otherwise teleport it back
+    // down to the hall's ceremony rectangle (source doc §43).
+    const reception = zones.find((z) => z.kind === 'kabalatPanim')
+    if (reception && overlapsZone(box, reception) && allowedInKabalatPanim(obj.catalogId)) {
+      d = zoneShift(box, reception)
+      if (d.x || d.y) shift(obj, box, d)
+      continue
+    }
 
     // fixed station: snap into the nearest matching home zone and stop there
     const zoneKind = getCatalogEntry(obj.catalogId).zoneKind
@@ -314,11 +350,35 @@ export function setProjectName(name: string): void {
 // ---------------------------------------------------------------------------
 
 /**
+ * The object already in the scene that forbids adding `catalogId`, or null when
+ * it is free to place. Exported so the 2D ghost and the library can grey out a
+ * blocked item instead of letting the user click and watch nothing happen.
+ */
+export function uniqueBlocker(scene: SceneState, catalogId: string): SceneObject | null {
+  const tag = getCatalogEntry(catalogId).unique
+  if (!tag) return null
+  return (
+    Object.values(scene.objects).find((o) => getCatalogEntry(o.catalogId).unique === tag) ?? null
+  )
+}
+
+/**
  * `seating` overrides the catalog defaults before the chairs are reconciled —
  * how a table preset lands as one unit (its own chair model and seat count)
  * instead of a default table the caller then has to re-configure.
+ *
+ * A `unique` item that is already placed is refused (source doc §43: one chuppah
+ * per event, hall or reception deck). Refusing returns the id of the object that
+ * blocked it and selects that object, so the click reads as "here is the chuppah
+ * you already have" — every caller either ignores the result or wants something
+ * selected, and this keeps the signature non-nullable for the other 40 call sites.
  */
 export function addObject(catalogId: string, position: Vec2, seating?: Partial<SeatingConfig>): Id {
+  const blocker = uniqueBlocker(get().scene, catalogId)
+  if (blocker) {
+    select([blocker.id])
+    return blocker.id
+  }
   // the venue matters for placement:'ceiling' — without it a chandelier hangs at
   // the procedural 3.5m instead of the pack hall's 11.6m
   const obj = createObject(catalogId, position, get().scene.venue)
@@ -826,6 +886,10 @@ export function duplicateObjects(ids: Id[], offset: Vec2 = { x: 50, y: 50 }): Id
 export function canReplaceObject(scene: SceneState, id: Id, catalogId: string): boolean {
   const source = scene.objects[id]
   if (!source || source.catalogId === catalogId || isEffectivelyLocked(scene, source)) return false
+  // swapping a chuppah for another chuppah is fine — it is the same one object;
+  // a SECOND one is not (source doc §43)
+  const blocker = uniqueBlocker(scene, catalogId)
+  if (blocker && blocker.id !== id) return false
   const nextPlacement = getCatalogEntry(catalogId).placement ?? 'floor'
   if (!source.parentId) return nextPlacement === 'floor' || nextPlacement === 'ceiling'
   if (source.attachment?.kind !== 'surface') return false
@@ -1241,6 +1305,17 @@ export function clearSelection(): void {
 export function setMode(mode: ViewMode): void {
   set((state) => {
     state.mode = mode
+  })
+}
+
+/**
+ * Switch the work area between the hall and the raised reception deck. A view
+ * preference, not scene data — deliberately outside `mutateScene` so it neither
+ * dirties the project nor lands in undo.
+ */
+export function setActiveZone(activeZone: ActiveZone): void {
+  set((state) => {
+    state.activeZone = activeZone
   })
 }
 

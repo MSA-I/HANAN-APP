@@ -8,12 +8,21 @@ import { createDefaultScene } from '../core/model/factory'
 
 export type ViewMode = '2d' | 'split' | '3d'
 
+/**
+ * Which part of the venue is being worked on. The resort has a second, detached
+ * work area — the raised reception deck — with its own camera angles and its own
+ * placement whitelist. Like `mode` this is a view preference, NOT scene data, so
+ * it lives outside the undoable region.
+ */
+export type ActiveZone = 'hall' | 'kabalatPanim'
+
 export interface EditorState {
   /** the ONLY undoable region (zundo partialize) */
   scene: SceneState
   /** ids of selected top-level objects, or a drilled-in attached chair */
   selection: Id[]
   mode: ViewMode
+  activeZone: ActiveZone
   projectId: Id | null
   projectName: string
   eventName?: string
@@ -27,6 +36,7 @@ function initialState(): EditorState {
     scene: createDefaultScene(),
     selection: [],
     mode: '2d',
+    activeZone: 'hall',
     projectId: null,
     projectName: '',
     createdAt: new Date().toISOString(),

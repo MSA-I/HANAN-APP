@@ -8,22 +8,43 @@
   "upAxis": "y",
   "boundsMeters": { "min": [-8.546, -1.45, -32.392], "max": [75.65, 11.623, 1.139] },
   "floorPlan": {
-    "note": "Aligned to user-marked ZONE_FLOOR (SketchUp face painted with ZONE_FLOOR material). Origin = its min corner. Zones extracted via tools/extract-zones.mjs.",
+    "note": "Aligned to user-marked ZONE_FLOOR (SketchUp face painted with ZONE_FLOOR material). Origin = its min corner. Zones extracted via tools/glb-prep/extract-zones.mjs.",
     "offset": [0, 0, 24.861],
-    "planSizeCm": { "width": 4423, "depth": 2544 },
+    "planSizeCm": { "width": 6051, "depth": 2544 },
     "wallHeightCm": 1160,
-    "restrictedZones": ["בריכה (כולל מרחק ביטחון)", "בר", "רחבת ריקודים", "עמדת DJ", "חופה", "מסדרון"],
+    "hangHeightCm": 895,
+    "restrictedZones": ["בריכה (כולל מרחק ביטחון)", "בר", "רחבת ריקודים", "עמדת DJ", "חופה", "מעבר", "קבלת פנים"],
     "placeableAreas": "2 polygons (green) from ZONE_FLOOR = size-rectangle minus restricted zones; furniture confined here",
-    "note2": "Real floor is non-rectangular & disconnected (left L + right rectangle). Room outline unions to a clean rectangle 4420×2540."
+    "note2": "Real floor is non-rectangular & disconnected (left L + right rectangle). The hall outline is an L, 4420×2540 minus the shortened passage.",
+    "note3": "planSizeCm.width runs to 6051 because the raised reception deck (ZONE_KABALAT_PANIM, x 4432…6051, +470cm) shares this plan space. The hall alone is 4423 wide."
+  },
+  "ceilingBeams": {
+    "note": "Lighting-truss grid, read off the 72 HalfCoupler clamps in the SKP (72 = 36 crossings × 2 = 9 × 4 × 2). All clamp centres at z=9.097m.",
+    "heightCm": 910,
+    "alongYAtXCm": [578, 988, 1389, 1798, 2194, 2599, 3011, 3420, 3821],
+    "alongXAtYCm": [190, 550, 904, 1270]
+  },
+  "cameras": {
+    "note": "7 SketchUp Scenes. Cameras do NOT survive the GLB export (inspect-cameras.mjs reports 0) — they are read from the SimLab session's Scene nodes and converted via (x, z, 24.861 − y). Values live in src/core/venuePacks.ts.",
+    "hall": ["s1", "s2", "s3", "s4", "s5"],
+    "kabalatPanim": ["k1", "k2"]
   },
   "fixedElements": ["pool", "structure", "desert-backdrop"],
   "heroFacing": "desert",
   "source": {
     "skp": "D:/משה פרוייקטים/מגרש 510/SKP/ריזורט גאמוס - אפליקציה.skp",
-    "pipeline": "SketchUp -> SimLab (SKP->GLB) -> tools/glb-prep --mode venue",
-    "preparedOn": "2026-07-21",
-    "originalSizeMB": 94.9,
-    "optimizedSizeMB": 5.4
+    "skpModified": "2026-07-27T20:55:33",
+    "pipeline": "SketchUp -> SimLab (scene.exportFile GLB) -> tools/glb-prep/glb-prep.mjs --mode venue",
+    "preparedOn": "2026-07-28",
+    "originalSizeMB": 91.7,
+    "optimizedSizeMB": 5.1,
+    "changesFromPreviousImport": [
+      "ZONE_CORRIDOR shortened: plan depth 2544 -> 1404 (renamed 'passage'/'מעבר' in the app)",
+      "ZONE_KABALAT_PANIM added: raised reception deck, plan x 4432 y 734, 1619×1810, elevation 470",
+      "Scenes 6 and 7 added: the two reception camera angles",
+      "All other zones and the plan origin are unchanged from the 2026-07-21 import"
+    ],
+    "notDone": "Source doc §3 (move the wall behind the bar back ≥2m) is NOT in this asset — the envelope cannot hold it without a design decision. See the report / Plans/handoff/07-venue-data.md §6."
   },
-  "todo": ["footprint.json", "cameras.json", "refs/", "lighting.json"]
+  "todo": ["footprint.json", "lighting.json"]
 }

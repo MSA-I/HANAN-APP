@@ -25,6 +25,8 @@ export const strings = {
     view2d: '2D',
     viewSplit: 'מפוצל',
     view3d: '3D',
+    kabalatPanim: 'קבלת פנים',
+    hall: 'אולם',
   },
   status: {
     saved: 'נשמר',

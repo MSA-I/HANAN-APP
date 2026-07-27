@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { CATEGORY_ORDER, getCatalogEntry } from '../core/catalog/registry'
 import { createProject } from '../core/model/factory'
 import { SCHEMA_VERSION, migrateAndValidate, runMigrations } from '../core/migrations'
+import { getVenuePack } from '../core/venuePacks'
 import type { ProjectFile } from './types'
 
 function validFile(): ProjectFile {
@@ -317,6 +318,79 @@ describe('v5 → v6 category layer rename', () => {
     for (const key of Object.keys(revived.project.scene.settings.layers!)) {
       expect(CATEGORY_ORDER).toContain(key)
     }
+  })
+})
+
+describe('v6 → v7 resort re-import', () => {
+  /** A v6 file with furniture parked at the old plan's far edges. */
+  function v6File(venuePackId?: string) {
+    const file = validFile() as unknown as Record<string, unknown>
+    const project = file.project as {
+      schemaVersion: number
+      scene: {
+        venue: { venuePackId?: string; size: { width: number; depth: number }; wallHeight: number }
+        objects: Record<string, unknown>
+        objectOrder: string[]
+      }
+    }
+    file.schemaVersion = 6
+    project.schemaVersion = 6
+    if (venuePackId) project.scene.venue.venuePackId = venuePackId
+    // what a resort project stored before the re-import
+    project.scene.venue.size = { width: 4423, depth: 2544 }
+    project.scene.venue.wallHeight = 1160
+    const base = {
+      parentId: null,
+      appearance: {},
+      flags: { locked: false, visible: true },
+      meta: {},
+      size: { width: 180, depth: 180, height: 75 },
+      name: '',
+      catalogId: 'table.round',
+    }
+    project.scene.objects = {
+      // hard against the old right edge, and inside the stretch of the old
+      // corridor that the shortened passage gave back
+      t1: { ...base, id: 't1', transform: { position: { x: 4300, y: 2400 }, rotation: 0, elevation: 0 } },
+      t2: { ...base, id: 't2', transform: { position: { x: 100, y: 100 }, rotation: 0, elevation: 0 } },
+    }
+    project.scene.objectOrder = ['t1', 't2']
+    return file
+  }
+
+  it('widens a stored resort venue to the re-imported plan', () => {
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(v6File('resort'))))
+    expect(revived.project.scene.venue.size).toEqual({ width: 6051, depth: 2544 })
+    expect(revived.project.scene.venue.wallHeight).toBe(1160)
+    expect(revived.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(revived.project.schemaVersion).toBe(SCHEMA_VERSION)
+  })
+
+  it('leaves every stored object inside the migrated bounds', () => {
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(v6File('resort'))))
+    const { width, depth } = revived.project.scene.venue.size
+    for (const obj of Object.values(revived.project.scene.objects)) {
+      const { x, y } = obj.transform.position
+      expect(x).toBeGreaterThanOrEqual(0)
+      expect(y).toBeGreaterThanOrEqual(0)
+      expect(x).toBeLessThanOrEqual(width)
+      expect(y).toBeLessThanOrEqual(depth)
+    }
+  })
+
+  it('the migrated size matches the live pack, so nothing is clamped away', () => {
+    // the guard on the "no re-clamp needed" reasoning: it only holds while the
+    // migration's frozen size is not SMALLER than the pack the editor clamps to.
+    const pack = getVenuePack('resort')!
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(v6File('resort'))))
+    expect(revived.project.scene.venue.size.width).toBeLessThanOrEqual(pack.size.width)
+    expect(revived.project.scene.venue.size.depth).toBeLessThanOrEqual(pack.size.depth)
+  })
+
+  it('leaves a procedural-room project alone', () => {
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(v6File())))
+    expect(revived.project.scene.venue.size).toEqual({ width: 4423, depth: 2544 })
+    expect(revived.schemaVersion).toBe(SCHEMA_VERSION)
   })
 })
 

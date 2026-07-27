@@ -211,7 +211,13 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
   const [active, setActive] = useState<string>('overview')
   const [saved, setSaved] = useState(false)
   const venuePackId = useEditorStore((s) => s.scene.venue.venuePackId)
-  const sealed = getVenuePack(venuePackId)?.cameras ?? []
+  const activeZone = useEditorStore((s) => s.activeZone)
+  // A sealed angle belongs to the work zone named in `camera.zone`; no zone means
+  // the hall. Switching to the reception deck swaps the five hall angles for its
+  // own two rather than adding to them (source doc §42).
+  const sealed = (getVenuePack(venuePackId)?.cameras ?? []).filter(
+    (cam) => (cam.zone ?? 'hall') === activeZone,
+  )
 
   const apply = (preset: CameraPreset) => {
     const c = controlsRef.current
@@ -227,6 +233,57 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
     applySealedCamera(c, cam, true)
     setActive(id)
   }
+
+  // Switching work zone flies to that zone's first sealed angle — the reception
+  // deck is 47m up and 14m east of the hall, so leaving the camera where it was
+  // would show the user an empty hall and no sign anything happened (§41c).
+  // Keyed on activeZone only: it must not re-fire when the pack or the list
+  // identity changes, and it must not fight the user's own angle clicks.
+  // The 3D pane is lazy — it usually mounts AFTER the zone was switched, so the
+  // first run has to fly too. Only the ordinary hall mount is exempt, so opening
+  // 3D normally still lands on the overview preset.
+  // Tracks the zone we actually FLEW to, never the one we merely attempted:
+  // StrictMode runs this effect twice and cancels the first attempt's frame, so a
+  // ref updated up-front would mark the cancelled try as done and never retry.
+  const flownZoneRef = useRef<string | null>(null)
+  const mountedRef = useRef(false)
+  useEffect(() => {
+    const firstRun = !mountedRef.current
+    mountedRef.current = true
+    if (flownZoneRef.current === activeZone) return
+    // opening 3D in the hall keeps the overview preset it has always opened on
+    if (firstRun && activeZone === 'hall') {
+      flownZoneRef.current = activeZone
+      return
+    }
+    const cam = (getVenuePack(useEditorStore.getState().scene.venue.venuePackId)?.cameras ?? []).find(
+      (s) => (s.zone ?? 'hall') === activeZone,
+    )
+    if (!cam) return
+    // On that first run the Canvas is still suspending, so controlsRef is empty —
+    // wait for the rig rather than silently skipping the fly. Then wait two more
+    // frames: CameraRig frames the venue on ITS mount effect, and whichever of
+    // the two runs last wins. Two frames is after it, and the fly is animated
+    // anyway so the delay does not read.
+    let frame = 0
+    let tries = 0
+    let settle = -1
+    const tryApply = () => {
+      const c = controlsRef.current
+      if (!c && tries++ > 240) return
+      if (c && settle < 0) settle = 2
+      if (settle === 0) {
+        applySealedCamera(c!, cam, true)
+        setActive(cam.id)
+        flownZoneRef.current = activeZone
+        return
+      }
+      if (settle > 0) settle--
+      frame = requestAnimationFrame(tryApply)
+    }
+    tryApply()
+    return () => cancelAnimationFrame(frame)
+  }, [activeZone, controlsRef])
 
   const chip = (isActive: boolean) =>
     'flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[13px] transition-colors ' +

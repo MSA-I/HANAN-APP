@@ -160,6 +160,13 @@ export interface CatalogEntry {
    * matching zone (procedural room) place it freely.
    */
   zoneKind?: string
+  /**
+   * Exclusivity tag. At most ONE object carrying a given `unique` value may
+   * exist in a scene, across every catalog id that shares the tag — all eight
+   * chuppot are `unique: 'chuppah'`, so any one of them blocks the rest, in any
+   * zone. `addObject`/`replaceObject` reject the second one outright.
+   */
+  unique?: string
   seating?: SeatingCapability
   /**
    * Seat placement for a table whose seat line is neither a circle nor a
