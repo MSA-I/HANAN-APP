@@ -175,7 +175,7 @@ export const strings = {
       presetRound12GoldWhite: 'עגול 180 · 12 · זהב לבן',
       presetRound10XWhite: 'עגול 180 · 10 · לבן איקס',
       presetRoundLarge22GoldBlack: 'עגול 380 · 22 · זהב שחור',
-      presetSquare8XWood: 'מרובע 160 · 8 · עץ איקס',
+      presetSquare8XWood: 'מרובע 160 · 12 · עץ איקס',
       presetBanquet12Black: 'אבירים 240 · 12 · שחור',
       presetKnights22Brown: 'אבירים 480 · 22 · חום',
       presetSerpentine20XWhite: 'נחש · 20 · לבן איקס',

@@ -3,9 +3,21 @@ import { getVenuePack } from './venuePacks'
 import { venueOutline } from './venueOutline'
 
 describe('venueOutline', () => {
-  it('falls back to null for the packs that ship today', () => {
-    // PLAN-07 adds `outline`; until then the editor must draw the rectangle
-    expect(venueOutline(getVenuePack('resort'))).toBeNull()
+  it('returns the resort ring now that the pack carries one', () => {
+    // PLAN-06 shipped this reading `pack.outline ?? null`, structurally, before
+    // PLAN-07 published the field — so the same code went from drawing the
+    // fallback rectangle to drawing the real contour with no edit. Asserting the
+    // ring here is what keeps a future re-import from silently emptying it.
+    const ring = venueOutline(getVenuePack('resort'))
+    expect(ring).not.toBeNull()
+    expect(ring!.length).toBeGreaterThanOrEqual(3)
+    for (const [x, y] of ring!) {
+      expect(Number.isFinite(x) && Number.isFinite(y)).toBe(true)
+    }
+  })
+
+  it('falls back to null with no pack at all', () => {
+    // a manual-dimensions project has no pack, and the editor draws the rectangle
     expect(venueOutline(getVenuePack(null))).toBeNull()
     expect(venueOutline(undefined)).toBeNull()
   })

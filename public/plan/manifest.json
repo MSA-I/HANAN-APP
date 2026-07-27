@@ -457,6 +457,14 @@
       "pxPerCm": 4.0012,
       "w": 653,
       "h": 653
+    },
+    "/props/chair-bridal.glb": {
+      "file": "chair-bridal.webp",
+      "cmW": 216.56,
+      "cmD": 99.72,
+      "pxPerCm": 3.9989,
+      "w": 866,
+      "h": 399
     }
   },
   "failed": []

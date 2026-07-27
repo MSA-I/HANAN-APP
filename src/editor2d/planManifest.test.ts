@@ -43,21 +43,21 @@ describe('plan image manifest', () => {
   })
 
   /**
-   * ObjectNode draws `cmW × size.width/defaultSize.width × modelScale`. If the
-   * GLB's real footprint and the catalog's declared default disagree, that is
-   * what shows up as a 2D shape that does not match the 3D one — the exact
-   * failure this plan exists to fix. The bound is loose on purpose: it is here
-   * to catch a unit slip or a dropped modelScale, not to police the catalog,
-   * which PLAN-01 owns.
+   * ObjectNode draws `cmW × size ÷ (modelSize ?? defaultSize)`, so at the default
+   * size the image lands on `cmW × defaultSize ÷ modelSize`. If the GLB's real
+   * footprint and the catalog's declared default disagree, that is what shows up
+   * as a 2D shape that does not match the 3D one — the exact failure this plan
+   * exists to fix. The bound is loose on purpose: it is here to catch a unit slip
+   * or a stale modelSize, not to police the catalog, which PLAN-01 owns.
    */
   it('draws each entry at roughly its declared default size', () => {
     const off: string[] = []
     for (const entry of modelled) {
       const item = manifest.items[entry.model!]
       if (!item) continue
-      const scale = entry.modelScale ?? 1
-      const drawnW = item.cmW * scale
-      const drawnD = item.cmD * scale
+      const basis = entry.modelSize ?? entry.defaultSize
+      const drawnW = (item.cmW * entry.defaultSize.width) / basis.width
+      const drawnD = (item.cmD * entry.defaultSize.depth) / basis.depth
       const ratio = Math.max(
         drawnW / entry.defaultSize.width,
         entry.defaultSize.width / drawnW,

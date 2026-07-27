@@ -74,12 +74,14 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
 
   if (!obj || !entry || !footprint) return null
 
-  // 3D fits the GLB by size/defaultSize × modelScale (propModel.ts:56-63) and the
-  // image spans a known number of plan cm, so applying the same factor here is
-  // what makes the two views land on the same footprint.
-  const modelScale = entry.modelScale ?? 1
-  const planW = plan ? (plan.cmW * obj.size.width * modelScale) / entry.defaultSize.width : 0
-  const planD = plan ? (plan.cmD * obj.size.depth * modelScale) / entry.defaultSize.depth : 0
+  // 3D fits the GLB by size ÷ (modelSize ?? defaultSize) (propModel.ts), and the
+  // top-down image spans a known number of cm OF THAT SAME GLB, so dividing by the
+  // same denominator is what makes the two views land on one footprint. Reading
+  // `modelSize` rather than restating the ratio means a re-measured GLB moves both
+  // views together.
+  const modelBasis = entry.modelSize ?? entry.defaultSize
+  const planW = plan ? (plan.cmW * obj.size.width) / modelBasis.width : 0
+  const planD = plan ? (plan.cmD * obj.size.depth) / modelBasis.depth : 0
 
   const showLabel = showLabels && entry.labelByDefault
   // base stroke never changes with selection — the highlight is a separate
