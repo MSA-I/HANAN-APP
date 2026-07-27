@@ -38,7 +38,23 @@ export type Attachment =
       manual: boolean
     }
   /** decor standing ON the parent's top surface; local elevation = parent height */
-  | { kind: 'surface' }
+  | {
+      kind: 'surface'
+      /**
+       * Standing on the FLOOR through the open centre of a ring table, not on its
+       * top — a tall arrangement rising through the hole (source doc §48).
+       *
+       * A modifier rather than a third `kind` for the same reason `Outline.circle`
+       * grew `rInner` instead of a `'ring'` variant: the relationship to the parent
+       * is identical (moves with it, deleted with it, drilled into the same way),
+       * so every consumer that asks "is this surface decor" keeps its answer. Only
+       * the clamp region and the elevation differ.
+       *
+       * Set once, at drop. Dragging never flips it, so nothing ever falls 75 cm
+       * mid-gesture: a top item is pushed out of the hole, a hole item is held in.
+       */
+      inHole?: boolean
+    }
 
 /** Children sort: chairs by seat index, surface decor after them (stable). */
 export function childSortKey(o: { attachment?: Attachment }): number {

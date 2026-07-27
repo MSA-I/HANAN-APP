@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Stage } from 'react-konva'
 import { getCatalogEntry } from '../core/catalog/registry'
 import type { CatalogEntry } from '../core/catalog/types'
-import { aabbIntersects, aabbUnion, pointInOutline, type AABB } from '../core/layout/bounds'
+import { aabbIntersects, aabbUnion, pointInHole, pointInOutline, type AABB } from '../core/layout/bounds'
 import { snapValue } from '../core/layout/snapping'
 import type { Id, Vec2 } from '../core/model/types'
 import {
@@ -273,8 +273,13 @@ export function Stage2D() {
     return stage ? (stage.getRelativePointerPosition() as Vec2 | null) : null
   }
 
-  /** Topmost table whose outline contains the point — the drop target for surface decor. */
-  const surfaceTargetAt = (world: Vec2): Id | null => {
+  /**
+   * Topmost table whose outline contains the point — the drop target for surface
+   * decor. `inHole` reports that the pointer is over the open centre of a ring
+   * table, so the piece stands on the floor and rises through it (source doc §48)
+   * instead of on the top.
+   */
+  const surfaceTargetAt = (world: Vec2): { id: Id; inHole: boolean } | null => {
     const { scene } = useEditorStore.getState()
     for (let i = scene.objectOrder.length - 1; i >= 0; i--) {
       const id = scene.objectOrder[i]
@@ -282,7 +287,10 @@ export function Stage2D() {
       if (!obj || !isObjectVisible(scene, id)) continue
       const entry = getCatalogEntry(obj.catalogId)
       if (entry.category !== 'tables') continue
-      if (pointInOutline(world, obj.transform, entry.footprint(obj.size).outline)) return id
+      const outline = entry.footprint(obj.size).outline
+      if (pointInOutline(world, obj.transform, outline)) {
+        return { id, inHole: pointInHole(world, obj.transform, outline) }
+      }
     }
     return null
   }
@@ -359,8 +367,8 @@ export function Stage2D() {
           // 'seat' fills the whole table; 'surface' drops exactly at the pointer
           // (grid snap is meaningless on a table top)
           if (target) {
-            if (entry.placement === 'seat') addSeatItemsToTable(placing, target)
-            else addObjectToSurface(placing, target, world)
+            if (entry.placement === 'seat') addSeatItemsToTable(placing, target.id)
+            else addObjectToSurface(placing, target.id, world, target.inHole)
           }
         } else {
           const { settings } = useEditorStore.getState().scene

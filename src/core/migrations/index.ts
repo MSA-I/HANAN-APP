@@ -285,7 +285,7 @@ const attachment = z.discriminatedUnion('kind', [
     seatIndex: z.number(),
     manual: z.boolean(),
   }),
-  z.object({ kind: z.literal('surface') }),
+  z.object({ kind: z.literal('surface'), inHole: z.boolean().optional() }),
 ])
 
 const appearance = z.record(z.object({ color: z.string().optional() }))

@@ -19,7 +19,7 @@ import type {
   Vec2,
 } from '../core/model/types'
 import { relativeTransform, rotateVec } from '../core/space'
-import { aabbUnion, outlineAABB, type AABB } from '../core/layout/bounds'
+import { aabbUnion, holeRadius, outlineAABB, type AABB } from '../core/layout/bounds'
 import {
   CEILING_INSET,
   DEFAULT_AISLE,
@@ -273,6 +273,7 @@ function clampToSurface(scene: SceneState, child: SceneObject): void {
   const cOutline = getCatalogEntry(child.catalogId).footprint(child.size).outline
   const rot = child.transform.rotation
   const pos = child.transform.position
+  const inHole = child.attachment.inHole === true
   if (pOutline.kind === 'circle') {
     const len = Math.hypot(pos.x, pos.y)
     // exact support of the rotated child along the radial direction
@@ -281,11 +282,30 @@ function clampToSurface(scene: SceneState, child: SceneObject): void {
       const u = rotateVec(len > 0 ? { x: pos.x / len, y: pos.y / len } : { x: 1, y: 0 }, -rot)
       reach = (Math.abs(u.x) * cOutline.w + Math.abs(u.y) * cOutline.h) / 2
     }
-    const maxR = Math.max(0, pOutline.r - reach)
-    if (len > maxR) {
-      const f = len > 0 ? maxR / len : 0
-      pos.x *= f
-      pos.y *= f
+    // A ring table has two disjoint places to stand, and which one this child
+    // belongs to was decided at drop. Holding it there is what keeps a drag from
+    // silently changing its elevation.
+    const hole = holeRadius(pOutline)
+    let maxR = Math.max(0, pOutline.r - reach)
+    let minR = 0
+    if (hole > 0) {
+      if (inHole) {
+        // fully inside the opening; an arrangement wider than the hole centres in
+        // it and overhangs the top, which is what a real oversized piece does
+        maxR = Math.max(0, hole - reach)
+      } else {
+        // off the top and clear of the opening — unless the ring is narrower than
+        // the child, in which case the outer edge still wins over floating away
+        minR = Math.min(hole + reach, maxR)
+      }
+    }
+    if (len > maxR || len < minR) {
+      const target = len > maxR ? maxR : minR
+      // a child sitting exactly on centre has no radial direction to push along;
+      // +x is arbitrary but stable, and only reachable when minR > 0
+      const f = len > 0 ? target / len : 0
+      pos.x = len > 0 ? pos.x * f : target
+      pos.y = len > 0 ? pos.y * f : 0
     }
   } else {
     // rotated half-extents — the same formula outlineAABB uses
@@ -295,7 +315,9 @@ function clampToSurface(scene: SceneState, child: SceneObject): void {
     pos.x = Math.min(maxX, Math.max(-maxX, pos.x))
     pos.y = Math.min(maxY, Math.max(-maxY, pos.y))
   }
-  child.transform.elevation = parent.size.height
+  // parent-local: the table group's origin is on the floor, so 0 puts the piece
+  // through the opening and `height` puts it on the top
+  child.transform.elevation = inHole ? 0 : parent.size.height
 }
 
 function clampSurfaceChildrenIn(scene: SceneState, ids: Iterable<Id>): void {
@@ -409,7 +431,13 @@ export function addObject(catalogId: string, position: Vec2, seating?: Partial<S
  * point in plan space; the object becomes an attached child (kind 'surface'),
  * standing on the parent's height and clamped to its outline.
  */
-export function addObjectToSurface(catalogId: string, parentId: Id, worldPos: Vec2): Id | null {
+export function addObjectToSurface(
+  catalogId: string,
+  parentId: Id,
+  worldPos: Vec2,
+  /** dropped through the open centre of a ring table — stands on the floor */
+  inHole = false,
+): Id | null {
   const obj = createObject(catalogId, { x: 0, y: 0 })
   let placed = false
   mutateScene((scene) => {
@@ -421,8 +449,12 @@ export function addObjectToSurface(catalogId: string, parentId: Id, worldPos: Ve
       elevation: 0,
     })
     obj.parentId = parentId
-    obj.attachment = { kind: 'surface' }
-    obj.transform = { position: local.position, rotation: 0, elevation: parent.size.height }
+    obj.attachment = inHole ? { kind: 'surface', inHole: true } : { kind: 'surface' }
+    obj.transform = {
+      position: local.position,
+      rotation: 0,
+      elevation: inHole ? 0 : parent.size.height,
+    }
     scene.objects[obj.id] = obj
     unhideCategoryOf(scene, obj.catalogId)
     clampToSurface(scene, obj)

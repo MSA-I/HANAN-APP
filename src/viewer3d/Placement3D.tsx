@@ -3,7 +3,7 @@ import { useThree, type ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
 import { getCatalogEntry } from '../core/catalog/registry'
 import type { CatalogEntry } from '../core/catalog/types'
-import { outlineAABB, pointInOutline } from '../core/layout/bounds'
+import { outlineAABB, pointInHole, pointInOutline } from '../core/layout/bounds'
 import { snapValue } from '../core/layout/snapping'
 import type { Id, SceneState, Vec2 } from '../core/model/types'
 import { cmToM, degToRad, threeToPlan } from '../core/space'
@@ -25,7 +25,17 @@ const INVALID = '#d64545'
 const attachesToTable = (entry: CatalogEntry): boolean =>
   entry.placement === 'surface' || entry.placement === 'seat'
 
-function tableAt(scene: SceneState, point: Vec2, preferred?: Id): Id | null {
+/**
+ * `inHole` reports a point over the open centre of a ring table, where the piece
+ * stands on the floor and rises through it rather than sitting on the top
+ * (source doc §48). Mirrors Stage2D.surfaceTargetAt so a drop lands the same way
+ * in either view.
+ */
+function tableAt(
+  scene: SceneState,
+  point: Vec2,
+  preferred?: Id,
+): { id: Id; inHole: boolean } | null {
   const ordered = [...scene.objectOrder].reverse()
   const ids = preferred ? [preferred, ...ordered.filter((id) => id !== preferred)] : ordered
   for (const id of ids) {
@@ -33,7 +43,10 @@ function tableAt(scene: SceneState, point: Vec2, preferred?: Id): Id | null {
     if (!obj || obj.parentId || !isObjectVisible(scene, id) || isEffectivelyLocked(scene, obj)) continue
     const entry = getCatalogEntry(obj.catalogId)
     if (entry.category !== 'tables') continue
-    if (pointInOutline(point, obj.transform, entry.footprint(obj.size).outline)) return id
+    const outline = entry.footprint(obj.size).outline
+    if (pointInOutline(point, obj.transform, outline)) {
+      return { id, inHole: pointInHole(point, obj.transform, outline) }
+    }
   }
   return null
 }
@@ -41,7 +54,7 @@ function tableAt(scene: SceneState, point: Vec2, preferred?: Id): Id | null {
 interface PlacementPoint {
   entry: CatalogEntry
   point: Vec2
-  target: Id | null
+  target: { id: Id; inHole: boolean } | null
   valid: boolean
 }
 
@@ -60,7 +73,7 @@ function resolvePlacement(point: Vec2, preferred?: Id): PlacementPoint | null {
       : point
   const target = attached ? tableAt(scene, snapped, preferred) : null
   if (attached) {
-    const table = target ? scene.objects[target] : null
+    const table = target ? scene.objects[target.id] : null
     return {
       entry,
       point: snapped,
@@ -105,9 +118,14 @@ export function commitPlacement3D(
 
   const preset = useOverlayStore.getState().placingPreset
   if (resolved.entry.placement === 'surface' && resolved.target) {
-    addObjectToSurface(resolved.entry.id, resolved.target, resolved.point)
+    addObjectToSurface(
+      resolved.entry.id,
+      resolved.target.id,
+      resolved.point,
+      resolved.target.inHole,
+    )
   } else if (resolved.entry.placement === 'seat' && resolved.target) {
-    const ids = addSeatItemsToTable(resolved.entry.id, resolved.target)
+    const ids = addSeatItemsToTable(resolved.entry.id, resolved.target.id)
     if (ids.length) select(ids)
   } else if (preset) {
     addTablePreset(preset, resolved.point)
@@ -174,8 +192,11 @@ function ghostElevation(scene: SceneState, entry: CatalogEntry, point: Vec2): nu
   if (attachesToTable(entry)) {
     const target = tableAt(scene, point)
     if (!target) return 0
-    const table = scene.objects[target]
-    return zoneElevation(scene, getCatalogEntry(table.catalogId)) + table.transform.elevation + table.size.height
+    const table = scene.objects[target.id]
+    const base = zoneElevation(scene, getCatalogEntry(table.catalogId)) + table.transform.elevation
+    // over the open centre of a ring the preview belongs on the floor, which is
+    // the only warning the user gets that this drop will not land on the top
+    return target.inHole ? base : base + table.size.height
   }
   if (entry.placement === 'ceiling') {
     const pack = getVenuePack(scene.venue.venuePackId)
