@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Circle, Group, Rect, Text } from 'react-konva'
+import { Circle, Group, Image as KonvaImage, Rect, Text } from 'react-konva'
 import { useShallow } from 'zustand/react/shallow'
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import { slotColor } from '../core/catalog/types'
@@ -20,6 +20,7 @@ import {
   onObjectMouseDown,
 } from './dragController'
 import { FootprintPartShape } from './footprintShapes'
+import { usePlanImage } from './planImage'
 
 const STROKE = '#57534e'
 const SELECTED_STROKE = '#3056d3'
@@ -63,7 +64,22 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
     [entry, obj],
   )
 
+  // Same value ObjectGroup hands the 3D model (ObjectGroup.tsx:303), where three
+  // multiplies the base texture by it — the 2D image is tinted the same way, or
+  // the two views disagree on the colour the user just picked.
+  const planColor = entry?.editableColorSlot
+    ? (obj?.appearance[entry.editableColorSlot]?.color ?? null)
+    : null
+  const plan = usePlanImage(entry?.model, planColor)
+
   if (!obj || !entry || !footprint) return null
+
+  // 3D fits the GLB by size/defaultSize × modelScale (propModel.ts:56-63) and the
+  // image spans a known number of plan cm, so applying the same factor here is
+  // what makes the two views land on the same footprint.
+  const modelScale = entry.modelScale ?? 1
+  const planW = plan ? (plan.cmW * obj.size.width * modelScale) / entry.defaultSize.width : 0
+  const planD = plan ? (plan.cmD * obj.size.depth * modelScale) / entry.defaultSize.depth : 0
 
   const showLabel = showLabels && entry.labelByDefault
   // base stroke never changes with selection — the highlight is a separate
@@ -92,13 +108,31 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
       onDragMove={(e) => (isChild ? onChildDragMove(id, e) : onObjectDragMove(id, e))}
       onDragEnd={(e) => (isChild ? onChildDragEnd(id, e) : onObjectDragEnd(id, e))}
     >
+      {/* hidden, not removed, when a plan image covers it: this is still the hit
+          region and still the geometry snapping and collisions are built on */}
       {footprint.parts.map((part, i) => (
         <FootprintPartShape
           key={i}
           part={part}
-          style={{ fill: slotColor(entry, obj.appearance, part.slot), stroke, dash }}
+          style={{
+            fill: slotColor(entry, obj.appearance, part.slot),
+            stroke,
+            dash,
+            opacity: plan ? 0 : 1,
+          }}
         />
       ))}
+      {plan && (
+        <KonvaImage
+          image={plan.image}
+          width={planW}
+          height={planD}
+          offsetX={planW / 2}
+          offsetY={planD / 2}
+          listening={false}
+          perfectDrawEnabled={false}
+        />
+      )}
       {isSelected &&
         (footprint.outline.kind === 'circle' ? (
           <Circle

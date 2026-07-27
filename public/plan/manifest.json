@@ -1,0 +1,463 @@
+{
+  "pxPerCmMax": 4,
+  "maxSide": 1024,
+  "items": {
+    "/props/bar-straight.glb": {
+      "file": "bar-straight.webp",
+      "cmW": 591.6,
+      "cmD": 81.6,
+      "pxPerCm": 1.7309,
+      "w": 1024,
+      "h": 141
+    },
+    "/props/chair-black.glb": {
+      "file": "chair-black.webp",
+      "cmW": 47.98,
+      "cmD": 46.12,
+      "pxPerCm": 4.002,
+      "w": 192,
+      "h": 185
+    },
+    "/props/chair-brown.glb": {
+      "file": "chair-brown.webp",
+      "cmW": 43.65,
+      "cmD": 43.3,
+      "pxPerCm": 4.0091,
+      "w": 175,
+      "h": 173
+    },
+    "/props/chair-gold-black.glb": {
+      "file": "chair-gold-black.webp",
+      "cmW": 47.63,
+      "cmD": 47.38,
+      "pxPerCm": 4.0099,
+      "w": 191,
+      "h": 190
+    },
+    "/props/chair-gold-white.glb": {
+      "file": "chair-gold-white.webp",
+      "cmW": 49.59,
+      "cmD": 49.09,
+      "pxPerCm": 4.0126,
+      "w": 199,
+      "h": 197
+    },
+    "/props/chair-x-white.glb": {
+      "file": "chair-x-white.webp",
+      "cmW": 46.29,
+      "cmD": 46.04,
+      "pxPerCm": 3.9964,
+      "w": 185,
+      "h": 184
+    },
+    "/props/chair-x-wood.glb": {
+      "file": "chair-x-wood.webp",
+      "cmW": 45.94,
+      "cmD": 46.4,
+      "pxPerCm": 4.0052,
+      "w": 184,
+      "h": 186
+    },
+    "/props/chuppah-acrylic.glb": {
+      "file": "chuppah-acrylic.webp",
+      "cmW": 355.98,
+      "cmD": 286.63,
+      "pxPerCm": 2.8766,
+      "w": 1024,
+      "h": 825
+    },
+    "/props/chuppah-arch-lattice.glb": {
+      "file": "chuppah-arch-lattice.webp",
+      "cmW": 301.93,
+      "cmD": 216.24,
+      "pxPerCm": 3.3916,
+      "w": 1024,
+      "h": 734
+    },
+    "/props/chuppah-draped-blush.glb": {
+      "file": "chuppah-draped-blush.webp",
+      "cmW": 345.78,
+      "cmD": 333.55,
+      "pxPerCm": 2.9614,
+      "w": 1024,
+      "h": 988
+    },
+    "/props/chuppah-draped-white.glb": {
+      "file": "chuppah-draped-white.webp",
+      "cmW": 354.96,
+      "cmD": 353.95,
+      "pxPerCm": 2.8848,
+      "w": 1024,
+      "h": 1021
+    },
+    "/props/chuppah-frame-chrome.glb": {
+      "file": "chuppah-frame-chrome.webp",
+      "cmW": 255,
+      "cmD": 165.25,
+      "pxPerCm": 4,
+      "w": 1020,
+      "h": 661
+    },
+    "/props/chuppah-round-beige.glb": {
+      "file": "chuppah-round-beige.webp",
+      "cmW": 274.38,
+      "cmD": 274.38,
+      "pxPerCm": 3.7321,
+      "w": 1024,
+      "h": 1024
+    },
+    "/props/chuppah-round-white.glb": {
+      "file": "chuppah-round-white.webp",
+      "cmW": 344.76,
+      "cmD": 344.76,
+      "pxPerCm": 2.9702,
+      "w": 1024,
+      "h": 1024
+    },
+    "/props/chuppah-ruched-ivory.glb": {
+      "file": "chuppah-ruched-ivory.webp",
+      "cmW": 322.32,
+      "cmD": 294.78,
+      "pxPerCm": 3.177,
+      "w": 1024,
+      "h": 937
+    },
+    "/props/decor-bouquet-roses.glb": {
+      "file": "decor-bouquet-roses.webp",
+      "cmW": 33.83,
+      "cmD": 35.52,
+      "pxPerCm": 4.0201,
+      "w": 136,
+      "h": 142
+    },
+    "/props/decor-candelabra-crystal.glb": {
+      "file": "decor-candelabra-crystal.webp",
+      "cmW": 24.43,
+      "cmD": 31.77,
+      "pxPerCm": 4.012,
+      "w": 98,
+      "h": 127
+    },
+    "/props/decor-candelabrum-gold.glb": {
+      "file": "decor-candelabrum-gold.webp",
+      "cmW": 30.92,
+      "cmD": 37.53,
+      "pxPerCm": 4.0097,
+      "w": 124,
+      "h": 150
+    },
+    "/props/decor-candelabrum-golden.glb": {
+      "file": "decor-candelabrum-golden.webp",
+      "cmW": 23.06,
+      "cmD": 24.37,
+      "pxPerCm": 3.9903,
+      "w": 92,
+      "h": 98
+    },
+    "/props/decor-candleholder-crystal-a.glb": {
+      "file": "decor-candleholder-crystal-a.webp",
+      "cmW": 9.71,
+      "cmD": 29.36,
+      "pxPerCm": 4.0182,
+      "w": 39,
+      "h": 118
+    },
+    "/props/decor-candleholder-crystal-b.glb": {
+      "file": "decor-candleholder-crystal-b.webp",
+      "cmW": 20.66,
+      "cmD": 23.05,
+      "pxPerCm": 4.0177,
+      "w": 83,
+      "h": 92
+    },
+    "/props/decor-candleholders-glass.glb": {
+      "file": "decor-candleholders-glass.webp",
+      "cmW": 5.51,
+      "cmD": 30.03,
+      "pxPerCm": 3.9906,
+      "w": 22,
+      "h": 120
+    },
+    "/props/decor-candleholders-wood.glb": {
+      "file": "decor-candleholders-wood.webp",
+      "cmW": 5.39,
+      "cmD": 21.54,
+      "pxPerCm": 4.0811,
+      "w": 22,
+      "h": 86
+    },
+    "/props/decor-candlestick-brass.glb": {
+      "file": "decor-candlestick-brass.webp",
+      "cmW": 21.79,
+      "cmD": 21.78,
+      "pxPerCm": 3.9923,
+      "w": 87,
+      "h": 87
+    },
+    "/props/decor-candlestick-gold.glb": {
+      "file": "decor-candlestick-gold.webp",
+      "cmW": 6.19,
+      "cmD": 12.7,
+      "pxPerCm": 4.036,
+      "w": 25,
+      "h": 51
+    },
+    "/props/decor-candlestick-wood.glb": {
+      "file": "decor-candlestick-wood.webp",
+      "cmW": 6.42,
+      "cmD": 25.59,
+      "pxPerCm": 4.0484,
+      "w": 26,
+      "h": 103
+    },
+    "/props/decor-chandelier-basket.glb": {
+      "file": "decor-chandelier-basket.webp",
+      "cmW": 55.8,
+      "cmD": 58.28,
+      "pxPerCm": 3.9965,
+      "w": 223,
+      "h": 233
+    },
+    "/props/decor-chandelier-candelabra.glb": {
+      "file": "decor-chandelier-candelabra.webp",
+      "cmW": 93.54,
+      "cmD": 93.56,
+      "pxPerCm": 3.9982,
+      "w": 374,
+      "h": 375
+    },
+    "/props/decor-chandelier-crystal.glb": {
+      "file": "decor-chandelier-crystal.webp",
+      "cmW": 27.78,
+      "cmD": 44.56,
+      "pxPerCm": 3.9952,
+      "w": 111,
+      "h": 178
+    },
+    "/props/decor-chandelier-diamond.glb": {
+      "file": "decor-chandelier-diamond.webp",
+      "cmW": 49.09,
+      "cmD": 49.18,
+      "pxPerCm": 4.0133,
+      "w": 197,
+      "h": 197
+    },
+    "/props/decor-fabric-folded.glb": {
+      "file": "decor-fabric-folded.webp",
+      "cmW": 6.07,
+      "cmD": 11.06,
+      "pxPerCm": 4.1156,
+      "w": 25,
+      "h": 45
+    },
+    "/props/decor-goblet-crystal.glb": {
+      "file": "decor-goblet-crystal.webp",
+      "cmW": 35.67,
+      "cmD": 19.1,
+      "pxPerCm": 4.0095,
+      "w": 143,
+      "h": 77
+    },
+    "/props/decor-napkin-folded.glb": {
+      "file": "decor-napkin-folded.webp",
+      "cmW": 12.44,
+      "cmD": 31.4,
+      "pxPerCm": 4.019,
+      "w": 50,
+      "h": 126
+    },
+    "/props/decor-napkin-white.glb": {
+      "file": "decor-napkin-white.webp",
+      "cmW": 8.81,
+      "cmD": 5.56,
+      "pxPerCm": 4.084,
+      "w": 36,
+      "h": 22
+    },
+    "/props/decor-pendant-geometric.glb": {
+      "file": "decor-pendant-geometric.webp",
+      "cmW": 18.42,
+      "cmD": 43.48,
+      "pxPerCm": 4.018,
+      "w": 74,
+      "h": 174
+    },
+    "/props/decor-pendant-lamp.glb": {
+      "file": "decor-pendant-lamp.webp",
+      "cmW": 12.89,
+      "cmD": 12.64,
+      "pxPerCm": 4.0355,
+      "w": 52,
+      "h": 51
+    },
+    "/props/decor-place-setting.glb": {
+      "file": "decor-place-setting.webp",
+      "cmW": 45.9,
+      "cmD": 33.66,
+      "pxPerCm": 4.0087,
+      "w": 184,
+      "h": 135
+    },
+    "/props/decor-topiary-green.glb": {
+      "file": "decor-topiary-green.webp",
+      "cmW": 33.34,
+      "cmD": 31.56,
+      "pxPerCm": 4.0188,
+      "w": 134,
+      "h": 127
+    },
+    "/props/decor-tulips-pink.glb": {
+      "file": "decor-tulips-pink.webp",
+      "cmW": 39.51,
+      "cmD": 39.84,
+      "pxPerCm": 3.9992,
+      "w": 158,
+      "h": 160
+    },
+    "/props/decor-vase-ceramic.glb": {
+      "file": "decor-vase-ceramic.webp",
+      "cmW": 17.9,
+      "cmD": 24.18,
+      "pxPerCm": 4.0225,
+      "w": 72,
+      "h": 97
+    },
+    "/props/decor-vase-flowers-a.glb": {
+      "file": "decor-vase-flowers-a.webp",
+      "cmW": 11.08,
+      "cmD": 42.85,
+      "pxPerCm": 4.0623,
+      "w": 45,
+      "h": 172
+    },
+    "/props/decor-vase-flowers-b.glb": {
+      "file": "decor-vase-flowers-b.webp",
+      "cmW": 17.29,
+      "cmD": 19.47,
+      "pxPerCm": 3.9915,
+      "w": 69,
+      "h": 78
+    },
+    "/props/decor-vase-pampas.glb": {
+      "file": "decor-vase-pampas.webp",
+      "cmW": 53.73,
+      "cmD": 62.66,
+      "pxPerCm": 4.0016,
+      "w": 215,
+      "h": 251
+    },
+    "/props/decor-vase-striped.glb": {
+      "file": "decor-vase-striped.webp",
+      "cmW": 18.21,
+      "cmD": 19.32,
+      "pxPerCm": 4.0081,
+      "w": 73,
+      "h": 78
+    },
+    "/props/decor-vases-decorative.glb": {
+      "file": "decor-vases-decorative.webp",
+      "cmW": 29.61,
+      "cmD": 32.28,
+      "pxPerCm": 4.0183,
+      "w": 119,
+      "h": 129
+    },
+    "/props/decor-vases-gold-striped.glb": {
+      "file": "decor-vases-gold-striped.webp",
+      "cmW": 10.49,
+      "cmD": 22.81,
+      "pxPerCm": 4.0054,
+      "w": 42,
+      "h": 91
+    },
+    "/props/decor-vases-rose-gold.glb": {
+      "file": "decor-vases-rose-gold.webp",
+      "cmW": 52.94,
+      "cmD": 73.12,
+      "pxPerCm": 4.0049,
+      "w": 212,
+      "h": 293
+    },
+    "/props/decor-vases-white-ceramic.glb": {
+      "file": "decor-vases-white-ceramic.webp",
+      "cmW": 28.98,
+      "cmD": 34.25,
+      "pxPerCm": 4.0024,
+      "w": 116,
+      "h": 137
+    },
+    "/props/dj-booth.glb": {
+      "file": "dj-booth.webp",
+      "cmW": 163.2,
+      "cmD": 71.4,
+      "pxPerCm": 4.0012,
+      "w": 653,
+      "h": 286
+    },
+    "/props/plant-vegetation-1.glb": {
+      "file": "plant-vegetation-1.webp",
+      "cmW": 103.01,
+      "cmD": 96.51,
+      "pxPerCm": 3.9995,
+      "w": 412,
+      "h": 386
+    },
+    "/props/plant-vegetation-2.glb": {
+      "file": "plant-vegetation-2.webp",
+      "cmW": 48.41,
+      "cmD": 44.7,
+      "pxPerCm": 4.0072,
+      "w": 194,
+      "h": 179
+    },
+    "/props/table-banquet-240.glb": {
+      "file": "table-banquet-240.webp",
+      "cmW": 244.8,
+      "cmD": 122.4,
+      "pxPerCm": 3.9992,
+      "w": 979,
+      "h": 490
+    },
+    "/props/table-knights-480.glb": {
+      "file": "table-knights-480.webp",
+      "cmW": 489.6,
+      "cmD": 122.4,
+      "pxPerCm": 2.0915,
+      "w": 1024,
+      "h": 256
+    },
+    "/props/table-round-180.glb": {
+      "file": "table-round-180.webp",
+      "cmW": 183.6,
+      "cmD": 183.6,
+      "pxPerCm": 4.0033,
+      "w": 735,
+      "h": 735
+    },
+    "/props/table-round-380.glb": {
+      "file": "table-round-380.webp",
+      "cmW": 387.6,
+      "cmD": 387.62,
+      "pxPerCm": 2.6419,
+      "w": 1024,
+      "h": 1024
+    },
+    "/props/table-serpentine.glb": {
+      "file": "table-serpentine.webp",
+      "cmW": 430.46,
+      "cmD": 430.44,
+      "pxPerCm": 2.3788,
+      "w": 1024,
+      "h": 1024
+    },
+    "/props/table-square-160.glb": {
+      "file": "table-square-160.webp",
+      "cmW": 163.2,
+      "cmD": 163.2,
+      "pxPerCm": 4.0012,
+      "w": 653,
+      "h": 653
+    }
+  },
+  "failed": []
+}

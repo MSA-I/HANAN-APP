@@ -16,6 +16,13 @@ export interface FootprintPartStyle {
   /** dashed outline marks a ceiling item seen from above */
   dash?: number[]
   /**
+   * 0 hides the shape while leaving it in the tree. A top-down plan image is
+   * drawn over the footprint, but the footprint is still the hit region
+   * (Konva's hit graph ignores opacity) and still the geometry PLAN-03 builds
+   * collisions on, so it is hidden rather than dropped.
+   */
+  opacity?: number
+  /**
    * Off by default. Konva's perfect-draw buffers a shape to stop its stroke
    * bleeding into its fill, which only matters at shape-level opacity < 1 —
    * neither caller has that (the ghost's opacity is on its Group), so both pay
@@ -36,6 +43,7 @@ export function FootprintPartShape({
     stroke: style.stroke,
     strokeWidth: style.strokeWidth ?? 1,
     dash: style.dash,
+    opacity: style.opacity ?? 1,
     // screen-space stroke, so the hairline stays a hairline at every zoom
     strokeScaleEnabled: false,
     perfectDrawEnabled: style.perfectDrawEnabled ?? false,
