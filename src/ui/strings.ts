@@ -57,6 +57,8 @@ export const strings = {
       chairGoldBlack: 'זהב ריפוד שחור',
       chairBrown: 'חום',
       chairBlack: 'שחור',
+      // its own category — a curved two-seat settee, not one of the guest chairs
+      chairBridal: 'כסא כלה',
       djBooth: 'עמדת DJ',
       bar: 'בר',
       buffet: 'עמדת בופה',
@@ -81,7 +83,8 @@ export const strings = {
       decorVasesDecorative: 'סט ואזות דקורטיבי',
       decorVaseFlowersA: 'שלישיית ואזות פרח',
       decorVaseFlowersB: 'ואזת פרחים',
-      decorFabricFolded: 'בד מקופל',
+      // the labelKey stays `fabricFolded` — a stable id; only the label changed
+      decorFabricFolded: 'מפית מקופלת',
       decorNapkinFolded: 'מפיות מקופלות',
       decorCandleholdersGlass: 'מחזיקי נר זכוכית',
       decorCandelabrumGold: 'קנדלברום זהב',
@@ -100,13 +103,17 @@ export const strings = {
       decorCandlestickWood: 'פמוט עץ',
       decorPlaceSetting: 'ערכת סכו״ם',
     },
+    // one key per Category (core/catalog/types.ts), in CATEGORY_ORDER
     categories: {
       tables: 'שולחנות',
       seating: 'ישיבה',
+      bridalChair: 'כסא כלה',
       bars: 'בר ומזנון',
+      tableware: 'סכו״ם ומפיות',
       tableDecor: 'קישוטי שולחן',
+      lighting: 'תאורה',
       decor: 'עיצוב',
-      structure: 'מבנה',
+      chuppah: 'חופות',
     },
     slots: {
       cloth: 'מפה',
@@ -123,6 +130,7 @@ export const strings = {
   },
   library: {
     title: 'ספרייה',
+    size: 'גודל תצוגה',
     search: 'חיפוש פריטים…',
     noResults: 'אין תוצאות עבור',
     clearSearch: 'ניקוי חיפוש',

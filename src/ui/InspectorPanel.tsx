@@ -236,6 +236,7 @@ function ChairInspector({ obj }: { obj: SceneObject }) {
           <ColorField
             label={strings.catalog.slots[editableSlot.labelKey as keyof typeof strings.catalog.slots] ?? editableSlot.name}
             value={slotColor(entry, obj.appearance, editableSlot.name)}
+            allowCustom={editableSlot.allowCustomColor}
             onChange={(c) => setAppearance([obj.id], editableSlot.name, c)}
           />
         </Section>
@@ -317,6 +318,7 @@ function SingleInspector({ obj }: { obj: SceneObject }) {
           <ColorField
             label={strings.catalog.slots[editableSlot.labelKey as keyof typeof strings.catalog.slots] ?? editableSlot.name}
             value={slotColor(entry, obj.appearance, editableSlot.name)}
+            allowCustom={editableSlot.allowCustomColor}
             onChange={(c) => setAppearance([obj.id], editableSlot.name, c)}
           />
         </Section>

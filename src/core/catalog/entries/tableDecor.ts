@@ -5,6 +5,12 @@
  * 3D fit and clamping all agree. placement:'surface' means the item can only be
  * dropped onto a table and lives as an attached child on the table's top.
  * Materials are baked (see propModel.ts) — the single slot colours the 2D shape.
+ *
+ * The file holds two categories. Most entries are 'tableDecor' — centrepieces,
+ * the things that dress a table. Three are 'tableware': the place setting and the
+ * two napkins, which are laid FOR a guest rather than arranged on the table, and
+ * which the user picks per event. They stay here because they are built by the
+ * same `surfaceProp` recipe; splitting the file would duplicate it.
  */
 import type { Size3D } from '../../model/types'
 import type { CatalogEntry } from '../types'
@@ -58,6 +64,24 @@ function surfaceProp(
 
 const P = (file: string) => `/props/${file}`
 
+/**
+ * One of the two napkins: 'tableware', and recoloured with a FREE colour picker
+ * rather than the fixed event palette every other editable slot offers — the
+ * napkin is matched to the linen of the day, which is not a house colour.
+ * `allowCustomColor` rides on the slot so the inspector widens exactly this one
+ * control (ui/fields.tsx) and nothing else.
+ */
+function napkin(entry: CatalogEntry): CatalogEntry {
+  return {
+    ...entry,
+    category: 'tableware',
+    editableColorSlot: 'body',
+    materialSlots: entry.materialSlots.map((slot) =>
+      slot.name === 'body' ? { ...slot, allowCustomColor: true } : slot,
+    ),
+  }
+}
+
 export const tableDecorEntries: CatalogEntry[] = [
   surfaceProp('decor.candlestick-brass', 'decorCandlestickBrass', P('decor-candlestick-brass.glb'), { width: 21.4, depth: 21.4, height: 35 }, '#a8823f'),
   surfaceProp('decor.vase-ceramic', 'decorVaseCeramic', P('decor-vase-ceramic.glb'), { width: 17.5, depth: 23.7, height: 35 }, '#b8afa3'),
@@ -72,7 +96,10 @@ export const tableDecorEntries: CatalogEntry[] = [
   surfaceProp('decor.vases-decorative', 'decorVasesDecorative', P('decor-vases-decorative.glb'), { width: 29, depth: 31.6, height: 40 }, '#9b8e7e'),
   surfaceProp('decor.vase-flowers-a', 'decorVaseFlowersA', P('decor-vase-flowers-a.glb'), { width: 10.9, depth: 42, height: 45 }, '#c98ba0', 'rect'),
   surfaceProp('decor.vase-flowers-b', 'decorVaseFlowersB', P('decor-vase-flowers-b.glb'), { width: 16.9, depth: 19.1, height: 45 }, '#c98ba0'),
-  surfaceProp('decor.fabric-folded', 'decorFabricFolded', P('decor-fabric-folded.glb'), { width: 6, depth: 10.8, height: 12 }, '#e8e2d8', 'rect'),
+  // 'מפית מקופלת' — the label says napkin, the id and labelKey still say fabric.
+  // They are stable identifiers (stored projects and thumbnail filenames key off
+  // them), so only the visible string changed.
+  napkin(surfaceProp('decor.fabric-folded', 'decorFabricFolded', P('decor-fabric-folded.glb'), { width: 6, depth: 10.8, height: 12 }, '#e8e2d8', 'rect')),
   {
     ...surfaceProp('decor.napkin-folded', 'decorNapkinFolded', P('decor-napkin-folded.glb'), { width: 12.2, depth: 30.8, height: 10 }, '#f0ece4', 'rect'),
     editableColorSlot: 'body',
@@ -89,10 +116,7 @@ export const tableDecorEntries: CatalogEntry[] = [
   surfaceProp('decor.vases-rose-gold', 'decorVasesRoseGold', P('decor-vases-rose-gold.glb'), { width: 51.9, depth: 71.7, height: 38 }, '#d2a08a', 'rect'),
   surfaceProp('decor.vase-striped', 'decorVaseStriped', P('decor-vase-striped.glb'), { width: 17.9, depth: 18.9, height: 35 }, '#8f8a80'),
   surfaceProp('decor.vases-white-ceramic', 'decorVasesWhiteCeramic', P('decor-vases-white-ceramic.glb'), { width: 28.4, depth: 33.6, height: 35 }, '#e9e5dd'),
-  {
-    ...surfaceProp('decor.napkin-white', 'decorNapkinWhite', P('decor-napkin-white.glb'), { width: 8.6, depth: 5.4, height: 8 }, '#f3f0ea', 'rect'),
-    editableColorSlot: 'body',
-  },
+  napkin(surfaceProp('decor.napkin-white', 'decorNapkinWhite', P('decor-napkin-white.glb'), { width: 8.6, depth: 5.4, height: 8 }, '#f3f0ea', 'rect')),
   surfaceProp('decor.candleholders-wood', 'decorCandleholdersWood', P('decor-candleholders-wood.glb'), { width: 5.3, depth: 21.1, height: 25 }, '#8a6b4f', 'rect'),
   surfaceProp('decor.candlestick-wood', 'decorCandlestickWood', P('decor-candlestick-wood.glb'), { width: 6.3, depth: 25.1, height: 30 }, '#8a6b4f', 'rect'),
   // The only 'seat'-placement entry: dropping it on a table lays one out in front
@@ -101,6 +125,7 @@ export const tableDecorEntries: CatalogEntry[] = [
   // the tallest of the model's 9 meshes — footprint was resized, height was not.
   {
     ...surfaceProp('decor.place-setting', 'decorPlaceSetting', P('decor-place-setting.glb'), { width: 45, depth: 33, height: 15.9 }, '#d9d4cb', 'rect'),
+    category: 'tableware',
     placement: 'seat',
   },
 ]
