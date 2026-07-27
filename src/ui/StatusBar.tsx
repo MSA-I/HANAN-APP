@@ -1,5 +1,7 @@
-import { Maximize, Minus, Plus } from 'lucide-react'
+import { Maximize, Minus, Plus, TriangleAlert } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
+import type { Violation } from '../core/layout/collision'
+import { getVenuePack } from '../core/venuePacks'
 import { useSaveStatus } from '../persistence/autosave'
 import { sceneCounts } from '../state/selectors'
 import { useEditorStore } from '../state/store'
@@ -9,6 +11,53 @@ import { zoomApi } from '../editor2d/zoomBus'
 import { strings } from './strings'
 
 const S = strings.statusBar
+const V = strings.status.violation
+
+/** The pack's own Hebrew zone label, falling back to the raw kind. */
+function zoneLabel(venuePackId: string | null | undefined, kind: string): string {
+  return getVenuePack(venuePackId)?.restricted?.find((z) => z.kind === kind)?.label ?? kind
+}
+
+function violationText(violation: Violation, venuePackId: string | null | undefined): string {
+  switch (violation.kind) {
+    case 'collision':
+      return V.collision
+    case 'spacing':
+      return V.spacing
+        .replace('{actual}', String(Math.round(violation.actual)))
+        .replace('{required}', String(violation.required))
+    case 'outOfBounds':
+      return V.outOfBounds
+    case 'forbiddenZone':
+      return V.forbiddenZone.replace('{zone}', zoneLabel(venuePackId, violation.zone))
+    case 'wrongZone':
+      return V.wrongZone.replace(
+        '{zone}',
+        violation.allowed.map((kind) => zoneLabel(venuePackId, kind)).join(' / '),
+      )
+    case 'nearWall':
+      return V.nearWall.replace('{within}', String(violation.within))
+    case 'missingHost':
+      return V.missingHost
+    case 'duplicate':
+      return V.duplicate
+  }
+}
+
+function ViolationNotice() {
+  const violation = useOverlayStore((s) => s.violation)
+  const venuePackId = useEditorStore((s) => s.scene.venue.venuePackId)
+  if (!violation) return null
+  return (
+    <span
+      role="status"
+      className="flex items-center gap-1.5 rounded-full bg-warning/15 px-2 py-0.5 font-semibold text-warning"
+    >
+      <TriangleAlert size={13} />
+      {violationText(violation, venuePackId)}
+    </span>
+  )
+}
 
 function ZoomButton({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -57,8 +106,9 @@ export function StatusBar() {
         </div>
       </div>
 
-      {/* end (left in RTL): live scene counts + save status */}
+      {/* end (left in RTL): why the last action was refused, counts, save status */}
       <div className="flex items-center gap-3">
+        <ViolationNotice />
         <div className="flex items-center gap-1">
           <span className="ltr-nums">{counts.tables}</span> {S.tables}
           <span className="text-line">·</span>

@@ -33,6 +33,21 @@ export const strings = {
     saving: 'שומר…',
     saveFailed: 'השמירה נכשלה — מנסים שוב',
     loadFailed: 'טעינת הפריסות נכשלה',
+    /**
+     * Why a placement was refused (core/layout/collision.ts `Violation`). `{…}`
+     * placeholders are filled by StatusBar: numbers from the violation itself,
+     * zone names from the venue pack's own Hebrew labels.
+     */
+    violation: {
+      collision: 'התנגשות עם פריט קיים',
+      spacing: 'מרחק {actual} ס״מ — נדרש {required} ס״מ',
+      outOfBounds: 'מחוץ לגבולות האולם',
+      forbiddenZone: 'לא ניתן להניח באזור {zone}',
+      wrongZone: 'פריט זה מותר רק סביב {zone}',
+      nearWall: 'יש להניח צמוד לקיר (עד {within} ס״מ)',
+      missingHost: 'יש להניח ערכת סכו״ם קודם',
+      duplicate: 'כבר קיימת חופה בסצנה',
+    },
   },
   catalog: {
     items: {

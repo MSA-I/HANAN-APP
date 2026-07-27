@@ -3,7 +3,8 @@ import { useThree, type ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
 import { getCatalogEntry } from '../core/catalog/registry'
 import type { CatalogEntry } from '../core/catalog/types'
-import { outlineAABB, pointInOutline } from '../core/layout/bounds'
+import { pointInOutline } from '../core/layout/bounds'
+import { checkPlacement } from '../core/layout/collision'
 import { snapValue } from '../core/layout/snapping'
 import type { Id, SceneState, Vec2 } from '../core/model/types'
 import { cmToM, degToRad, threeToPlan } from '../core/space'
@@ -59,31 +60,23 @@ function resolvePlacement(point: Vec2, preferred?: Id): PlacementPoint | null {
         }
       : point
   const target = attached ? tableAt(scene, snapped, preferred) : null
-  if (attached) {
-    const table = target ? scene.objects[target] : null
-    return {
-      entry,
-      point: snapped,
-      target,
-      valid: !!table && (entry.placement !== 'seat' || !!table.seating),
-    }
+  const table = target ? scene.objects[target] : null
+  if (attached && (!table || (entry.placement === 'seat' && !table.seating))) {
+    overlay.setViolation(null) // "not over a usable table" is a cursor state, not a refusal
+    return { entry, point: snapped, target, valid: false }
   }
 
-  const box = outlineAABB(
-    {
-      position: snapped,
-      rotation: entry.defaultRotation ?? 0,
-      elevation: 0,
-    },
-    entry.footprint(entry.defaultSize).outline,
-  )
-  const { width, depth } = scene.venue.size
-  return {
-    entry,
-    point: snapped,
-    target: null,
-    valid: box.minX >= 0 && box.minY >= 0 && box.maxX <= width && box.maxY <= depth,
-  }
+  // the same question the drop asks, so the preview cannot promise what the
+  // placement will refuse (source doc §57) — this used to test the venue
+  // rectangle only, which left the ghost green over the pool
+  const violations = checkPlacement(scene, {
+    catalogId: entry.id,
+    transform: { position: snapped, rotation: entry.defaultRotation ?? 0, elevation: 0 },
+    size: entry.defaultSize,
+    parentId: target ?? undefined,
+  })
+  overlay.setViolation(violations[0] ?? null)
+  return { entry, point: snapped, target, valid: violations.length === 0 }
 }
 
 export function previewPlacement3D(point: Pick<THREE.Vector3, 'x' | 'z'>, preferred?: Id): void {

@@ -5,11 +5,13 @@ function vegetationEntry(
   labelKey: string,
   size: { width: number; depth: number; height: number },
   model: string,
+  siting?: Pick<CatalogEntry, 'allowedZones' | 'nearWall'>,
 ): CatalogEntry {
   return {
     id,
     category: 'decor',
     labelKey,
+    ...siting,
     defaultSize: size,
     resizable: ['width', 'depth', 'height'],
     minSize: { width: 30, depth: 30, height: 80 },
@@ -35,7 +37,17 @@ function vegetationEntry(
   }
 }
 
-/** `plant.potted` is retained so saved projects continue to load as vegetation 1. */
+/**
+ * `plant.potted` is retained so saved projects continue to load as vegetation 1.
+ *
+ * ⛔ Source doc §14 puts it in a ring AROUND the pool, and `allowedZones` is the
+ * mechanism for exactly that — but the ring's WIDTH has no measured source. The
+ * plan's 150cm is its own admitted guess, and the number decides whether the
+ * rule reads as "on the pool coping" (~80) or "the whole pool side of the hall"
+ * (~300). Left unwired until the user answers; see handoff/BLOCKED-03-A2.md §1.
+ * One line here when the number arrives:
+ *   { allowedZones: [{ kind: 'pool', within: <cm> }] }
+ */
 export const pottedPlant = vegetationEntry(
   'plant.potted',
   'plant',
@@ -43,11 +55,18 @@ export const pottedPlant = vegetationEntry(
   '/props/plant-vegetation-1.glb',
 )
 
+/**
+ * Vegetation 2 goes against walls only, the passage included (source doc §15).
+ * 60cm is the plant's own 47.5cm footprint plus a hand's width — it is the
+ * threshold for "touching the wall", not a design distance, so it is here rather
+ * than in a tunable.
+ */
 export const pottedPlant2 = vegetationEntry(
   'plant.potted-2',
   'plant2',
   { width: 47.5, depth: 43.8, height: 160 },
   '/props/plant-vegetation-2.glb',
+  { nearWall: 60 },
 )
 
 export const dividerScreen: CatalogEntry = {

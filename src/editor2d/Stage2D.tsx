@@ -5,6 +5,7 @@ import { Stage } from 'react-konva'
 import { getCatalogEntry } from '../core/catalog/registry'
 import type { CatalogEntry } from '../core/catalog/types'
 import { aabbIntersects, aabbUnion, pointInOutline, type AABB } from '../core/layout/bounds'
+import { checkPlacement } from '../core/layout/collision'
 import { snapValue } from '../core/layout/snapping'
 import type { Id, Vec2 } from '../core/model/types'
 import {
@@ -287,14 +288,28 @@ export function Stage2D() {
     return null
   }
 
+  /**
+   * The ghost asks the same question the drop will ask (source doc §57). It used
+   * to test the venue RECTANGLE alone, so it stayed green over the pool and the
+   * item was quietly shoved out afterwards; now red means the click does nothing
+   * and the status bar says why.
+   */
   const ghostValidity = (catalogId: string, world: Vec2): boolean => {
+    const { scene } = useEditorStore.getState()
     const entry = getCatalogEntry(catalogId)
-    if (attachesToTable(entry)) return surfaceTargetAt(world) !== null
-    const outline = entry.footprint(entry.defaultSize).outline
-    const hw = outline.kind === 'circle' ? outline.r : outline.w / 2
-    const hh = outline.kind === 'circle' ? outline.r : outline.h / 2
-    const venue = useEditorStore.getState().scene.venue.size
-    return world.x - hw >= 0 && world.x + hw <= venue.width && world.y - hh >= 0 && world.y + hh <= venue.depth
+    const target = attachesToTable(entry) ? surfaceTargetAt(world) : null
+    if (attachesToTable(entry) && !target) {
+      overlay.setViolation(null) // "not over a table" is a cursor state, not a refusal
+      return false
+    }
+    const violations = checkPlacement(scene, {
+      catalogId,
+      transform: { position: world, rotation: entry.defaultRotation ?? 0, elevation: 0 },
+      size: entry.defaultSize,
+      parentId: target ?? undefined,
+    })
+    overlay.setViolation(violations[0] ?? null)
+    return violations.length === 0
   }
 
   const handleMouseDown = (e: KonvaEventObject<MouseEvent>) => {

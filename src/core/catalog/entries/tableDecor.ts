@@ -76,6 +76,12 @@ function napkin(entry: CatalogEntry): CatalogEntry {
     ...entry,
     category: 'tableware',
     editableColorSlot: 'body',
+    // A napkin is laid ON the place setting, never on the bare cloth (source doc
+    // §27). That makes it a 'seat' item like the setting itself: one drop dresses
+    // every cover, and each napkin is pinned to the setting it stands on, so
+    // removing the settings takes the napkins with them.
+    placement: 'seat',
+    requiresHost: 'decor.place-setting',
     materialSlots: entry.materialSlots.map((slot) =>
       slot.name === 'body' ? { ...slot, allowCustomColor: true } : slot,
     ),

@@ -38,7 +38,16 @@ export type Attachment =
       manual: boolean
     }
   /** decor standing ON the parent's top surface; local elevation = parent height */
-  | { kind: 'surface' }
+  | {
+      kind: 'surface'
+      /**
+       * This item stands on ANOTHER surface item of the same table rather than
+       * on the bare top — a folded napkin on its place setting (source doc §27).
+       * It tracks that item's position and dies with it. Optional and additive,
+       * so no schema bump: a scene written before it simply has none.
+       */
+      stackedOn?: Id
+    }
 
 /** Children sort: chairs by seat index, surface decor after them (stable). */
 export function childSortKey(o: { attachment?: Attachment }): number {
