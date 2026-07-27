@@ -28,14 +28,26 @@ const ids = entries.map((e) => e.id)
 /** VenuePack.restricted is optional, so read it through one place. */
 const zones = () => getVenuePack('resort')?.restricted ?? []
 const ZONE = zones().find((z) => z.kind === 'chuppah')!
-const settledOnZone = (id: string) => {
+/**
+ * Since the 2026-07-28 re-import a chuppah has TWO legal homes: the hall's
+ * ceremony rectangle and the raised reception deck (source doc §43 — one canopy
+ * per event, either place). The deck now occupies the plan's east end, so a drop
+ * at the far corner legitimately settles up there rather than teleporting back
+ * to the hall. Tests that only care "did it land in a home zone" use
+ * `settledOnAHome`; the ones about the hall zone specifically still use
+ * `settledOnZone`.
+ */
+const DECK = zones().find((z) => z.kind === 'kabalatPanim')
+const settledIn = (id: string, zone: { x: number; y: number; width: number; depth: number }) => {
   const b = objectAABB(scene(), id)!
   const settled = (min: number, max: number, zoneMin: number, zoneSize: number) =>
     max - min > zoneSize
       ? Math.abs((min + max) / 2 - (zoneMin + zoneSize / 2)) < 0.01
       : min >= zoneMin - 0.01 && max <= zoneMin + zoneSize + 0.01
-  return settled(b.minX, b.maxX, ZONE.x, ZONE.width) && settled(b.minY, b.maxY, ZONE.y, ZONE.depth)
+  return settled(b.minX, b.maxX, zone.x, zone.width) && settled(b.minY, b.maxY, zone.y, zone.depth)
 }
+const settledOnZone = (id: string) => settledIn(id, ZONE)
+const settledOnAHome = (id: string) => settledOnZone(id) || (!!DECK && settledIn(id, DECK))
 
 const SCALED_SIZES = [
   ['chuppah.draped-white', 522, 520.5, 397.5],
@@ -94,22 +106,23 @@ describe('chuppah zone lock', () => {
     expect(Object.isFrozen(drop)).toBe(false)
 
     drop.x = 4423
-    expect(settledOnZone(addObject(ids[0], drop))).toBe(true)
+    expect(settledOnAHome(addObject(ids[0], drop))).toBe(true)
   })
 
-  it.each(ids)('%s teleports into the zone from any corner of the resort', (id) => {
+  it.each(ids)('%s teleports into a home zone from any corner of the resort', (id) => {
     for (const [x, y] of CORNERS) {
       newProject({ name: 'resort', venuePackId: 'resort' })
-      expect(settledOnZone(addObject(id, { x, y }))).toBe(true)
+      expect(settledOnAHome(addObject(id, { x, y }))).toBe(true)
     }
   })
 
-  it.each(ids)('%s can never be dragged away from its zone', (id) => {
+  it.each(ids)('%s never ends up loose on the floor, however far it is dragged', (id) => {
     const objId = addObject(id, { x: 300, y: 300 })
     moveObjectsBy([objId], { x: -3000, y: -3000 })
+    // dragged west, away from the deck — the hall zone is the only home in reach
     expect(settledOnZone(objId)).toBe(true)
     moveObjectsBy([objId], { x: 9999, y: 9999 })
-    expect(settledOnZone(objId)).toBe(true)
+    expect(settledOnAHome(objId)).toBe(true)
   })
 
   it.each(ids)('%s stays anchored after a quarter turn', (id) => {

@@ -179,7 +179,19 @@ if (rects.ZONE_HUPA) {
   delete rects.ZONE_HUPA
 }
 
-const label = { ZONE_POOL: 'בריכה', ZONE_DJ: 'עמדת DJ', ZONE_BAR: 'בר', ZONE_DANCEFLOOR: 'רחבת ריקודים', ZONE_CHUPPAH: 'חופה', ZONE_CORRIDOR: 'מסדרון' }
+// `kind` is the stable id the app matches against (RestrictedZone.kind and
+// CatalogEntry.zoneKind compare as STRINGS — a typo exiles the object instead of
+// freeing it), `label` is the Hebrew overlay text. ZONE_CORRIDOR keeps its
+// SketchUp marker name but is 'passage'/'מעבר' in the app (source doc §29).
+const zoneMeta = {
+  ZONE_POOL: { kind: 'pool', label: 'בריכה' },
+  ZONE_DJ: { kind: 'dj', label: 'עמדת DJ' },
+  ZONE_BAR: { kind: 'bar', label: 'בר' },
+  ZONE_DANCEFLOOR: { kind: 'dancefloor', label: 'רחבת ריקודים' },
+  ZONE_CHUPPAH: { kind: 'chuppah', label: 'חופה' },
+  ZONE_CORRIDOR: { kind: 'passage', label: 'מעבר' },
+  ZONE_KABALAT_PANIM: { kind: 'kabalatPanim', label: 'קבלת פנים' },
+}
 
 console.log('=== plan origin (raw ZONE_FLOOR min corner) ===')
 console.log(`offset (metres): [${(-fx).toFixed(3)}, 0, ${(-fz).toFixed(3)}]`)
@@ -190,5 +202,8 @@ console.log(`\n=== floorAreas (green placeable, ${floorAreas.length} pieces, pla
 console.log(JSON.stringify(floorAreas))
 console.log('\n=== restricted (plan cm) ===')
 for (const [name, r] of Object.entries(rects)) {
-  console.log(`{ x: ${r.x}, y: ${r.y}, width: ${r.width}, depth: ${r.depth}, elevation: ${r.elevation}, label: '${label[name] ?? name}' },  // ${name}`)
+  const meta = zoneMeta[name]
+  if (!meta) console.warn(`  ! no kind/label mapping for ${name} — add it to zoneMeta`)
+  const elevation = r.elevation ? `elevation: ${r.elevation}, ` : ''
+  console.log(`{ x: ${r.x}, y: ${r.y}, width: ${r.width}, depth: ${r.depth}, ${elevation}label: '${meta?.label ?? name}', kind: '${meta?.kind ?? name}' },`)
 }

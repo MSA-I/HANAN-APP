@@ -134,6 +134,55 @@ function repinCeilingToTruss(raw: unknown): unknown {
 }
 
 /**
+ * v5 → v6: PLACEHOLDER, owned by PLAN-01.
+ *
+ * PLAN-07 needs the chain to be continuous — `runMigrations` stops the moment a
+ * version has no entry, so without this a v5 file would never reach the v7 venue
+ * update. PLAN-01 replaces this with its real catalog migration; on merge, keep
+ * PLAN-01's body and this comment goes away.
+ */
+function bumpToV6(raw: unknown): unknown {
+  const file = raw as { project?: object }
+  return { ...(raw as object), schemaVersion: 6, project: { ...file.project, schemaVersion: 6 } }
+}
+
+/**
+ * v6 → v7: the resort hall was re-imported from an updated SketchUp model. The
+ * passage got shorter and a raised reception deck joined the plan, which widened
+ * the venue from 4423 to 6051 cm. A stored scene carries its OWN `venue.size`,
+ * so without this a project saved before the re-import would keep clamping
+ * furniture to the old rectangle and the reception deck would be unreachable.
+ *
+ * ponytail: no re-clamp pass. Every hall zone kept its exact v6 rectangle, the
+ * floor only GREW (2544 deep unchanged, 4423 → 6051 wide) and the one zone that
+ * changed — the passage — only SHRANK. So no stored object can be newly out of
+ * bounds or newly inside a no-go zone; a clamp here is provably a no-op, and
+ * importing one from actions.ts would make persistence depend on the store.
+ * The real `clampToVenue` still runs on the first edit either way.
+ *
+ * Constants are frozen at the values this migration shipped with, like v5 —
+ * the live pack may drift later and old files must still land where they did.
+ */
+const RESORT_SIZE_V7 = { width: 6051, depth: 2544 }
+const RESORT_WALL_HEIGHT_V7 = 1160
+
+function widenResortVenue(raw: unknown): unknown {
+  const file = raw as {
+    project?: {
+      scene?: {
+        venue?: { venuePackId?: string | null; size?: { width: number; depth: number }; wallHeight?: number }
+      }
+    }
+  }
+  const venue = file?.project?.scene?.venue
+  if (venue?.venuePackId === 'resort') {
+    venue.size = { ...RESORT_SIZE_V7 }
+    venue.wallHeight = RESORT_WALL_HEIGHT_V7
+  }
+  return { ...(raw as object), schemaVersion: 7, project: { ...file.project, schemaVersion: 7 } }
+}
+
+/**
  * Keyed by the SOURCE version each function upgrades FROM. `migrations[0]`
  * turns a v0 file into a v1 file (and must set `schemaVersion` to 1).
  */
@@ -142,6 +191,8 @@ export const migrations: Record<number, (raw: unknown) => unknown> = {
   2: bumpToV3,
   3: dropStagingAndAddLayers,
   4: repinCeilingToTruss,
+  5: bumpToV6,
+  6: widenResortVenue,
 }
 
 function schemaVersionOf(raw: unknown): number {

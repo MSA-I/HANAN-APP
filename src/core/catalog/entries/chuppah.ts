@@ -111,6 +111,9 @@ function chuppah(
     thumbnail: `/thumbs/${id.replaceAll('.', '-')}.webp`,
     // ceremony structure — lives only inside the venue's chuppah zone
     zoneKind: 'chuppah',
+    // one ceremony, one canopy: placing any chuppah blocks all eight, in the
+    // hall AND on the reception deck (source doc §43)
+    unique: 'chuppah',
   }
 }
 
