@@ -2,8 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { createDefaultScene, createObject } from './model/factory'
 import type { SceneObject, SceneState } from './model/types'
 import {
+  createLightingLayout,
   createSavedLayout,
+  createTableDesignLayout,
   instantiateSavedLayout,
+  LAYOUT_SCHEMA_VERSION,
+  migrateSavedLayout,
+  missingCatalogIds,
   sameVenueSignature,
   snapshotSelection,
   venueSignature,
@@ -91,10 +96,85 @@ describe('saved layouts', () => {
     const children = Object.values(destination.objects).filter((object) => object.parentId === rootId)
     expect(originalIds.has(rootId)).toBe(false)
     expect(root.transform.position).toEqual(table.transform.position)
-    expect(root.meta).toMatchObject({ number: 5, layout: saved.id })
+    expect(root.meta).toMatchObject({ number: 5, layoutTables: saved.id })
     expect(root.flags).toEqual({ locked: false, visible: true })
     expect(children).toHaveLength(2)
     expect(children.every((child) => !originalIds.has(child.id) && child.parentId === rootId)).toBe(true)
     expect(children.every((child) => child.flags.locked === false && child.flags.visible)).toBe(true)
+  })
+})
+
+describe('layout kinds (schema v8)', () => {
+  it('tags each kind with its own meta key so two layouts coexist', () => {
+    const { scene, table } = fixture()
+    const tables = createSavedLayout('שולחנות', scene, [table.id], 'layout')!
+    expect(tables.kind).toBe('tables')
+
+    const lamp = createObject('lamp.pendant', { x: 800, y: 800 })
+    scene.objects[lamp.id] = lamp
+    scene.objectOrder.push(lamp.id)
+    const lighting = createLightingLayout('תאורה', scene)!
+    expect(lighting.kind).toBe('lighting')
+    expect(lighting.subtrees.map((s) => s.root.catalogId)).toEqual(['lamp.pendant'])
+
+    const destination = createDefaultScene(2400, 1600)
+    const [tableId] = instantiateSavedLayout(destination, tables)
+    const [lampId] = instantiateSavedLayout(destination, lighting)
+    expect(destination.objects[tableId].meta.layoutTables).toBe(tables.id)
+    expect(destination.objects[tableId].meta.layoutLighting).toBeUndefined()
+    expect(destination.objects[lampId].meta.layoutLighting).toBe(lighting.id)
+    expect(destination.objects[lampId].meta.layoutTables).toBeUndefined()
+  })
+
+  it('a lighting layout needs lighting in the scene', () => {
+    const { scene } = fixture()
+    expect(createLightingLayout('ריק', scene)).toBeNull()
+  })
+
+  it('captures only a table’s surface decor as a table design', () => {
+    const { scene, table, chair, decor } = fixture()
+    const design = createTableDesignLayout('זהב', scene, table.id)!
+    expect(design.kind).toBe('tableDesign')
+    expect(design.subtrees).toHaveLength(1)
+    expect(design.subtrees[0].root.id).toBe(table.id)
+    expect(design.subtrees[0].children.map((c) => c.id)).toEqual([decor.id])
+    expect(design.subtrees[0].children.map((c) => c.id)).not.toContain(chair.id)
+    // a bare table has no design to save
+    const bare = createDefaultScene(2400, 1600)
+    const empty = createObject('table.round', { x: 100, y: 100 })
+    bare.objects[empty.id] = empty
+    bare.objectOrder.push(empty.id)
+    expect(createTableDesignLayout('ריק', bare, empty.id)).toBeNull()
+  })
+})
+
+describe('stored layout records', () => {
+  it('upgrades a v1 record (no kind, no version) to a table layout', () => {
+    const { scene, table } = fixture()
+    const saved = createSavedLayout('ותיקה', scene, [table.id], 'layout')!
+    const v1 = { ...saved } as Record<string, unknown>
+    delete v1.kind
+    delete v1.schemaVersion
+
+    const migrated = migrateSavedLayout(v1)!
+    expect(migrated.kind).toBe('tables')
+    expect(migrated.schemaVersion).toBe(LAYOUT_SCHEMA_VERSION)
+    expect(migrated.name).toBe('ותיקה')
+    expect(migrated.subtrees).toEqual(saved.subtrees)
+  })
+
+  it('drops a record it cannot read instead of handing it to the editor', () => {
+    expect(migrateSavedLayout(null)).toBeNull()
+    expect(migrateSavedLayout({ id: 'x' })).toBeNull()
+    expect(migrateSavedLayout('nonsense')).toBeNull()
+  })
+
+  it('reports catalog ids the catalog no longer has', () => {
+    const { scene, table } = fixture()
+    const saved = createSavedLayout('חסרה', scene, [table.id], 'layout')!
+    expect(missingCatalogIds(saved)).toEqual([])
+    saved.subtrees[0].root.catalogId = 'table.retired'
+    saved.subtrees[0].root.seating!.chairCatalogId = 'chair.retired'
+    expect(missingCatalogIds(saved).sort()).toEqual(['chair.retired', 'table.retired'])
   })
 })

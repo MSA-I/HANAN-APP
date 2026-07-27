@@ -70,7 +70,12 @@ export interface SceneObject {
   attachment?: Attachment
   appearance: AppearanceOverrides
   seating?: SeatingConfig
-  flags: { locked: boolean; visible: boolean }
+  /**
+   * `locked` is a user toggle — the Inspector can turn it off again. `frozen` is
+   * not: it marks a baked venue fixture (core/venueFixtures.ts) that must never
+   * move, be deleted or be unlocked, and no UI writes it. See bake-plugin.ts.
+   */
+  flags: { locked: boolean; visible: boolean; frozen?: boolean }
   meta: Record<string, string | number | boolean>
 }
 
@@ -145,4 +150,4 @@ export interface Project {
   scene: SceneState
 }
 
-export const SCHEMA_VERSION = 7
+export const SCHEMA_VERSION = 8

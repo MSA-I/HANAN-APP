@@ -394,6 +394,81 @@ describe('v6 → v7 resort re-import', () => {
   })
 })
 
+describe('v7 → v8 layout tag split', () => {
+  /** A v7 file with an applied hall layout and a table design on one table. */
+  function v7File() {
+    const file = validFile() as unknown as Record<string, unknown>
+    const project = file.project as {
+      schemaVersion: number
+      scene: { objects: Record<string, unknown>; objectOrder: string[] }
+    }
+    file.schemaVersion = 7
+    project.schemaVersion = 7
+    const base = {
+      parentId: null,
+      appearance: {},
+      flags: { locked: false, visible: true },
+      size: { width: 180, depth: 180, height: 75 },
+      name: '',
+      catalogId: 'table.round',
+      transform: { position: { x: 400, y: 400 }, rotation: 0, elevation: 0 },
+    }
+    project.scene.objects = {
+      t1: { ...base, id: 't1', meta: { layout: 'layout.rounds-classic', number: 1 } },
+      t2: { ...base, id: 't2', meta: { number: 2 } },
+      d1: {
+        ...base,
+        id: 'd1',
+        parentId: 't1',
+        attachment: { kind: 'surface' },
+        catalogId: 'decor.candlestick-gold',
+        size: { width: 10, depth: 10, height: 30 },
+        meta: { design: 'design.classic-gold' },
+      },
+    }
+    project.scene.objectOrder = ['t1', 't2']
+    return file
+  }
+
+  it('moves meta.layout onto its own key so lighting can use a second one', () => {
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(v7File())))
+    const objects = revived.project.scene.objects
+    expect(objects.t1.meta.layoutTables).toBe('layout.rounds-classic')
+    expect(objects.t1.meta.layout).toBeUndefined()
+    expect(objects.t1.meta.number).toBe(1)
+    expect(objects.t2.meta).toEqual({ number: 2 })
+    expect(revived.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(revived.project.schemaVersion).toBe(SCHEMA_VERSION)
+  })
+
+  it('leaves meta.design alone — a table design was already its own slot', () => {
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(v7File())))
+    expect(revived.project.scene.objects.d1.meta.design).toBe('design.classic-gold')
+    expect(revived.project.scene.objects.d1.meta.layoutTables).toBeUndefined()
+  })
+
+  it('validates the v8 frozen flag and still accepts objects without it', () => {
+    const file = validFile() as unknown as Record<string, unknown>
+    const project = file.project as { scene: { objects: Record<string, unknown>; objectOrder: string[] } }
+    project.scene.objects = {
+      f1: {
+        id: 'f1',
+        catalogId: 'bar.straight',
+        name: '',
+        transform: { position: { x: 300, y: 300 }, rotation: 0, elevation: 0 },
+        size: { width: 200, depth: 60, height: 110 },
+        parentId: null,
+        appearance: {},
+        flags: { locked: true, visible: true, frozen: true },
+        meta: { fixture: true },
+      },
+    }
+    project.scene.objectOrder = ['f1']
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(file)))
+    expect(revived.project.scene.objects.f1.flags.frozen).toBe(true)
+  })
+})
+
 describe('migrateAndValidate', () => {
   it('accepts a current-version ProjectFile round-trip', () => {
     const file = validFile()

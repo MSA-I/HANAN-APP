@@ -216,6 +216,36 @@ function widenResortVenue(raw: unknown): unknown {
 }
 
 /**
+ * v7 → v8: `meta.layout` was ONE tag shared by every kind of saved arrangement,
+ * so applying a lighting layout deleted the table layout and vice versa (only
+ * one could exist at a time). Each kind now owns a key — `meta.layoutTables`,
+ * `meta.layoutLighting`, and the pre-existing `meta.design` for table decor.
+ *
+ * Every v7 tag was written by a hall TABLE layout (that was the only producer),
+ * so the rename is unconditional. Objects keep their identity and position; only
+ * the tag key moves, which is what keeps an applied layout still recognised as
+ * applied after the upgrade.
+ *
+ * `flags.frozen` also arrives in v8, but it is optional and only the bake tool
+ * writes it — no stored object needs touching.
+ */
+function splitLayoutTags(raw: unknown): unknown {
+  const file = raw as {
+    project?: { scene?: { objects?: Record<string, { meta?: Record<string, unknown> }> } }
+  }
+  const objects = file?.project?.scene?.objects
+  if (objects) {
+    for (const object of Object.values(objects)) {
+      const meta = object.meta
+      if (!meta || meta.layout === undefined) continue
+      meta.layoutTables = meta.layout
+      delete meta.layout
+    }
+  }
+  return { ...(raw as object), schemaVersion: 8, project: { ...file.project, schemaVersion: 8 } }
+}
+
+/**
  * Keyed by the SOURCE version each function upgrades FROM. `migrations[0]`
  * turns a v0 file into a v1 file (and must set `schemaVersion` to 1).
  */
@@ -226,6 +256,7 @@ export const migrations: Record<number, (raw: unknown) => unknown> = {
   4: repinCeilingToTruss,
   5: renameCategoryLayers,
   6: widenResortVenue,
+  7: splitLayoutTags,
 }
 
 function schemaVersionOf(raw: unknown): number {
@@ -312,7 +343,8 @@ const sceneObject = z.object({
   attachment: attachment.optional(),
   appearance,
   seating: seatingConfig.optional(),
-  flags: z.object({ locked: z.boolean(), visible: z.boolean() }),
+  // v8 `frozen` marks a baked venue fixture; optional so pre-v8 files parse.
+  flags: z.object({ locked: z.boolean(), visible: z.boolean(), frozen: z.boolean().optional() }),
   meta,
 })
 

@@ -773,7 +773,7 @@ describe('hall layouts', () => {
     const ids = applyHallLayout(LAYOUT.id)
     expect(ids).toHaveLength(LAYOUT.placements.length)
     const first = scene().objects[ids[0]]
-    expect(first.meta.layout).toBe(LAYOUT.id)
+    expect(first.meta.layoutTables).toBe(LAYOUT.id)
     expect(first.meta.number).toBe(1)
     expect(attachedChairs(scene(), ids[0]).length).toBeGreaterThan(0)
     expect(appliedHallLayoutId(scene())).toBe(LAYOUT.id)
