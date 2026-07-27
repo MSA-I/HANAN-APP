@@ -38,7 +38,8 @@ export interface MaterialSlotDef {
 }
 
 export type FootprintPart =
-  | { kind: 'circle'; r: number; slot: string }
+  /** `rInner` > 0 draws a ring (⌀380 round table's central hole) rather than a disc */
+  | { kind: 'circle'; r: number; rInner?: number; slot: string }
   | { kind: 'rect'; w: number; h: number; cx?: number; cy?: number; cornerRadius?: number; slot: string }
   /**
    * Annular sector — a slice of a ring, for curved bands (the serpentine table).
@@ -65,7 +66,27 @@ export type FootprintPart =
       slot: string
     }
 
-export type Outline = { kind: 'circle'; r: number } | { kind: 'rect'; w: number; h: number }
+/**
+ * A RING is a circle carrying `rInner`, NOT a third variant.
+ *
+ * The ⌀380 round table has a real ⌀156 hole through its top (measured off
+ * table-round-380.glb: radial coverage is 0% inside r=76 and 100% from r=80, the
+ * edge landing at r≈78). Everything an outline is used for — the AABB, snapping,
+ * venue clamping, seat placement, selection visuals, the library thumb — wants
+ * the OUTER radius and is already correct reading `r`. Only the two consumers
+ * that care about the hole read `rInner`, via `holeRadius`/`pointInHole` in
+ * layout/bounds.ts.
+ *
+ * Spelling it `{ kind:'ring'; rOuter; rInner }` instead would have been the same
+ * geometry, but it narrows `kind !== 'circle'` to include the ring, so all eight
+ * sites that read `outline.w` in that branch stop compiling and each grows a case
+ * that returns the outer radius they already had. serpentine.ts's header records
+ * the project rejecting a third variant for exactly that reason. Absent or 0 =
+ * solid disc, which is every other entry, unchanged.
+ */
+export type Outline =
+  | { kind: 'circle'; r: number; rInner?: number }
+  | { kind: 'rect'; w: number; h: number }
 
 export interface FootprintSpec {
   parts: FootprintPart[]

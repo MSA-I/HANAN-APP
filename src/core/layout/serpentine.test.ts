@@ -24,9 +24,14 @@ const seating = (count: number): SeatingConfig => ({
 /** The prepped GLB this geometry was fitted to, measured after glb-prep. */
 const GLB = { width: 422, depth: 422, height: 75 }
 /** Capacity with the house chair at the entry's default gap/offset. */
-const SEATS = 20
+const SEATS = 22
 const LONG_FLANK = 11
 const SHORT_FLANK = 9
+/** One chair at each end of the S, appended after the two flanks. */
+const HEADS = 2
+const FLANK_SEATS = LONG_FLANK + SHORT_FLANK
+/** The flank seats only — indices 0…19, the ones a saved project may reference. */
+const flanksOf = (seats: { position: { x: number; y: number } }[]) => seats.slice(0, FLANK_SEATS)
 
 const rad = (d: number) => (d * Math.PI) / 180
 
@@ -134,15 +139,64 @@ describe('serpentine geometry', () => {
 })
 
 describe('serpentine seats', () => {
-  it(`seats ${SEATS} — ${LONG_FLANK} on the long flank, ${SHORT_FLANK} on the short`, () => {
+  it(`seats ${SEATS} — ${LONG_FLANK} long flank + ${SHORT_FLANK} short + ${HEADS} heads`, () => {
     expect(serpentineMaxSeats(seating(99), chair)).toBe(SEATS)
     const seats = serpentineSeats(seating(SEATS), chair)
     expect(seats).toHaveLength(SEATS)
-    expect(seats.filter((s) => flankOf(s.position) === 1)).toHaveLength(LONG_FLANK)
-    expect(seats.filter((s) => flankOf(s.position) === -1)).toHaveLength(SHORT_FLANK)
+    const flanks = flanksOf(seats)
+    expect(flanks.filter((s) => flankOf(s.position) === 1)).toHaveLength(LONG_FLANK)
+    expect(flanks.filter((s) => flankOf(s.position) === -1)).toHaveLength(SHORT_FLANK)
 
-    // every chair sits exactly one seat-offset off the centre line
-    for (const s of seats) expect(toCenterLine(s.position).dist).toBeCloseTo(seatD, 0)
+    // every FLANK chair sits exactly one seat-offset off the centre line. The
+    // heads do not: they clear the end cap along the tangent, not the flank.
+    for (const s of flanks) expect(toCenterLine(s.position).dist).toBeCloseTo(seatD, 0)
+  })
+
+  it('puts the last two chairs at the ends of the S, facing back down the band', () => {
+    const seats = serpentineSeats(seating(SEATS), chair)
+    const heads = seats.slice(FLANK_SEATS)
+    expect(heads).toHaveLength(HEADS)
+
+    // The centre line's own two endpoints — where the band's end caps are.
+    const first = SERPENTINE_ARCS[0]
+    const last = SERPENTINE_ARCS[SERPENTINE_ARCS.length - 1]
+    const at = (a: (typeof SERPENTINE_ARCS)[number], deg: number) => ({
+      x: a.cx + Math.cos(rad(deg)) * a.r,
+      y: a.cy + Math.sin(rad(deg)) * a.r,
+    })
+    const tips = [at(first, first.from), at(last, last.from + last.turn)]
+
+    for (const tip of tips) {
+      const dist = (h: (typeof heads)[number]) =>
+        Math.hypot(h.position.x - tip.x, h.position.y - tip.y)
+      const head = heads.reduce((a, b) => (dist(a) <= dist(b) ? a : b))
+      // it clears the cap by exactly the chair's own offset — offset + depth/2,
+      // measured ALONG the band rather than across it
+      const reach = dist(head)
+      expect(reach).toBeCloseTo(6 + chair.depth / 2, 6)
+      // and it faces the table: front points from the chair back at the cap
+      const front = rotateVec({ x: 0, y: -1 }, head.rotation)
+      const toTip = { x: (tip.x - head.position.x) / reach, y: (tip.y - head.position.y) / reach }
+      expect(front.x * toTip.x + front.y * toTip.y).toBeCloseTo(1, 6)
+    }
+
+    // A head is past the END of the band, not tucked onto a flank: it sits
+    // CLOSER to the centre line than any flank chair does, because its clearance
+    // is measured along the line instead of across the 80cm band.
+    for (const h of heads) expect(toCenterLine(h.position).dist).toBeLessThan(seatD)
+  })
+
+  it('keeps the flank seats at the indices they had before the heads existed', () => {
+    // reconcileSeats maps a stored chair to a position by array index, so a
+    // project saved with 20 chairs must reload on the identical 20 positions —
+    // this is why the heads are appended (20, 21) rather than inserted.
+    const before = serpentineSeats(seating(FLANK_SEATS), chair)
+    const after = serpentineSeats(seating(SEATS), chair)
+    expect(before).toHaveLength(FLANK_SEATS)
+    expect(after.slice(0, FLANK_SEATS)).toEqual(before)
+    // and a count between the two takes one head, not half a flank
+    expect(serpentineSeats(seating(FLANK_SEATS + 1), chair)).toHaveLength(FLANK_SEATS + 1)
+    expect(serpentineSeats(seating(FLANK_SEATS + 1), chair).slice(0, FLANK_SEATS)).toEqual(before)
   })
 
   it('the flanks differ by 2·d·Σ(flank·|turn|), so capacity depends on chair depth', () => {
@@ -211,7 +265,7 @@ describe('serpentine seats', () => {
     // Seats are spaced evenly by ARC length, so their straight-line gaps are not
     // identical: a chord is shorter than its arc, and more so on a tighter
     // radius. Equal chords would actually mean the walk had gone wrong.
-    for (const side of [seats.slice(0, LONG_FLANK), seats.slice(LONG_FLANK)]) {
+    for (const side of [seats.slice(0, LONG_FLANK), seats.slice(LONG_FLANK, FLANK_SEATS)]) {
       const gaps = side
         .slice(1)
         .map((s, i) => Math.hypot(s.position.x - side[i].position.x, s.position.y - side[i].position.y))
@@ -235,7 +289,7 @@ describe('serpentine seats', () => {
   })
 
   it('overflows onto the long flank once the short one is full', () => {
-    const seats = serpentineSeats(seating(SEATS), chair)
+    const seats = flanksOf(serpentineSeats(seating(SEATS), chair))
     expect(seats.filter((s) => flankOf(s.position) === -1)).toHaveLength(SHORT_FLANK)
     expect(LONG_FLANK).toBeGreaterThan(SHORT_FLANK)
   })

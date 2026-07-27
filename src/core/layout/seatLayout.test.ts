@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
+import { getCatalogEntry } from '../catalog/registry'
 import type { SeatingConfig, Size3D } from '../model/types'
 import { rotateVec } from '../space'
-import { computeMaxSeats, computeSeatTransforms } from './seatLayout'
+import {
+  computeMaxSeats,
+  computeSeatTransforms,
+  maxGapForSeats,
+  maxSeatsForEntry,
+} from './seatLayout'
 
 const chair: Size3D = { width: 45, depth: 45, height: 90 }
 const seating = (count: number): SeatingConfig => ({
@@ -89,6 +95,73 @@ describe('rect seats', () => {
     // 180/55=3 per long side, 90/55=1 per short side → 8
     expect(computeMaxSeats(outline, seating(99), chair)).toBe(8)
     expect(computeSeatTransforms(outline, seating(99), chair)).toHaveLength(8)
+  })
+})
+
+describe('square table (160×160) seats', () => {
+  const outline = { kind: 'rect', w: 160, h: 160 } as const
+  const withGap = (count: number, gap: number): SeatingConfig => ({ ...seating(count), gap })
+
+  it('seats 12 at the catalog gap of 8 — 3 to a side', () => {
+    // unit 45+8=53 → ⌊160/53⌋ = 3 per side, 1cm of slack on the third chair
+    expect(computeMaxSeats(outline, withGap(99, 8), chair)).toBe(12)
+    const seats = computeSeatTransforms(outline, withGap(12, 8), chair)
+    expect(seats).toHaveLength(12)
+    expect(seats.filter((s) => s.position.y < -80)).toHaveLength(3)
+    expect(seats.filter((s) => s.position.y > 80)).toHaveLength(3)
+    expect(seats.filter((s) => s.position.x > 80)).toHaveLength(3)
+    expect(seats.filter((s) => s.position.x < -80)).toHaveLength(3)
+  })
+
+  it('spaces the three chairs on a side evenly', () => {
+    const seats = computeSeatTransforms(outline, withGap(12, 8), chair)
+    const top = seats.filter((s) => s.position.y < -80).map((s) => s.position.x).sort((a, b) => a - b)
+    expect(top).toHaveLength(3)
+    top.forEach((x, i) => expect(x).toBeCloseTo((i - 1) * (160 / 3), 9))
+  })
+
+  it('drops to 8 at gap 9 — which is why the inspector caps the field', () => {
+    // unit 54 → ⌊160/54⌋ = 2 per side. One nudge of a free 0–60 field used to
+    // delete four chairs silently; maxGapForSeats is what stops it.
+    expect(computeMaxSeats(outline, withGap(99, 9), chair)).toBe(8)
+  })
+})
+
+describe('maxGapForSeats', () => {
+  const entryOf = (id: string) => getCatalogEntry(id)
+  const cfg = (): SeatingConfig => seating(99)
+  const gapFor = (id: string) => {
+    const entry = entryOf(id)
+    const cap = entry.seating!
+    const house = entryOf(cap.defaultChair).defaultSize
+    return maxGapForSeats(entry, entry.defaultSize, { ...cfg(), offset: cap.defaultOffset }, house, cap.defaultCount)
+  }
+
+  it('is exactly the catalog default on the tables where gap is load-bearing', () => {
+    // both sit one centimetre below a step: 160 takes three 53cm units, not 54;
+    // 480 takes nine. The cap must land ON the default, not above it.
+    expect(gapFor('table.square')).toBe(8)
+    expect(gapFor('table.knights-480')).toBe(8)
+  })
+
+  it('leaves room to spare where capacity is not tight', () => {
+    // the ⌀180 seats its 12 with slack, so the field stays usefully wide
+    expect(gapFor('table.round')).toBeGreaterThan(12)
+  })
+
+  it('never reports a gap that loses a chair', () => {
+    for (const id of ['table.square', 'table.knights-480', 'table.round', 'table.round-large', 'table.banquet', 'table.serpentine']) {
+      const entry = entryOf(id)
+      const cap = entry.seating!
+      const house = entryOf(cap.defaultChair).defaultSize
+      const base = { ...cfg(), offset: cap.defaultOffset }
+      const gap = maxGapForSeats(entry, entry.defaultSize, base, house, cap.defaultCount)
+      expect(maxSeatsForEntry(entry, entry.defaultSize, { ...base, gap }, house)).toBeGreaterThanOrEqual(cap.defaultCount)
+      // and it is the LARGEST such gap — one more loses a chair
+      if (gap < 60) {
+        expect(maxSeatsForEntry(entry, entry.defaultSize, { ...base, gap: gap + 1 }, house)).toBeLessThan(cap.defaultCount)
+      }
+    }
   })
 })
 

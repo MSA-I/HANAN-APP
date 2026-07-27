@@ -54,11 +54,11 @@ export const TABLE_PRESETS: TablePreset[] = [
   { id: 'preset.round-12-gold-white', labelKey: 'presetRound12GoldWhite', tableCatalogId: 'table.round', chairCatalogId: 'chair.gold-white', seatCount: 12 },
   { id: 'preset.round-10-x-white', labelKey: 'presetRound10XWhite', tableCatalogId: 'table.round', chairCatalogId: 'chair.x-white', seatCount: 10 },
   { id: 'preset.round-large-22-gold-black', labelKey: 'presetRoundLarge22GoldBlack', tableCatalogId: 'table.round-large', chairCatalogId: 'chair.gold-black', seatCount: 22 },
-  // 8, not the catalog's defaultCount of 12: a 160cm side takes floor(160/(45+10))
-  // = 2 chairs, so 12 gets clamped to 8 by the seat reconciler anyway. The label
-  // has to say what will actually appear. (The catalog default is over-stated the
-  // same way — pre-existing, left alone here.)
-  { id: 'preset.square-8-x-wood', labelKey: 'presetSquare8XWood', tableCatalogId: 'table.square', chairCatalogId: 'chair.x-wood', seatCount: 8 },
+  // 12 now really is 12: the square table's defaultGap dropped to 8, so a 160cm
+  // side takes floor(160/53) = 3 chairs and the reconciler no longer clamps this
+  // to 8. ⚠ The Hebrew label still reads "8" — strings.presets.items
+  // .presetSquare8XWood is owned elsewhere; see handoff/FOUND-02.md.
+  { id: 'preset.square-8-x-wood', labelKey: 'presetSquare8XWood', tableCatalogId: 'table.square', chairCatalogId: 'chair.x-wood', seatCount: 12 },
   { id: 'preset.banquet-12-black', labelKey: 'presetBanquet12Black', tableCatalogId: 'table.banquet', chairCatalogId: 'chair.black', seatCount: 12 },
   { id: 'preset.knights-22-brown', labelKey: 'presetKnights22Brown', tableCatalogId: 'table.knights-480', chairCatalogId: 'chair.brown', seatCount: 22 },
   { id: 'preset.serpentine-20-x-white', labelKey: 'presetSerpentine20XWhite', tableCatalogId: 'table.serpentine', chairCatalogId: 'chair.x-white', seatCount: 20 },

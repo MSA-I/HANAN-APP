@@ -40,6 +40,21 @@ export const roundTable: CatalogEntry = {
   labelByDefault: true,
 }
 
+/**
+ * The ⌀380 is a RING, not a disc: it has a real ⌀156 hole through its top, which
+ * the user fills with a standing centrepiece.
+ *
+ * Measured, not guessed — `table-round-380.glb` rasterised top-down at 1cm and
+ * sliced by height. Radial coverage of the table top is 0% out to r=76, 10% at
+ * 77, 59% at 78, 91% at 79 and 100% from r=80: the edge crosses 50% at r≈77.9,
+ * so the hole is r=78. (The ⌀180 was measured the same way and is solid, so this
+ * is a property of this table, not of round tables.)
+ *
+ * Stored as a ratio of the width so the hole tracks the table if it is ever
+ * resized. The entry is `resizable: []` today, so it always evaluates to 78.
+ */
+const ROUND_LARGE_HOLE_RATIO = 78 / 380
+
 export const roundTableLarge: CatalogEntry = {
   id: 'table.round-large',
   category: 'tables',
@@ -51,10 +66,13 @@ export const roundTableLarge: CatalogEntry = {
   linkWidthDepth: true,
   materialSlots: [CLOTH, LEGS],
   editableColorSlot: 'cloth',
-  footprint: (s) => ({
-    parts: [{ kind: 'circle', r: s.width / 2, slot: 'cloth' }],
-    outline: { kind: 'circle', r: s.width / 2 },
-  }),
+  footprint: (s) => {
+    const rInner = s.width * ROUND_LARGE_HOLE_RATIO
+    return {
+      parts: [{ kind: 'circle', r: s.width / 2, rInner, slot: 'cloth' }],
+      outline: { kind: 'circle', r: s.width / 2, rInner },
+    }
+  },
   buildMesh: (s) => pedestalTable(s.width, s.height, 'cloth', 'legs'),
   // real resort table: "מעוגל-גדול-ריזורט+אולם-מפה" (Tripo).
   model: '/props/table-round-380.glb',
@@ -63,6 +81,13 @@ export const roundTableLarge: CatalogEntry = {
   labelByDefault: true,
 }
 
+/**
+ * ⚠ `defaultGap: 8` is load-bearing, exactly as on the knights table. Capacity is
+ * 4·⌊160/(45+gap)⌋: 4·3 = 12 at gap 8, but 4·2 = 8 at gap 9 — 160 takes three
+ * 53cm units with 1cm to spare and only two 54cm ones. The inspector caps the gap
+ * field at whatever still seats `defaultCount` (see maxGapForSeats), so the field
+ * can no longer silently delete four chairs. Covered in seatLayout.test.ts.
+ */
 export const squareTable: CatalogEntry = {
   id: 'table.square',
   category: 'tables',
@@ -82,7 +107,7 @@ export const squareTable: CatalogEntry = {
   // real resort table: "מרובע-ריזורט-מפה" (Tripo).
   model: '/props/table-square-160.glb',
   thumbnail: '/thumbs/table-square.webp',
-  seating: { min: 0, max: 16, defaultCount: 12, defaultChair: DEFAULT_CHAIR, defaultGap: 10, defaultOffset: 6 },
+  seating: { min: 0, max: 16, defaultCount: 12, defaultChair: DEFAULT_CHAIR, defaultGap: 8, defaultOffset: 6 },
   labelByDefault: true,
 }
 
@@ -212,11 +237,12 @@ export const serpentineTable: CatalogEntry = {
   model: '/props/table-serpentine.glb',
   thumbnail: '/thumbs/table-serpentine.webp',
   seats: serpentineSeats,
-  // 20 = 11 on the long flank + 9 on the short. They differ because the arcs
-  // sweep through different angles, so the r+d / r−d offsets do not cancel —
-  // see the warning on `edgeLength`. Asserted against the geometry in
-  // serpentine.test.ts so the two cannot drift apart.
-  seating: { min: 0, max: 20, defaultCount: 20, defaultChair: DEFAULT_CHAIR, defaultGap: 10, defaultOffset: 6 },
+  // 22 = 11 on the long flank + 9 on the short + one at each head of the S.
+  // The flanks differ because the arcs sweep through different angles, so the
+  // r+d / r−d offsets do not cancel — see the warning on `edgeLength`. The two
+  // heads sit past the band's end caps, which the flank walk never reaches.
+  // Asserted against the geometry in serpentine.test.ts so the two cannot drift.
+  seating: { min: 0, max: 22, defaultCount: 22, defaultChair: DEFAULT_CHAIR, defaultGap: 10, defaultOffset: 6 },
   labelByDefault: true,
 }
 

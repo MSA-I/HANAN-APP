@@ -265,8 +265,51 @@ function capacities(seating: SeatingConfig, chair: Size3D): number[] {
   return SIDES.map((side) => Math.max(0, Math.floor(edgeLength(side, d) / unit)))
 }
 
+/**
+ * One chair at each end of the S, facing back down the band — the two "heads".
+ *
+ * The band's end cap is the straight edge across the centre line at the arc's
+ * terminal angle, PERPENDICULAR to travel. So the table edge at a head is the
+ * centre-line endpoint itself, and the chair centre sits `offset + depth/2`
+ * beyond it along travel — the same clearance `circleSeats` gives a round table,
+ * measured along the tangent instead of the radius.
+ *
+ * The two flanks never reach here: `edgeLength` walks the two long edges of the
+ * band and stops at the caps, which is why the heads have to be added rather
+ * than falling out of the walk.
+ */
+const HEAD_SEATS = 2
+
+function headSeats(seating: SeatingConfig, chair: Size3D): Transform2D[] {
+  const first = SERPENTINE_ARCS[0]
+  const last = SERPENTINE_ARCS[SERPENTINE_ARCS.length - 1]
+  const reach = seating.offset + chair.depth / 2
+  // travel along an arc is θ + 90·sign(turn): d/dθ (cos θ, sin θ) = (−sin θ, cos θ)
+  const ends = [
+    { arc: first, theta: first.from, outward: first.from + 90 * Math.sign(first.turn) + 180 },
+    {
+      arc: last,
+      theta: last.from + last.turn,
+      outward: last.from + last.turn + 90 * Math.sign(last.turn),
+    },
+  ]
+  return ends.map(({ arc, theta, outward }) => {
+    const t = degToRad(theta)
+    const o = degToRad(outward)
+    return {
+      position: {
+        x: arc.cx + Math.cos(t) * arc.r + Math.cos(o) * reach,
+        y: arc.cy + Math.sin(t) * arc.r + Math.sin(o) * reach,
+      },
+      // same rule as circleSeats: a chair displaced outward along φ faces φ−90
+      rotation: outward - 90,
+      elevation: 0,
+    }
+  })
+}
+
 export function serpentineMaxSeats(seating: SeatingConfig, chair: Size3D): number {
-  return capacities(seating, chair).reduce((a, b) => a + b, 0)
+  return capacities(seating, chair).reduce((a, b) => a + b, HEAD_SEATS)
 }
 
 /**
@@ -278,17 +321,23 @@ export function serpentineMaxSeats(seating: SeatingConfig, chair: Size3D): numbe
  * tempting mistake: the concave face of one arc and the convex face of the next
  * are the same physical side, so two chairs would land on the identical point at
  * every join.
+ *
+ * ⚠ ORDER IS PART OF THE CONTRACT. `reconcileSeats` maps a stored chair to a
+ * position by its index in this array, so the flanks keep indices 0…n−1 exactly
+ * as before and the two heads are APPENDED (20, 21 at the default config). A
+ * project saved with 20 chairs reloads on the identical 20 positions, and a
+ * hand-nudged chair keeps the seat it was nudged on.
  */
 export function serpentineSeats(seating: SeatingConfig, chair: Size3D): Transform2D[] {
+  if (seating.count <= 0) return []
   const caps = capacities(seating, chair)
   const total = Math.min(seating.count, caps[0] + caps[1])
-  if (total <= 0) return []
 
   const d = seatOffset(seating, chair)
   // fill the flanks alternately so a partial count stays balanced around the
   // table, but never past what a flank holds — they have different capacities
   const want = [0, 0]
-  let remaining = total
+  let remaining = Math.max(0, total)
   while (remaining > 0) {
     let placed = false
     for (let i = 0; i < SIDES.length && remaining > 0; i++) {
@@ -335,5 +384,8 @@ export function serpentineSeats(seating: SeatingConfig, chair: Size3D): Transfor
       })
     }
   })
+
+  // heads last: the flanks own indices 0…n−1, exactly as they did before
+  out.push(...headSeats(seating, chair).slice(0, Math.max(0, seating.count - out.length)))
   return out
 }

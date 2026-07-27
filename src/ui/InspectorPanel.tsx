@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import { getCatalogEntry, hasCatalogEntry, listByCategory } from '../core/catalog/registry'
 import { slotColor } from '../core/catalog/types'
-import { maxSeatsForEntry } from '../core/layout/seatLayout'
+import { maxGapForSeats, maxSeatsForEntry } from '../core/layout/seatLayout'
 import type { LightingMode, SceneObject } from '../core/model/types'
 import { composeTransform } from '../core/space'
 import { displayName } from '../editor2d/ObjectNode'
@@ -152,6 +152,16 @@ function SeatingSection({ obj }: { obj: SceneObject }) {
     maxSeatsForEntry(entry, obj.size, obj.seating, chairEntry.defaultSize),
   )
   const chairModels = listByCategory('seating')
+  // Capacity is a step function of gap with narrow steps (the 160 square seats 12
+  // at gap 8 and 8 at gap 9), so a free 0–60 field could delete four chairs on one
+  // nudge. Cap it at whatever still seats the table's default count.
+  const gapMax = maxGapForSeats(
+    entry,
+    obj.size,
+    obj.seating,
+    chairEntry.defaultSize,
+    cap.defaultCount,
+  )
 
   return (
     <Section title={T.seating}>
@@ -168,7 +178,7 @@ function SeatingSection({ obj }: { obj: SceneObject }) {
         value={obj.seating.gap}
         unit="cm"
         min={0}
-        max={60}
+        max={gapMax}
         onCommit={(v) => setSeatingConfig(obj.id, { gap: v })}
       />
       <FieldRow label={T.chairModel}>

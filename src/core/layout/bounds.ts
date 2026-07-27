@@ -21,13 +21,38 @@ export function outlineAABB(world: Transform2D, outline: Outline): AABB {
   return { minX: x - hw, minY: y - hh, maxX: x + hw, maxY: y + hh }
 }
 
-/** Is a world-space point inside a placed outline (rotation-aware)? */
+/**
+ * Is a world-space point inside a placed outline (rotation-aware)?
+ *
+ * A ring counts its hole as INSIDE. The hole is a place you put things — the
+ * whole point of the ⌀380's centre — so hit-testing it as a miss would make the
+ * table impossible to drop decor into, and would let a click through to whatever
+ * is behind it. Callers that need the hole specifically use `pointInHole`.
+ */
 export function pointInOutline(point: Vec2, world: Transform2D, outline: Outline): boolean {
   const dx = point.x - world.position.x
   const dy = point.y - world.position.y
   if (outline.kind === 'circle') return Math.hypot(dx, dy) <= outline.r
   const local = rotateVec({ x: dx, y: dy }, -world.rotation)
   return Math.abs(local.x) <= outline.w / 2 && Math.abs(local.y) <= outline.h / 2
+}
+
+/** Radius of an outline's central hole; 0 for a solid disc or a rect. */
+export function holeRadius(outline: Outline): number {
+  return outline.kind === 'circle' ? (outline.rInner ?? 0) : 0
+}
+
+/**
+ * Is a world-space point in the OPEN CENTRE of a ring — over the floor rather
+ * than over the table top?
+ *
+ * Always false for a solid outline, so a caller may ask unconditionally.
+ * Rotation-independent by construction: a ring is symmetric about its centre.
+ */
+export function pointInHole(point: Vec2, world: Transform2D, outline: Outline): boolean {
+  const r = holeRadius(outline)
+  if (r <= 0) return false
+  return Math.hypot(point.x - world.position.x, point.y - world.position.y) < r
 }
 
 /** Ray-cast point-in-polygon over a closed ring of [x, y] pairs (venue floorAreas). */
