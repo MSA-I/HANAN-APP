@@ -8,6 +8,7 @@ import {
   AlignStartVertical,
   AlignVerticalSpaceBetween,
   Lock,
+  RefreshCw,
   Trash2,
 } from 'lucide-react'
 import { getCatalogEntry, hasCatalogEntry, listByCategory } from '../core/catalog/registry'
@@ -16,7 +17,9 @@ import { maxGapForSeats, maxSeatsForEntry } from '../core/layout/seatLayout'
 import type { LightingMode, SceneObject } from '../core/model/types'
 import { composeTransform } from '../core/space'
 import { displayName } from '../editor2d/ObjectNode'
+import { overlay, useOverlayStore } from '../editor2d/overlayStore'
 import { getVenuePack } from '../core/venuePacks'
+import { hangRange } from '../core/layout/beams'
 import {
   alignObjects,
   distributeObjects,
@@ -24,6 +27,7 @@ import {
   removeSeatItems,
   seatItems,
   setAppearance,
+  setElevation,
   setLocked,
   setName,
   setLighting,
@@ -260,6 +264,54 @@ function ChairInspector({ obj }: { obj: SceneObject }) {
   )
 }
 
+/**
+ * "Replace this item" — the same armed mode the library button drives, offered
+ * here and in the canvas context menu so it is reachable from wherever the user
+ * already is (source doc §24). The library is what disarms it, by being clicked.
+ */
+function ReplaceButton({ id }: { id: string }) {
+  const armed = useOverlayStore((s) => s.replaceTarget === id)
+  return (
+    <button
+      type="button"
+      aria-pressed={armed}
+      onClick={() => overlay.setReplaceTarget(armed ? null : id)}
+      className={
+        'flex min-h-9 w-full items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-[14px] transition-colors ' +
+        (armed
+          ? 'border-accent bg-accent text-white'
+          : 'border-line text-ink-soft hover:border-accent hover:text-accent')
+      }
+    >
+      <RefreshCw size={14} />
+      {armed ? T.replaceItemActive : T.replaceItem}
+    </button>
+  )
+}
+
+/**
+ * Drop height for a ceiling fixture (source doc §13). The top of the range is the
+ * truss line itself; the bottom is 4 m below it. The 3D view draws a cord across
+ * whatever gap the drop opens up.
+ */
+function HangingSection({ obj }: { obj: SceneObject }) {
+  const venue = useEditorStore((s) => s.scene.venue)
+  const range = hangRange(getVenuePack(venue.venuePackId), venue.wallHeight, obj.size.height)
+  return (
+    <Section title={T.hanging}>
+      <SliderField
+        label={T.hangHeight}
+        value={Math.round(obj.transform.elevation) / 100}
+        min={Math.round(range.min) / 100}
+        max={Math.round(range.max) / 100}
+        step={0.05}
+        onChange={(v) => setElevation(obj.id, v * 100)}
+      />
+      <p className="text-[13px] text-ink-soft">{T.hangHint}</p>
+    </Section>
+  )
+}
+
 function SingleInspector({ obj }: { obj: SceneObject }) {
   // layer lock has no per-object unlock button — reachable via 3D click or lock-while-selected
   const layerLocked = useEditorStore((s) => {
@@ -320,7 +372,9 @@ function SingleInspector({ obj }: { obj: SceneObject }) {
         {canH && (
           <NumberField label={T.height} value={obj.size.height} unit="m" min={entry.minSize.height} max={entry.maxSize.height} onCommit={(v) => setSize(obj.id, { height: v })} />
         )}
+        {!obj.flags.locked && !layerLocked && <ReplaceButton id={obj.id} />}
       </Section>
+      {entry.placement === 'ceiling' && <HangingSection obj={obj} />}
       <SeatingSection obj={obj} />
       <TableDesignSection obj={obj} />
       {editableSlot && (

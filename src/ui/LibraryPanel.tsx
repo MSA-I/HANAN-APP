@@ -145,7 +145,8 @@ export function LibraryPanel() {
   const [collapsed, setCollapsed] = useState(false)
   const [query, setQuery] = useState('')
   const [sizeStep, setSizeStep] = useState<number>(readSizeStep)
-  const [replaceTarget, setReplaceTarget] = useState<string | null>(null)
+  // shared, because the inspector and the canvas context menu arm it too
+  const replaceTarget = useOverlayStore((s) => s.replaceTarget)
   const size = SIZE_STOPS[sizeStep - 1]
 
   useEffect(() => {
@@ -230,10 +231,7 @@ export function LibraryPanel() {
             data-replace-selection
             aria-pressed={replacing}
             title={strings.library.replaceHint}
-            onClick={() => {
-              overlay.setPlacing(null)
-              setReplaceTarget(replacing ? null : selectedId)
-            }}
+            onClick={() => overlay.setReplaceTarget(replacing ? null : selectedId)}
             className={`mt-2 flex min-h-9 w-full items-center justify-center gap-1.5 rounded-md border px-2 py-2 text-[13px] font-semibold transition-colors ${
               replacing
                 ? 'border-accent bg-accent text-white'
@@ -278,7 +276,7 @@ export function LibraryPanel() {
                     onMouseDown={(e) => {
                       e.preventDefault()
                       if (replacing && selectedId) {
-                        if (replaceObject(selectedId, entry.id)) setReplaceTarget(null)
+                        if (replaceObject(selectedId, entry.id)) overlay.setReplaceTarget(null)
                         return
                       }
                       overlay.setPlacing(placing === entry.id ? null : entry.id)

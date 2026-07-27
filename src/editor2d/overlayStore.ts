@@ -32,6 +32,12 @@ interface OverlayState {
    * handler to add the whole unit.
    */
   placingPreset: string | null
+  /**
+   * Object id armed for "replace with the next library click". It lives here and
+   * not in LibraryPanel because three places arm it — the library button, the
+   * inspector and the canvas context menu — and only the library can disarm it.
+   */
+  replaceTarget: string | null
   ghost: PlacingGhost | null
   cursorWorld: { x: number; y: number } | null
   helpOpen: boolean
@@ -46,6 +52,7 @@ export const useOverlayStore = create<OverlayState>()(() => ({
   shiftHeld: false,
   placing: null,
   placingPreset: null,
+  replaceTarget: null,
   ghost: null,
   cursorWorld: null,
   helpOpen: false,
@@ -77,7 +84,16 @@ export const overlay = {
     useOverlayStore.setState({
       placing,
       placingPreset: null,
+      replaceTarget: placing ? null : useOverlayStore.getState().replaceTarget,
       ghost: placing ? useOverlayStore.getState().ghost : null,
+    })
+  },
+  /** Arm/disarm "replace this object with the next library pick". Cancels placing. */
+  setReplaceTarget(replaceTarget: string | null) {
+    useOverlayStore.setState({
+      replaceTarget,
+      placing: replaceTarget ? null : useOverlayStore.getState().placing,
+      placingPreset: replaceTarget ? null : useOverlayStore.getState().placingPreset,
     })
   },
   /** Arm a preset: the ghost shows its table, the drop adds table + chairs. */

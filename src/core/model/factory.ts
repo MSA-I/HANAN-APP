@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid'
 import { getCatalogEntry } from '../catalog/registry'
+import { beamGrid, snapToBeam } from '../layout/beams'
 import { getVenuePack } from '../venuePacks'
 import type { Id, Project, SceneObject, SceneState, Vec2, Venue } from './types'
 import { SCHEMA_VERSION } from './types'
@@ -69,27 +70,34 @@ export function createProject(opts: NewProjectOptions): Project {
 /**
  * `venue` is only consulted for placement:'ceiling' entries, which hang from
  * the pack's `hangHeight` (lighting-truss level) — or `wallHeight` where no
- * pack/truss exists — instead of standing at 0. Core must stay store-free, so
- * the caller passes the venue in. Omitting it assumes a procedural room, which
- * is right for every venue except a pack hall.
+ * pack/truss exists — instead of standing at 0, and which SNAP to a crossing of
+ * the ceiling beam grid: nothing hangs in mid-air between beams (source doc §12).
+ * Core must stay store-free, so the caller passes the venue in. Omitting it
+ * assumes a procedural room, which is right for every venue except a pack hall.
  */
 export function createObject(
   catalogId: string,
   position: Vec2,
-  venue?: Pick<Venue, 'wallHeight' | 'venuePackId'>,
+  // `size` only feeds the beam-grid fallback, so it stays optional: a caller that
+  // omits it still gets the pack's real grid, just no synthetic one
+  venue?: Pick<Venue, 'wallHeight' | 'venuePackId'> & Partial<Pick<Venue, 'size'>>,
 ): SceneObject {
   const entry = getCatalogEntry(catalogId)
-  // top of the object meets the hang anchor; its height IS the drop length
-  const elevation =
-    entry.placement === 'ceiling'
-      ? (getVenuePack(venue?.venuePackId)?.hangHeight ?? venue?.wallHeight ?? DEFAULT_WALL_HEIGHT) -
-        entry.defaultSize.height
-      : 0
+  const ceiling = entry.placement === 'ceiling'
+  const pack = getVenuePack(venue?.venuePackId)
+  // top of the object meets the hang anchor; the seeded drop is the entry height
+  const elevation = ceiling
+    ? (pack?.hangHeight ?? venue?.wallHeight ?? DEFAULT_WALL_HEIGHT) - entry.defaultSize.height
+    : 0
+  const anchored =
+    ceiling && venue?.size
+      ? snapToBeam(position, beamGrid(pack, venue.size))
+      : position
   return {
     id: newId(),
     catalogId,
     name: '',
-    transform: { position: { ...position }, rotation: entry.defaultRotation ?? 0, elevation },
+    transform: { position: { ...anchored }, rotation: entry.defaultRotation ?? 0, elevation },
     size: { ...entry.defaultSize },
     parentId: null,
     appearance: {},

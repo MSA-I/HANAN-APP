@@ -19,7 +19,24 @@ const ALL_ANCHORS = [
   'bottom-right',
 ]
 const CORNER_ANCHORS = ['top-left', 'top-right', 'bottom-left', 'bottom-right']
-const SNAP_15 = Array.from({ length: 24 }, (_, i) => i * 15)
+/** 5° detents, always on — Shift releases them, mirroring Alt on a move drag. */
+const SNAP_5 = Array.from({ length: 72 }, (_, i) => i * 5)
+
+/**
+ * True when the gesture is a single object's rotation, which must NOT write a
+ * position.
+ *
+ * Konva rotates around the transformer's bounding-box centre, so for any object
+ * whose origin is not that centre — the serpentine table, whose arcs are centred
+ * at (116.9, -116.1) while its outline is centred at the origin — committing
+ * `node.x()/y()` turns "rotate" into "rotate and slide". The model rotates around
+ * the object's own origin, so dropping the position write is what makes the two
+ * agree. A multi-selection is the opposite case: orbiting around the group centre
+ * IS the wanted behaviour, and a resize genuinely moves the origin.
+ */
+function spinsInPlace(anchor: string | null, nodeCount: number): boolean {
+  return anchor === 'rotater' && nodeCount === 1
+}
 
 interface Props {
   stageRef: React.RefObject<Konva.Stage | null>
@@ -27,6 +44,8 @@ interface Props {
 
 export function SelectionTransformer({ stageRef }: Props) {
   const trRef = useRef<Konva.Transformer>(null)
+  /** which anchor started the gesture — `getActiveAnchor` is already cleared by transformend */
+  const anchorRef = useRef<string | null>(null)
   const selection = useEditorStore((s) => s.selection)
   const objects = useEditorStore((s) => s.scene.objects)
   const shiftHeld = useOverlayStore((s) => s.shiftHeld)
@@ -63,8 +82,8 @@ export function SelectionTransformer({ stageRef }: Props) {
         enabledAnchors={anchors}
         keepRatio={keepRatio}
         rotateEnabled
-        rotationSnaps={shiftHeld ? SNAP_15 : []}
-        rotationSnapTolerance={6}
+        rotationSnaps={shiftHeld ? [] : SNAP_5}
+        rotationSnapTolerance={2.5}
         rotateAnchorOffset={26}
         borderStroke={ACCENT}
         anchorStroke={ACCENT}
@@ -77,24 +96,31 @@ export function SelectionTransformer({ stageRef }: Props) {
           if (Math.abs(newBox.width) < 12 || Math.abs(newBox.height) < 12) return oldBox
           return newBox
         }}
-        onTransformStart={() => beginGesture()}
+        onTransformStart={() => {
+          anchorRef.current = trRef.current?.getActiveAnchor() ?? null
+          beginGesture()
+        }}
         onTransform={() => {
           // live-commit position + rotation (3D follows); size only at the end
-          for (const node of trRef.current?.nodes() ?? []) {
+          const nodes = trRef.current?.nodes() ?? []
+          const spin = spinsInPlace(anchorRef.current, nodes.length)
+          for (const node of nodes) {
             const id = node.id()
-            setPosition(id, { x: node.x(), y: node.y() })
+            if (!spin) setPosition(id, { x: node.x(), y: node.y() })
             setRotation(id, node.rotation())
           }
         }}
         onTransformEnd={() => {
-          for (const node of trRef.current?.nodes() ?? []) {
+          const nodes = trRef.current?.nodes() ?? []
+          const spin = spinsInPlace(anchorRef.current, nodes.length)
+          for (const node of nodes) {
             const id = node.id()
             const obj = useEditorStore.getState().scene.objects[id]
             if (!obj) continue
             const scaleX = node.scaleX()
             const scaleY = node.scaleY()
             node.scale({ x: 1, y: 1 })
-            setPosition(id, { x: node.x(), y: node.y() })
+            if (!spin) setPosition(id, { x: node.x(), y: node.y() })
             setRotation(id, node.rotation())
             if (scaleX !== 1 || scaleY !== 1) {
               setSize(id, {
@@ -103,6 +129,7 @@ export function SelectionTransformer({ stageRef }: Props) {
               })
             }
           }
+          anchorRef.current = null
           endGesture()
         }}
       />

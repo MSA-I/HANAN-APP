@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { getCatalogEntry } from '../core/catalog/registry'
 import { HALL_LAYOUTS } from '../core/hallLayouts'
+import { MAX_DROP } from '../core/layout/beams'
 import { attachedChairs } from '../core/model/seatingReconciler'
 import { getHallDesign, getTableDesign, getTablePreset } from '../core/presets'
 import { getVenuePack } from '../core/venuePacks'
@@ -15,6 +16,7 @@ import {
   applyTableDesign,
   applyTableDesignToAll,
   beginGesture,
+  canReplaceObject,
   clearAllObjects,
   designItems,
   fillHallWithTables,
@@ -34,6 +36,7 @@ import {
   seatItems,
   select,
   setAppearance,
+  setElevation,
   setLayerHidden,
   setLayerLocked,
   setLocked,
@@ -155,6 +158,122 @@ describe('replace object', () => {
     setLocked([id], true)
     expect(replaceObject(id, 'table.square')).toBe(false)
     expect(scene().objects[id].catalogId).toBe('table.round')
+  })
+
+  // source doc §24: "if I have an item standing on the table it cannot be
+  // swapped for one that belongs to the ceiling"
+  describe('placement classes', () => {
+    it('refuses to swap across placement classes', () => {
+      const table = addObject('table.round', { x: 500, y: 600 })
+      expect(canReplaceObject(scene(), table, 'lamp.pendant')).toBe(false)
+      expect(replaceObject(table, 'lamp.pendant')).toBe(false)
+
+      const decor = addObjectToSurface('decor.vase-ceramic', table, { x: 500, y: 600 })!
+      expect(canReplaceObject(scene(), decor, 'lamp.chandelier-diamond')).toBe(false)
+      expect(canReplaceObject(scene(), decor, 'plant.potted')).toBe(false)
+    })
+
+    it('allows a swap inside the same class', () => {
+      const table = addObject('table.round', { x: 500, y: 600 })
+      expect(canReplaceObject(scene(), table, 'table.square')).toBe(true)
+      const lamp = addObject('lamp.pendant', { x: 300, y: 300 })
+      expect(canReplaceObject(scene(), lamp, 'lamp.chandelier-basket')).toBe(true)
+      const decor = addObjectToSurface('decor.vase-ceramic', table, { x: 500, y: 600 })!
+      expect(canReplaceObject(scene(), decor, 'decor.vase-flowers-a')).toBe(true)
+    })
+
+    it('keeps a zone-bound station inside its own zone kind', () => {
+      newProject({ name: 'resort', venuePackId: 'resort' })
+      const dj = addObject('dj.booth', { x: 2400, y: 1500 })
+      // a DJ booth is clamped INTO the DJ zone; a plain floor item is not
+      expect(getCatalogEntry('dj.booth').zoneKind).toBe('dj')
+      expect(canReplaceObject(scene(), dj, 'table.round')).toBe(false)
+      expect(canReplaceObject(scene(), dj, 'bar.straight')).toBe(false)
+    })
+  })
+
+  // source doc §25: "if I chose to replace a table and it had designs on it, the
+  // designs should apply to the replacement too"
+  describe('keeps the table dressed', () => {
+    it('re-runs a table design against the new geometry', () => {
+      const id = addObject('table.round', { x: 500, y: 600 })
+      const design = getTableDesign('design.classic-gold')!
+      applyTableDesign(design.id, id)
+      const before = designItems(scene(), id).length
+      expect(before).toBeGreaterThan(0)
+
+      expect(replaceObject(id, 'table.square')).toBe(true)
+      const after = designItems(scene(), id)
+      expect(after.length).toBeGreaterThan(0)
+      expect(after.every((c) => c.meta.design === design.id)).toBe(true)
+      // laid out fresh, so every piece sits on the NEW top
+      expect(after.every((c) => c.transform.elevation === scene().objects[id].size.height)).toBe(true)
+    })
+
+    it('re-lays hand-dropped place settings', () => {
+      const id = addObject('table.round', { x: 500, y: 600 })
+      addSeatItemsToTable('decor.place-setting', id)
+      expect(seatItems(scene(), id).length).toBe(SEATS)
+
+      replaceObject(id, 'table.square')
+      // count follows the NEW table's seating, not the old one
+      expect(seatItems(scene(), id).length).toBe(scene().objects[id].seating!.count)
+    })
+
+    it('carries hand-placed decor over at its relative position', () => {
+      const id = addObject('table.round', { x: 800, y: 800 })
+      const width = scene().objects[id].size.width
+      addObjectToSurface('decor.vase-ceramic', id, { x: 800 + width / 4, y: 800 })
+      expect(
+        Object.values(scene().objects).find((o) => o.parentId === id && o.attachment?.kind === 'surface')!
+          .transform.position.x,
+      ).toBeCloseTo(width / 4)
+
+      replaceObject(id, 'table.round-large')
+      const decor = Object.values(scene().objects).filter(
+        (o) => o.parentId === id && o.attachment?.kind === 'surface',
+      )
+      expect(decor).toHaveLength(1)
+      // a quarter of the half-width before, a quarter of the NEW half-width after
+      const newWidth = scene().objects[id].size.width
+      expect(newWidth).toBeGreaterThan(width)
+      expect(decor[0].transform.position.x).toBeCloseTo(newWidth / 4)
+      expect(decor[0].transform.elevation).toBe(scene().objects[id].size.height)
+    })
+
+    it('is still a single undo entry', () => {
+      const id = addObject('table.round', { x: 500, y: 600 })
+      applyTableDesign('design.classic-gold', id)
+      replaceObject(id, 'table.square')
+      undo()
+      expect(scene().objects[id].catalogId).toBe('table.round')
+      expect(designItems(scene(), id).length).toBeGreaterThan(0)
+    })
+  })
+})
+
+describe('hang height', () => {
+  beforeEach(() => {
+    newProject({ name: 'resort', venuePackId: 'resort' })
+  })
+
+  it('lowers a fixture and clamps to 4 m below the truss', () => {
+    const id = addObject('lamp.chandelier-diamond', { x: 1000, y: 200 })
+    const top = 895 - 90
+    expect(scene().objects[id].transform.elevation).toBe(top)
+
+    setElevation(id, 600)
+    expect(scene().objects[id].transform.elevation).toBe(600)
+    setElevation(id, 0)
+    expect(scene().objects[id].transform.elevation).toBe(top - MAX_DROP)
+    setElevation(id, 9999)
+    expect(scene().objects[id].transform.elevation).toBe(top)
+  })
+
+  it('refuses anything that is not hung from the ceiling', () => {
+    const table = addObject('table.round', { x: 500, y: 600 })
+    setElevation(table, 400)
+    expect(scene().objects[table].transform.elevation).toBe(0)
   })
 })
 
@@ -756,12 +875,28 @@ describe('hall designs', () => {
 
   it('a ceiling fixture is not pushed out of a restricted zone', () => {
     // regression: clampToVenue's zone push treated chandeliers as furniture, so
-    // nothing could ever hang over the dance floor.
+    // nothing could ever hang over the dance floor. It lands on a beam crossing
+    // rather than the exact drop point (source doc §12), so assert containment.
     newProject({ name: 'resort', venuePackId: 'resort' })
     const zone = getVenuePack('resort')!.restricted!.find((z) => z.kind === 'dancefloor')!
     const at = { x: zone.x + zone.width / 2, y: zone.y + zone.depth / 2 }
     const id = addObject('lamp.chandelier-diamond', at)
-    expect(scene().objects[id].transform.position).toEqual(at)
+    const { x, y } = scene().objects[id].transform.position
+    expect(x).toBeGreaterThanOrEqual(zone.x)
+    expect(x).toBeLessThanOrEqual(zone.x + zone.width)
+    expect(y).toBeGreaterThanOrEqual(zone.y)
+    expect(y).toBeLessThanOrEqual(zone.y + zone.depth)
+  })
+
+  it('a ceiling fixture snaps to the nearest beam crossing', () => {
+    // source doc §12: "they cannot be left hanging in the air" — the drop point
+    // is pulled onto the truss grid, not just kept inside the venue.
+    newProject({ name: 'resort', venuePackId: 'resort' })
+    const beams = getVenuePack('resort')!.ceilingBeams!
+    const id = addObject('lamp.chandelier-diamond', { x: 1000, y: 200 })
+    const { x, y } = scene().objects[id].transform.position
+    expect(beams.find((b) => b.axis === 'y')!.positions).toContain(x)
+    expect(beams.find((b) => b.axis === 'x')!.positions).toContain(y)
   })
 })
 
