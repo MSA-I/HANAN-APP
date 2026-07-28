@@ -118,44 +118,55 @@ export const VENUE_PACKS: VenuePack[] = [
     // pins, that is the truss centreline above it.
     hangHeight: 895,
     // extracted from ZONE_* marker faces via tools/glb-prep/extract-zones.mjs (plan cm).
-    // ⚠ Order is load-bearing, not alphabetical: the chuppah and DJ rectangles sit
-    // INSIDE the pool one, and VenueLayer draws by descending area while the clamp
-    // walks this list — reordering changes which zone wins. Leave it.
+    // ⚠ Order is load-bearing, not alphabetical: the chuppah rectangle sits INSIDE
+    // the pool one and the DJ one overlaps its top edge, and VenueLayer draws by
+    // descending area while the clamp walks this list — reordering changes which
+    // zone wins. Leave it.
+    // ⚠ A `kind` may appear more than once. `saviv` is four rectangles; the clamp
+    // filters by kind and picks the nearest (actions.ts:350), and collision tests
+    // membership with `.some()` (collision.ts:456), so repeats are supported.
     restricted: [
-      // ⚠⚠ THESE TWO ARE STALE ON PURPOSE — they are 18:03 values, not 19:47.
+      // 19:47: the user redrew this pair, and `pool` is now the WATER ALONE —
+      // 889,1611 to 3839,2544. What used to be inside it, the apron along the
+      // pool's north and west sides, moved out into ZONE_SAVIV below.
       //
-      // The 19:47 save redrew both markers, and what it revealed is that neither
-      // is a rectangle. Measured off the vertices (01c-venue-data.md §1-2):
+      // This stays ONE rectangle even though the painted face is 87.1% of it: the
+      // face is the water bitten out around the chuppah podium, and `pool` FORBIDS.
+      // For a forbidding zone the bounding box errs safe — the 3 m² sliver it
+      // over-claims is pool edge beside the podium, which is no-go anyway. `saviv`
+      // below is the opposite case and is handled the opposite way.
+      { x: 889, y: 1611, width: 2950, depth: 933, label: 'בריכה', kind: 'pool' },
+      // ZONE_SAVIV is TWO SHAPES, one on each side of the pool — the user's own
+      // description, and what the 19:47 geometry shows. It is where he is allowed
+      // to stand the vegetation, so it is a PERMISSIVE region, not decoration.
       //
-      //   ZONE_SAVIV  one face, 14 triangles, bbox 766,1408,3196,1136 — but it
-      //               paints only 72.20 m² of that box's 363.13 m². 19.9% fill.
-      //               The real shape is a band around the water: two L strips,
-      //               123cm down each side and 203cm across the top, with a gap
-      //               at x 1809…2579 where the two DJ pads sit. Four rectangles.
-      //   ZONE_POOL   one face, 10 triangles, bbox 889,1611,2950,933, 87.1% fill
-      //               — the water, bitten out around the chuppah podium.
+      // Each shape is an L, not a rectangle, so the pair is four rectangles here.
+      // Verified by arithmetic, not by eye: the two rectangles of each L sum to
+      // that L's triangle area exactly (32.65 m² west, 39.55 m² east, 72.20 m²
+      // together, against 72.20 m² of paint).
       //
-      // So `saviv`'s bounding box is 5.03× its true area and swallows the whole
-      // pool. Pasting it would draw exactly the wrong surface the user reported,
-      // only bigger. A RestrictedZone is one rectangle; a ring is not expressible
-      // until `kind` may carry several. That change is PLAN-06's ("new
-      // requirement"), together with clamping to the NEAREST rect — the same fix
-      // the two DJ and two chuppah markers already need.
+      // ⚠ Do NOT collapse each shape to its bounding box. The Ls wrap the water's
+      // corners, so the west box would be 766,1408,1043×1136 and the east
+      // 2579,1408,1383×1136 — between them covering 203 of the pool's 240 m². On
+      // a region that says "a plant MAY go here" that puts plants in the water.
+      // Four exact rectangles cover 0 m² of it. The clamp reads these with
+      // `zones.filter(z => z.kind === zoneKind)` and snaps to the nearest by
+      // centre distance (actions.ts:348-382), so the count costs nothing.
       //
-      // Why `pool` is frozen too, though its measurement did change: the two are
-      // one marker split in two, and the pair below covers 766…3962 × 1408…2544,
-      // the complete no-go footprint. Narrowing `pool` to the water while `saviv`
-      // stays an 18:03 rectangle would uncover ~48.3 m² of pool apron (the west
-      // column 766…889, and 889…2579 across the top) and let furniture land on
-      // the pool edge the user explicitly painted. Half the update is a
-      // regression; both halves land together in PLAN-06.
-      { x: 766, y: 1408, width: 3073, depth: 1136, label: 'בריכה', kind: 'pool' },
-      // The label the user sees comes from `strings.zones.saviv`, which PLAN-02
-      // seeded in the same wave; this one is the declared fallback the other zones
-      // carry too (VenueLayer.tsx:130). Neither inner zone crosses into this one —
-      // the chuppah ends at 2569 and the DJ at exactly 2579, flush against its left
-      // edge — so the "chuppah sits inside the pool" arrangement below is untouched.
-      { x: 2579, y: 1408, width: 1383, depth: 1136, label: 'סביב הבריכה', kind: 'saviv' },
+      // The east box, 2579,1408,1383×1136, is also the whole story of the 18:03
+      // import: back then this kind had only the east shape, and that box IS the
+      // rectangle the file used to carry. The overlap with the pool everyone was
+      // looking at was never a drawing error — it was one L reported as its box.
+      //
+      // ⛔ Still missing, and PLAN-06's: a zone in `restricted` rejects everything
+      // that touches it (collision.ts:458-464), so a plant standing correctly
+      // inside saviv is reported `forbiddenZone`. The pattern to copy is the
+      // kabalatPanim branch at :460-463 with `allowedOnDeck`. Until that lands
+      // these four rectangles are geometry only.
+      { x: 766, y: 1408, width: 1043, depth: 203, label: 'סביב הבריכה', kind: 'saviv' },
+      { x: 766, y: 1611, width: 123, depth: 933, label: 'סביב הבריכה', kind: 'saviv' },
+      { x: 2579, y: 1408, width: 1383, depth: 203, label: 'סביב הבריכה', kind: 'saviv' },
+      { x: 3839, y: 1611, width: 123, depth: 933, label: 'סביב הבריכה', kind: 'saviv' },
       // 15:09: the bar took 50cm out of the dance floor. Together the two still
       // span y 0…1408 exactly, so only the seam between them moved.
       { x: 1789, y: 0, width: 800, depth: 350, label: 'בר', kind: 'bar' },
