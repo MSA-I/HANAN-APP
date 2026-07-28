@@ -1,0 +1,165 @@
+import { describe, expect, it } from 'vitest'
+import {
+  formatElevation,
+  labelBoxesOverlap,
+  LABEL_BASE_HEIGHT,
+  LABEL_ELEVATION_HEIGHT,
+  LTR_ISOLATE,
+  POP_ISOLATE,
+  zoneLabelBoxes,
+  type ZoneLabelBox,
+} from './zoneLabels'
+import { getVenuePack, type RestrictedZone } from '../venuePacks'
+
+// the real hall, not a hand-written copy of it (BRIEF §1.7)
+const resort = getVenuePack('resort')!
+const zones = resort.restricted!
+
+const inside = (box: ZoneLabelBox, z: RestrictedZone) =>
+  box.x >= z.x && box.y >= z.y && box.x + box.w <= z.x + z.width && box.y + box.h <= z.y + z.depth
+
+/** what the layer used to do: centre the tag in its zone, and hope */
+const centred = (z: RestrictedZone, w: number, h: number): ZoneLabelBox => ({
+  kind: z.kind ?? '',
+  x: z.x + (z.width - w) / 2,
+  y: z.y + (z.depth - h) / 2,
+  w,
+  h,
+})
+
+describe('zoneLabelBoxes on the resort pack', () => {
+  const boxes = zoneLabelBoxes(zones)
+
+  it('returns one box per zone, in input order', () => {
+    expect(boxes).toHaveLength(zones.length)
+    expect(boxes.map((b) => b.kind)).toEqual(zones.map((z) => z.kind))
+  })
+
+  it('leaves no pair of tags overlapping', () => {
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const clash = labelBoxesOverlap(boxes[i], boxes[j])
+        expect(`${boxes[i].kind}×${boxes[j].kind}: ${clash}`).toBe(`${boxes[i].kind}×${boxes[j].kind}: false`)
+      }
+    }
+  })
+
+  it('keeps every tag inside its own zone', () => {
+    boxes.forEach((box, i) => {
+      expect(inside(box, zones[i])).toBe(true)
+    })
+  })
+
+  it('gives an elevated zone a second line and a flat one a single line', () => {
+    const chuppah = boxes[zones.findIndex((z) => z.kind === 'chuppah')]
+    const pool = boxes[zones.findIndex((z) => z.kind === 'pool')]
+    expect(chuppah.h).toBe(LABEL_BASE_HEIGHT + LABEL_ELEVATION_HEIGHT)
+    expect(pool.h).toBe(LABEL_BASE_HEIGHT)
+  })
+
+  it('moves the CONTAINING zone and lets the contained one keep the centre', () => {
+    const pool = zones.findIndex((z) => z.kind === 'pool')
+    const chuppah = zones.findIndex((z) => z.kind === 'chuppah')
+    // the chuppah is the smaller of the pair, so it keeps its centred slot…
+    expect(boxes[chuppah]).toEqual(centred(zones[chuppah], boxes[chuppah].w, boxes[chuppah].h))
+    // …and the pool, which contains it, is the one that gave way
+    expect(boxes[pool]).not.toEqual(centred(zones[pool], boxes[pool].w, boxes[pool].h))
+  })
+
+  it('is what fixes source doc §17 — centring alone still collided', () => {
+    // the layer's old behaviour, at the new tag size: pool and chuppah still clash
+    const naive = zones.map((z, i) => centred(z, boxes[i].w, boxes[i].h))
+    const pool = naive[zones.findIndex((z) => z.kind === 'pool')]
+    const chuppah = naive[zones.findIndex((z) => z.kind === 'chuppah')]
+    // …they miss by 29 cm, which is why LABEL_GAP exists and why this is not
+    // asserted as a hard overlap: 29 cm at fit zoom is 3 px of "clear" air.
+    expect(labelBoxesOverlap(pool, chuppah)).toBe(false)
+    expect(pool.y - (chuppah.y + chuppah.h)).toBeLessThan(30)
+    // solved: the real boxes are a readable distance apart
+    expect(boxes[zones.findIndex((z) => z.kind === 'pool')].y).not.toBe(pool.y)
+  })
+
+  it('is deterministic', () => {
+    expect(zoneLabelBoxes(zones)).toEqual(boxes)
+  })
+})
+
+describe('zoneLabelBoxes on full containment', () => {
+  // the shape of the §17 bug, isolated: a small zone entirely inside a big one
+  const outer: RestrictedZone = { x: 0, y: 0, width: 1000, depth: 1000, kind: 'outer' }
+  const inner: RestrictedZone = { x: 400, y: 400, width: 200, depth: 200, kind: 'inner' }
+
+  it('separates the two tags a centred layout would stack', () => {
+    const [outerBox, innerBox] = zoneLabelBoxes([outer, inner])
+    // proof the case is real: centred, the two boxes sit on each other
+    expect(
+      labelBoxesOverlap(centred(outer, outerBox.w, outerBox.h), centred(inner, innerBox.w, innerBox.h)),
+    ).toBe(true)
+    // solved
+    expect(labelBoxesOverlap(outerBox, innerBox)).toBe(false)
+    expect(inside(outerBox, outer)).toBe(true)
+    expect(inside(innerBox, inner)).toBe(true)
+    // the small zone kept the centre; the big one moved
+    expect(innerBox).toEqual(centred(inner, innerBox.w, innerBox.h))
+  })
+
+  it('does not depend on the order the zones arrive in', () => {
+    const [outerBox, innerBox] = zoneLabelBoxes([outer, inner])
+    const [innerFirst, outerFirst] = zoneLabelBoxes([inner, outer])
+    expect(outerFirst).toEqual(outerBox)
+    expect(innerFirst).toEqual(innerBox)
+  })
+
+  it('falls back to the least-bad slot when a zone has nowhere clear to go', () => {
+    // Three identical stacked zones: three 380×60 tags cannot sit in one 500×120
+    // zone without touching, so for two of them NO candidate is clear and the
+    // minimum-overlap branch is the only way out. This is the test that enters it.
+    const same: RestrictedZone = { x: 0, y: 0, width: 500, depth: 120, kind: 'a' }
+    const boxes = zoneLabelBoxes([same, { ...same, kind: 'b' }, { ...same, kind: 'c' }])
+    expect(boxes).toHaveLength(3)
+    // it degrades, it does not throw and does not drop a label
+    boxes.forEach((b) => expect(inside(b, same)).toBe(true))
+    // proof the branch ran: a clear slot would mean no overlap at all
+    const clashes = boxes.filter((b, i) => boxes.some((o, j) => j > i && labelBoxesOverlap(b, o)))
+    expect(clashes.length).toBeGreaterThan(0)
+    // and it spread them to the extremes rather than stacking all three
+    expect(new Set(boxes.map((b) => `${b.x},${b.y}`)).size).toBe(3)
+  })
+})
+
+describe('formatElevation', () => {
+  /** what a reader actually sees: the isolates are zero-width and never drawn */
+  const bare = (s: string) => s.split(LTR_ISOLATE).join('').split(POP_ISOLATE).join('')
+
+  it('writes the level mark the way a plan does', () => {
+    expect(bare(formatElevation(470))).toBe('+4.70')
+    expect(bare(formatElevation(50))).toBe('+0.50')
+    expect(bare(formatElevation(0))).toBe('+0.00')
+    expect(bare(formatElevation(-120))).toBe('-1.20')
+  })
+
+  it('isolates the mark so the RTL page cannot flip the sign to the right', () => {
+    // The regression this pins: the app is dir="rtl", the Konva canvas inherits
+    // it, and `+4.70` came out of fillText as `4.70+` — photographed under
+    // "קבלת פנים". Asserting the digits alone would not have caught it.
+    const s = formatElevation(470)
+    expect(s).toBe(`${LTR_ISOLATE}+4.70${POP_ISOLATE}`)
+    expect(s.startsWith(LTR_ISOLATE)).toBe(true)
+    expect(s.endsWith(POP_ISOLATE)).toBe(true)
+    // the sign is the FIRST visible character, which is the whole point
+    expect(bare(s)[0]).toBe('+')
+    expect(bare(formatElevation(-120))[0]).toBe('-')
+  })
+
+  it('adds no visible characters — the isolates are zero-width formatters', () => {
+    expect(bare(formatElevation(470))).toHaveLength(5)
+    expect(formatElevation(470)).toHaveLength(7)
+  })
+
+  it('matches the elevations the pack actually carries', () => {
+    const kabalat = zones.find((z) => z.kind === 'kabalatPanim')!
+    const chuppah = zones.find((z) => z.kind === 'chuppah')!
+    expect(bare(formatElevation(kabalat.elevation!))).toBe('+4.70')
+    expect(bare(formatElevation(chuppah.elevation!))).toBe('+0.50')
+  })
+})

@@ -6,6 +6,7 @@ import {
   Hand,
   Home,
   Image,
+  Lightbulb,
   Magnet,
   MousePointer2,
   PartyPopper,
@@ -25,7 +26,7 @@ import { notify } from '../state/notice'
 import { isFrozen } from '../state/selectors'
 import { temporalStore, useEditorStore, type ViewMode } from '../state/store'
 import { getVenuePack } from '../core/venuePacks'
-import { overlay, useOverlayStore } from '../editor2d/overlayStore'
+import { isLightingPlanOn, overlay, useOverlayStore } from '../editor2d/overlayStore'
 import { strings } from './strings'
 
 function IconButton({
@@ -56,6 +57,37 @@ function IconButton({
       }`}
     >
       {children}
+    </button>
+  )
+}
+
+/**
+ * A mode toggle that says what it is: icon AND label, filled while it is on.
+ *
+ * Source doc §18 — the kabalat-panim toggle used to be a bare icon and nothing
+ * told the user what pressing it would do. The two working MODES on this bar get
+ * this treatment; the plain on/off canvas switches stay `IconButton`s.
+ */
+type ToggleChipProps = Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'children'> & {
+  label: string
+  icon: React.ReactNode
+  active: boolean
+}
+
+function ToggleChip({ label, icon, active, ...rest }: ToggleChipProps) {
+  return (
+    <button
+      {...rest}
+      title={label}
+      aria-pressed={active}
+      className={`flex min-h-9 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[13px] font-semibold transition-colors ${
+        active
+          ? 'border-accent bg-accent text-white'
+          : 'border-line text-ink-soft hover:bg-accent-tint hover:text-ink'
+      }`}
+    >
+      <span className="shrink-0">{icon}</span>
+      <span className="whitespace-nowrap">{label}</span>
     </button>
   )
 }
@@ -116,6 +148,8 @@ export function Toolbar() {
   const canRedo = useStore(temporalStore, (s) => s.futureStates.length > 0)
   const hasObjects = useEditorStore((s) => Object.keys(s.scene.objects).length > 0)
   const activeZone = useEditorStore((s) => s.activeZone)
+  // derived, not stored: arming a `lighting` item turns the mode on too
+  const lightingPlan = useOverlayStore(isLightingPlanOn)
   // only packs that actually mark a reception area get the toggle — the
   // procedural room and any future venue without one simply do not show it
   const hasKabalatPanim = useEditorStore((s) =>
@@ -186,7 +220,7 @@ export function Toolbar() {
         ))}
       </div>
 
-      {/* end (left in RTL): canvas toggles + export */}
+      {/* end (left in RTL): canvas toggles · working modes · export */}
       <div className="flex items-center gap-1">
         <IconButton
           title={`${strings.toolbar.grid} · G`}
@@ -209,14 +243,28 @@ export function Toolbar() {
         >
           <Tag size={18} />
         </IconButton>
+        <Divider />
+        <ToggleChip
+          data-lighting-plan
+          label={strings.toolbar.lightingPlan}
+          icon={<Lightbulb size={16} />}
+          active={lightingPlan}
+          onClick={() => overlay.toggleLightingPlan()}
+        />
         {hasKabalatPanim && (
-          <IconButton
-            title={strings.toolbar.kabalatPanim}
+          // the label is what pressing DOES, so it swaps with the zone; `active`
+          // is what the plan is showing right now (handoff/04-plan-style.md §7)
+          <ToggleChip
+            data-zone-toggle
+            label={
+              activeZone === 'kabalatPanim'
+                ? strings.toolbar.kabalatPanimOn
+                : strings.toolbar.kabalatPanimOff
+            }
+            icon={<PartyPopper size={16} />}
             active={activeZone === 'kabalatPanim'}
             onClick={() => setActiveZone(activeZone === 'kabalatPanim' ? 'hall' : 'kabalatPanim')}
-          >
-            <PartyPopper size={18} />
-          </IconButton>
+          />
         )}
         <Divider />
         <ExportMenu />
