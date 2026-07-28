@@ -32,6 +32,16 @@ beforeEach(() => {
 })
 
 describe('contentBounds', () => {
+  // A PROCEDURAL room, not the resort. `createDefaultScene` seeds the resort's
+  // bar fittings into every project of that pack (core/venueFixtures.ts), so a
+  // resort scene is never empty and its content box always reaches the bar. That
+  // is correct behaviour and it is asserted on its own below; these two are about
+  // what `contentBounds` does with an arbitrary scene, and a room with no pack is
+  // the only place that question can still be asked.
+  beforeEach(() => {
+    newProject({ name: 'shadow-fit-plain', venueWidth: 2400, venueDepth: 1600 })
+  })
+
   it('is null for an empty scene, so the caller keeps the venue box', () => {
     expect(contentBounds(useEditorStore.getState().scene)).toBeNull()
   })
@@ -47,8 +57,22 @@ describe('contentBounds', () => {
     expect(bounds.max[0]).toBeGreaterThan(6)
     expect(bounds.min[2]).toBeLessThan(6)
     expect(bounds.max[2]).toBeGreaterThan(6)
-    // …and nothing like the whole hall
-    expect(bounds.max[0] - bounds.min[0]).toBeLessThan(W / 4)
+    // …and nothing like the whole room
+    expect(bounds.max[0] - bounds.min[0]).toBeLessThan(cmToM(2400) / 2)
+  })
+
+  it('counts the venue fittings as content — a resort scene is never empty', () => {
+    // The interaction that first showed up as a broken test when PLAN-1B's bake
+    // met PLAN-05's shadow box: the bar is scene geometry, it casts and receives,
+    // so the shadow camera has to frame it even in a project with no furniture.
+    // Overrides the procedural room this block otherwise works in.
+    newProject({ name: 'shadow-fit-resort', venuePackId: 'resort' })
+    const bounds = contentBounds(useEditorStore.getState().scene)!
+    expect(bounds).not.toBeNull()
+    // the bake put the bar assembly around plan x 1929…2449, y 0…345
+    expect(bounds.min[0]).toBeLessThan(cmToM(2000))
+    expect(bounds.max[0]).toBeGreaterThan(cmToM(2400))
+    expect(bounds.min[2]).toBeLessThan(cmToM(200))
   })
 })
 
