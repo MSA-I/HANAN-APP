@@ -44,7 +44,10 @@ const grid = (presetId: string, xs: number[], ys: number[], rotation?: number): 
  *
  * The south-east block in each is the strip the 2026-07-28 15:09 re-import opened
  * under the shortened passage (venuePacks floorAreas[2], x 3960…4420 × y
- * 1410…2490 — source doc §29). At 460cm wide it is the width, not the depth, that
+ * 1410…2540 since the 19:47 save pulled it to the south wall — source doc §29).
+ * The placements below were centred in the shallower 1410…2490 version and still
+ * sit inside; they are placeholders, so they were not re-centred for the extra
+ * 50cm. At 460cm wide it is the width, not the depth, that
  * dictates what goes in it. Cells measured with tableCellSize (table + its chair
  * ring): the ⌀180 round is 282 across and clears 89cm either side; the ⌀380 is
  * 482 and does not fit at all; the serpentine is 434, which clears 13cm and is

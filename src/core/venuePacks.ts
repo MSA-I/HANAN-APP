@@ -102,10 +102,11 @@ export const VENUE_PACKS: VenuePack[] = [
     // that corner → three (0,0). Desert (x>46) then falls outside the plan rectangle
     // but still renders in 3D. Verified visually in-app.
     // aligned to ZONE_FLOOR (user-marked floor outline); origin = its min corner.
-    // Re-imported 2026-07-28 15:09 from "ריזורט גאמוס - אפליקציה.skp", thirteen
-    // hours after the import this file first carried. The origin did NOT move:
-    // `offset` and the ZONE_FLOOR bbox (4423×2544) came out identical, so nothing
-    // in a saved project shifts. The zones did move, and each one says how below.
+    // Re-imported 2026-07-28 19:47 from "ריזורט גאמוס - אפליקציה.skp" (the third
+    // import of the day, after 01:57 and 18:03). The origin has not moved in any
+    // of them: `offset` and the ZONE_FLOOR bbox (4423×2544) come out identical
+    // every time, so nothing in a saved project shifts. See
+    // Plans/R2/handoff/01c-venue-data.md for the face-by-face measurements.
     offset: [0, 0, 24.861],
     // The hall alone is 4423×2544; the width runs to 6051 because the reception
     // deck (x 4432…6051) shares this plan space. It is DETACHED from the hall —
@@ -121,27 +122,39 @@ export const VENUE_PACKS: VenuePack[] = [
     // INSIDE the pool one, and VenueLayer draws by descending area while the clamp
     // walks this list — reordering changes which zone wins. Leave it.
     restricted: [
-      // 18:03: the single pool marker was SPLIT in two. `pool` is now the water
-      // plus its left and top apron (its right edge, 3839, is the water's own),
-      // and `saviv` is the surround the user painted as ZONE_SAVIV. The two
-      // OVERLAP across x 2579…3839 — a surround is a band and RestrictedZone is a
-      // rectangle, so what the extractor can emit is the band's bounding box.
-      // What matters downstream is that pool ∪ saviv = 766…3962 × 1408…2544, the
-      // old single rectangle exactly: the no-go footprint has not changed, it is
-      // only subdivided now so the surround can carry its own rules.
+      // ⚠⚠ THESE TWO ARE STALE ON PURPOSE — they are 18:03 values, not 19:47.
+      //
+      // The 19:47 save redrew both markers, and what it revealed is that neither
+      // is a rectangle. Measured off the vertices (01c-venue-data.md §1-2):
+      //
+      //   ZONE_SAVIV  one face, 14 triangles, bbox 766,1408,3196,1136 — but it
+      //               paints only 72.20 m² of that box's 363.13 m². 19.9% fill.
+      //               The real shape is a band around the water: two L strips,
+      //               123cm down each side and 203cm across the top, with a gap
+      //               at x 1809…2579 where the two DJ pads sit. Four rectangles.
+      //   ZONE_POOL   one face, 10 triangles, bbox 889,1611,2950,933, 87.1% fill
+      //               — the water, bitten out around the chuppah podium.
+      //
+      // So `saviv`'s bounding box is 5.03× its true area and swallows the whole
+      // pool. Pasting it would draw exactly the wrong surface the user reported,
+      // only bigger. A RestrictedZone is one rectangle; a ring is not expressible
+      // until `kind` may carry several. That change is PLAN-06's ("new
+      // requirement"), together with clamping to the NEAREST rect — the same fix
+      // the two DJ and two chuppah markers already need.
+      //
+      // Why `pool` is frozen too, though its measurement did change: the two are
+      // one marker split in two, and the pair below covers 766…3962 × 1408…2544,
+      // the complete no-go footprint. Narrowing `pool` to the water while `saviv`
+      // stays an 18:03 rectangle would uncover ~48.3 m² of pool apron (the west
+      // column 766…889, and 889…2579 across the top) and let furniture land on
+      // the pool edge the user explicitly painted. Half the update is a
+      // regression; both halves land together in PLAN-06.
       { x: 766, y: 1408, width: 3073, depth: 1136, label: 'בריכה', kind: 'pool' },
       // The label the user sees comes from `strings.zones.saviv`, which PLAN-02
       // seeded in the same wave; this one is the declared fallback the other zones
       // carry too (VenueLayer.tsx:130). Neither inner zone crosses into this one —
       // the chuppah ends at 2569 and the DJ at exactly 2579, flush against its left
       // edge — so the "chuppah sits inside the pool" arrangement below is untouched.
-      //
-      // ⚠ It DOES overlap `pool`, and by most of itself: 1260 of its 1383 cm sit
-      // inside 766…3839, a good part of that over the water face (889…3839 ×
-      // 1611…2544). Only 3839…3962 is clear of the pool. Anything scoped to this
-      // zone must decide what it means by it — see PLAN-06's note before wiring
-      // `allowedZones`, because the two available mechanisms fail in opposite
-      // directions here.
       { x: 2579, y: 1408, width: 1383, depth: 1136, label: 'סביב הבריכה', kind: 'saviv' },
       // 15:09: the bar took 50cm out of the dance floor. Together the two still
       // span y 0…1408 exactly, so only the seam between them moved.
@@ -152,6 +165,8 @@ export const VENUE_PACKS: VenuePack[] = [
       // a string and a zone-bound object clamps INTO "its" zone, so two rectangles
       // sharing one kind have no defined target. Keeping x here is what keeps the
       // booth in every saved project where the user left it (BLOCKED-01-A1 §2).
+      // 19:47 re-measured both faces identical; the user confirmed the pair is
+      // intentional (ANSWERS-WAVE-1 §3), so the second one lands with PLAN-06.
       { x: 2269, y: 1408, width: 310, depth: 243, label: 'עמדת DJ', kind: 'dj' },
       // 15:09: re-measured unchanged at 425 deep. 6 of the 8 chuppah models are
       // deeper than that (Plans/R1/handoff/BLOCKED-01-A3.md) — still open.
@@ -168,21 +183,26 @@ export const VENUE_PACKS: VenuePack[] = [
     floorAreas: [
       [[0, 0], [1790, 0], [1790, 1410], [770, 1410], [770, 2540], [0, 2540]],
       [[2590, 0], [3960, 0], [3960, 1410], [2590, 1410]],
-      // NEW in the 15:09 import (source doc §29): a 460×1080 strip that opened up
-      // beneath the shortened passage, on the east side. The two rings above came
-      // out byte-identical, which is what proves the re-extraction did not drift.
-      [[3960, 1410], [4420, 1410], [4420, 2490], [3960, 2490]],
+      // Opened up by the 15:09 import beneath the shortened passage (source doc
+      // §29), and at 19:47 the user pulled it down to the south wall. The exact
+      // ZONE_FLOOR vertices put it at x 3961.94…4422.51 × y 1407.57…2543.77 —
+      // 461×1136, not the 460×1080 the 10cm raster reported off the older save.
+      // +2.3 m² of placeable floor. The two rings above came out byte-identical
+      // across all three imports, which is what proves the extraction did not drift.
+      [[3960, 1410], [4420, 1410], [4420, 2540], [3960, 2540]],
     ],
-    // Real room contour — no longer the deep L it was: with floorAreas[2] opened
-    // up, the east face runs down to y 2490 instead of 1400 and all that is cut
-    // out of the rectangle is a 460×50 notch in the south-east corner.
-    outline: [[0, 0], [4420, 0], [4420, 2490], [3960, 2490], [3960, 2540], [0, 2540]],
+    // Real room contour. Now that floorAreas[2] reaches the south wall the 460×50
+    // notch in the south-east corner is gone and the contour is a plain rectangle
+    // — this time because the floor genuinely is one, not because the outline was
+    // unknown and fell back to `size`.
+    outline: [[0, 0], [4420, 0], [4420, 2540], [0, 2540]],
     // Lighting-truss grid: 9 beams along y × 4 along x, all at one level. Read off
     // the 72 `HalfCoupler` clamps in the SKP (72 = 36 crossings × 2), whose centres
     // sit at z = 9.097m with no spread. See Plans/R1/handoff/07-venue-data.md §1.5.
     // Re-measured on the 15:09 import: same 72 clamps, every centre within 4cm of
-    // the values below. Left alone — a "correction" would slide a snap grid that
-    // already lands on the real beams.
+    // the values below. The 19:47 SKP still carries 288 HalfCoupler nodes — the
+    // same 72 clamps × 4 parts — so the truss was not touched. Left alone: a
+    // "correction" would slide a snap grid that already lands on the real beams.
     ceilingBeams: [
       { axis: 'y', positions: [578, 988, 1389, 1798, 2194, 2599, 3011, 3420, 3821], height: 910 },
       { axis: 'x', positions: [190, 550, 904, 1270], height: 910 },
@@ -191,13 +211,14 @@ export const VENUE_PACKS: VenuePack[] = [
     // the factor IS the colour). glTF stores baseColorFactor LINEAR, [0.725, 0.635,
     // 0.533]. This is that colour in sRGB, which is what THREE.Color('#…') takes.
     // ⚠ Do NOT "fix" this to #b9a288 — that is the linear triple written out as hex
-    // and it renders the beam far too light.
+    // and it renders the beam far too light. Re-read off the 19:47 build: same
+    // factor, still no texture.
     beamColor: '#ddd1c1',
     // SketchUp Scenes → app three-metres via (x, z, 24.861 − y). Extracted from
     // SimLab Scene nodes (tools flow: SimLab session on the SKP → read Scene N).
     // Cameras do NOT survive the GLB export, so inspect-cameras.mjs reports 0 —
-    // the session is the only source. Re-read on the 15:09 import: still 7 Scenes,
-    // positions AND directions identical to 4 decimals. Nothing to update here.
+    // the session is the only source. Re-read on the 15:09 AND the 19:47 imports:
+    // still 7 Scenes, positions identical to 4 decimals. Nothing to update here.
     cameras: [
       { id: 's1', label: 'זווית 1', position: [0.34, 1.77, 0.79], target: [20.45, 1.7, 11.52], fov: 45 },
       { id: 's2', label: 'זווית 2', position: [44.23, 1.6, 0.75], target: [28.71, 1.41, 8.77], fov: 45 },

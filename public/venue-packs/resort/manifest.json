@@ -10,7 +10,7 @@
   "floorPlan": {
     "note": "Aligned to user-marked ZONE_FLOOR (SketchUp face painted with ZONE_FLOOR material). Origin = its min corner. Zones extracted via tools/glb-prep/extract-zones.mjs.",
     "offset": [0, 0, 24.861],
-    "offsetNote": "Re-verified against the 15:09 re-import: ZONE_FLOOR's min corner is bit-identical to the previous import, so every saved project keeps its coordinates. This value must never move without a migration.",
+    "offsetNote": "Re-verified against the 15:09, 18:03 and 19:47 re-imports: ZONE_FLOOR's min corner and its 4423x2544 bbox are bit-identical every time, so every saved project keeps its coordinates. This value must never move without a migration.",
     "planSizeCm": { "width": 6051, "depth": 2544 },
     "wallHeightCm": 1160,
     "hangHeightCm": 895,
@@ -20,7 +20,7 @@
     "note3": "planSizeCm.width runs to 6051 because the raised reception deck (ZONE_KABALAT_PANIM, x 4432…6051, +470cm) shares this plan space. The hall alone is 4423 wide."
   },
   "ceilingBeams": {
-    "note": "Lighting-truss grid, read off the 72 HalfCoupler clamps in the SKP (72 = 36 crossings × 2 = 9 × 4 × 2). Re-measured on this import: clamp centres land within 4cm of the committed positions, so the grid is unchanged.",
+    "note": "Lighting-truss grid, read off the 72 HalfCoupler clamps in the SKP (72 = 36 crossings × 2 = 9 × 4 × 2). The 19:47 SKP still carries 288 HalfCoupler nodes — the same 72 clamps × 4 parts (Bolt/Catch/M/Wingnut) — so the truss was not edited and the committed positions stand.",
     "heightCm": 910,
     "alongYAtXCm": [578, 988, 1389, 1798, 2194, 2599, 3011, 3420, 3821],
     "alongXAtYCm": [190, 550, 904, 1270],
@@ -39,26 +39,29 @@
   "heroFacing": "desert",
   "source": {
     "skp": "D:/משה פרוייקטים/מגרש 510/SKP/ריזורט גאמוס - אפליקציה.skp",
-    "skpModified": "2026-07-28T18:03:02",
-    "skpModifiedNote": "The user saved twice on 2026-07-28. The 15:09 save was imported first; the 18:03 save adds ZONE_SAVIV and nothing else. Every other figure here was re-measured on the 18:03 export and came out identical.",
+    "skpModified": "2026-07-28T19:47:18",
+    "skpModifiedNote": "The user saved four times on 2026-07-28 (01:57, 15:09, 18:03, 19:47). This asset is built from the 19:47 save, which redrew ZONE_SAVIV and ZONE_POOL and extended the south-east floor strip. Every other figure here was re-measured on the 19:47 export and came out identical.",
     "pipeline": "SketchUp -> SimLab (scene.exportFile GLB) -> tools/glb-prep/glb-prep.mjs --mode venue",
     "preparedOn": "2026-07-28",
     "originalSizeMB": 93.1,
     "optimizedSizeMB": 5.1,
     "changesFromPreviousImport": [
-      "ZONE_SAVIV added (18:03 save): x 2579 y 1408, 1383×1136. The user SPLIT the old single pool marker rather than adding new area — ZONE_POOL shrank 3196 -> 3073, and pool ∪ saviv is exactly the previous pool rectangle. The no-go footprint is unchanged; the split exists so the surround can carry its own rules (vegetation, PLAN-06).",
-      "ZONE_BAR deepened 300 -> 350, at the dancefloor's expense (ZONE_DANCEFLOOR now y 350, depth 1058). Together they still span y 0…1408.",
-      "ZONE_DJ depth 233 -> 243.",
-      "ZONE_CORRIDOR depth 1404 -> 1408 (rounding).",
-      "floorAreas gained a THIRD piece: x 3960…4420, y 1410…2490 (460×1080) — the new table-placement area of source doc §29, opened up beneath the shortened passage.",
-      "outline right edge now runs down to y 2490 instead of y 1400.",
-      "Plan origin, size, wallHeight, hangHeight, ceilingBeams, all 7 cameras, pool, chuppah and kabalatPanim are UNCHANGED."
+      "ZONE_SAVIV REDRAWN. One face, 14 triangles, bbox x 766 y 1408 3196x1136 — but it paints only 72.20 m² of that box's 363.13 m² (19.9% fill). The true shape is a band around the water: two L strips, 123cm down each side and 203cm across the top, with a gap at x 1809…2579 where the two DJ pads sit. Four rectangles, not one. Its bounding box swallows the whole pool, which is the wrong surface the user reported seeing in the 2D plan.",
+      "ZONE_POOL REDRAWN to the water alone: one face, 10 triangles, bbox x 889 y 1611 2950x933, 87.1% fill — the water bitten out around the chuppah podium. Previously x 766 y 1408 3073x1136.",
+      "SAVIV now strictly CONTAINS POOL (it did not before), so saviv minus pool is exactly the ring. Expressible — but not as a single RestrictedZone rectangle.",
+      "floorAreas[2] pulled down to the south wall: x 3960…4420 now y 1410…2540, exact vertices x 3961.94…4422.51 by y 1407.57…2543.77 = 461x1136 (was reported 460x1080 off the 10cm raster of the older save). +2.3 m² of placeable floor.",
+      "outline is a plain rectangle again — [[0,0],[4420,0],[4420,2540],[0,2540]] — because that south-east notch closed.",
+      "UNCHANGED, all re-measured on this export: plan origin, size, wallHeight, hangHeight, ceilingBeams (288 HalfCoupler nodes = the same 72 clamps x 4 parts), all 7 cameras, truss colour, bar, dancefloor, both DJ faces, both chuppah faces, corridor, kabalatPanim.",
+      "THE RENDERED MODEL IS UNCHANGED. venue.glb rebuilt from the 19:47 save compares structurally identical to the 18:03 build: 9860 nodes, 351 meshes, 44 materials, 18 textures, 4438 primitives, 3217047 triangles, identical world bounds, and an identical per-material triangle distribution. Only the serialized bytes differ (Draco/buffer ordering is not deterministic); the file is even the same 5380184 bytes. glb-prep strips ZONE_* marker faces, so this is the proof that the user's 19:47 edits were confined entirely to the zone marker layers and touched no visible geometry."
+    ],
+    "notPastedIntoCode": [
+      "ZONE_SAVIV and ZONE_POOL were NOT written into src/core/venuePacks.ts. They are one marker split in two, and the 18:03 pair still in the code covers x 766…3962 by y 1408…2544 — the complete no-go footprint. Narrowing pool to the water while saviv stays an 18:03 rectangle would uncover ~48.3 m² of pool apron and let furniture land on the pool edge the user explicitly painted. Both halves land together in PLAN-06, which also has to clamp to the NEAREST rectangle. Full geometry in Plans/R2/handoff/01c-venue-data.md."
     ],
     "notImported": [
       "A SECOND ZONE_DJ marker exists at x 1809 y 1408 (310×243), 460cm left of the committed one. Two rects cannot share a `kind`, so the committed position was kept. See BLOCKED-01-A1.md §2.",
       "A SECOND ZONE_HUPA marker exists on the reception deck at x 4706 y 2009 (571×426, elevation 520 = deck 470 + the same 50cm riser as the hall chuppah). Not added, for the same reason. See BLOCKED-01-A1.md §3."
     ],
-    "notDone": "Source doc §6 (move the wall behind the bar back ≥2m) is STILL not in this asset — the same finding as the previous import, and unchanged by the 18:03 re-save. Measured three ways: the geometry behind the bar is identical across the 01:57, 15:09 and 18:03 exports (265 slabs, same positions each time); the wall's front face is at plan y=0, flush with the back of ZONE_BAR; the outer glazing is at y=-205. See Plans/R2/handoff/01-bar-measure.md."
+    "notDone": "Source doc §6 (move the wall behind the bar back ≥2m) is STILL not in this asset — ZONE_BAR came out unchanged again on the 19:47 export. The user closed this as answered rather than as a model change: see Plans/R2/handoff/ANSWERS-WAVE-1.md §1, which confirms the wall sits at y=0 by design and the bar unit stands 1.20m in front of it. See also Plans/R2/handoff/01-bar-measure.md."
   },
   "toolFixes": [
     "extract-zones.mjs now bounds one rect per marker FACE and merges only overlapping faces. Bounding all triangles of a material together turned the two ZONE_HUPA faces into a bogus 3468×784 rectangle spanning the gap, and aborted the run on a ZONE_HUPA/ZONE_CHUPPAH 'disagreement' that was really just a second marker.",
