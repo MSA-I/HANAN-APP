@@ -10,8 +10,8 @@ import type { Category } from '../catalog/types'
 import type { SceneState } from '../model/types'
 import { getVenuePack, type SealedCamera } from '../venuePacks'
 import { pluralize } from './fragments'
-import { selectRefs, type DesignGroup, type ExportRef } from './refs'
-import { SHARED_DIRECTION, SHARED_NEGATIVE, templateFor } from './templates'
+import { selectRefs, type DesignGroup, type ExportRef, type RefRole } from './refs'
+import { SHARED_BACKGROUND, SHARED_DIRECTION, SHARED_NEGATIVE, templateFor } from './templates'
 
 export interface ExportPackage {
   angleId: string
@@ -71,6 +71,26 @@ function sectionLines(groups: DesignGroup[]): string[] {
 }
 
 /**
+ * `reference image 4` / `reference images 4-9` — the numbers the model will see,
+ * counted off the list that is actually being sent.
+ *
+ * Derived, never written down: the fixed references sit between the materials
+ * shot and the design shots, and how many of them there are depends on what is
+ * standing in the frame. A literal "2" here would silently point the model at
+ * the wrong picture the first time a bar came into shot.
+ *
+ * Roles are contiguous in the list by construction (selectRefs), so first-to-last
+ * is the whole range.
+ */
+function refPhrase(refs: ExportRef[], role: RefRole): string | null {
+  const numbers = refs.flatMap((ref, i) => (ref.role === role ? [i + 1] : []))
+  if (!numbers.length) return null
+  const first = numbers[0]
+  const last = numbers[numbers.length - 1]
+  return first === last ? `reference image ${first}` : `reference images ${first}-${last}`
+}
+
+/**
  * The package for one angle. Never throws: an angle with no template, a scene
  * with no venue pack and an empty room all produce a usable prompt, because the
  * caller is a capture button and a thrown error there loses the frame.
@@ -103,21 +123,26 @@ export function composeExport(scene: SceneState, angleId: string): ExportPackage
     warnings.push('The room is empty — the prompt describes the venue only.')
   }
 
-  const designCount = selection.refs.filter((r) => r.role === 'design').length
+  const materials = refPhrase(selection.refs, 'materials')
+  const background = refPhrase(selection.refs, 'background')
+  const fixed = refPhrase(selection.refs, 'fixed')
+  const design = refPhrase(selection.refs, 'design')
   const refInstructions = [
-    'MATERIALS: match reference image 1 — floors, ceilings, metalwork, wall finishes.',
-    designCount === 0
-      ? null
-      : designCount === 1
-        ? 'DESIGN ELEMENTS: match reference image 2.'
-        : `DESIGN ELEMENTS: match reference images 2-${designCount + 1}.`,
-  ].filter((s): s is string => s !== null)
+    materials && `MATERIALS: match ${materials} — floors, ceilings, metalwork, wall finishes.`,
+    background && `BACKGROUND: ${background} is the real landscape this venue stands in.`,
+    fixed &&
+      `VENUE FIXTURES: ${fixed} are this building's OWN bar, DJ booth and planting — fittings of ` +
+        'the hall, not props brought in for the event. Render them as shown and leave them where ' +
+        'the capture puts them.',
+    design && `DESIGN ELEMENTS: match ${design}.`,
+  ].filter((s): s is string => !!s)
 
   const prompt = [
     template?.base,
     template?.emphasis.map((e) => `- ${e}`).join('\n'),
     lines.length ? lines.join('\n') : null,
     refInstructions.join('\n'),
+    background ? SHARED_BACKGROUND : null,
     SHARED_DIRECTION,
     [SHARED_NEGATIVE, template?.negative].filter(Boolean).join(' '),
   ]
@@ -160,11 +185,21 @@ export function manifestOf(pkg: ExportPackage, capturedAt: string) {
   }
 }
 
-/** `01-materials-hall.png`, `02-chuppah-draped-white.webp` — ordered and readable. */
+/**
+ * `01-materials-hall.png`, `02-background-landscape.png`,
+ * `03-fixed-bar-resort-left.webp`, `04-chuppah-draped-white.webp` — ordered and
+ * readable, and the two fixed references are named for their ROLE because their
+ * own file names ("1.png") say nothing.
+ *
+ * ⚠ Mirrored by `refFileName` in tools/capture-plugin.ts, which is what actually
+ * writes the folder. The two must agree or manifest.json names files that are
+ * not there.
+ */
 export function refFileName(ref: ExportRef, index: number): string {
   const ext = /\.[a-z0-9]+$/i.exec(ref.path)?.[0] ?? '.png'
   const n = String(index + 1).padStart(2, '0')
   if (ref.role === 'materials') return `${n}-materials-hall${ext}`
+  if (ref.role === 'background') return `${n}-background-landscape${ext}`
   const stem = ref.path.split('/').pop()?.replace(/\.[a-z0-9]+$/i, '') ?? 'ref'
-  return `${n}-${stem}${ext}`
+  return `${n}-${ref.role === 'fixed' ? 'fixed-' : ''}${stem}${ext}`
 }

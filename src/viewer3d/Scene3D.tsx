@@ -12,12 +12,13 @@ import { EquirectangularReflectionMapping, SRGBColorSpace, Vector3, type Perspec
 import { Box, Camera, Check, CopyPlus, Download, Eye, Grid2x2, Images, RotateCcw, Trash2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { composeExport, exportableAngles } from '../core/prompts/compose'
-import { CAPTURE_SIZE } from '../core/prompts/refs'
+import { BACKGROUND_REF, CAPTURE_SIZE } from '../core/prompts/refs'
 import { getVenuePack } from '../core/venuePacks'
 import { useOverlayStore } from '../editor2d/overlayStore'
-import { exportPromptPackage } from '../persistence/export'
+import { exportPromptPackage, type PromptExportOutcome, type PromptExportStatus } from '../persistence/export'
 import { strings } from '../ui/strings'
 import { clearSelection, duplicateObjects, removeObjects } from '../state/actions'
+import { notify } from '../state/notice'
 import { isEffectivelyLocked, lightingOf, visibleTopLevelIds } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { LIGHTING_MODES } from './lightingModes'
@@ -362,6 +363,44 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
   }
 
   /**
+   * The export's own account of itself, in the status bar.
+   *
+   * The checkmark used to flash whatever happened: a package that fell back to a
+   * plain download, and one whose background reference was not on disk, both
+   * looked like a clean save, because `exportPromptPackage`'s return value was
+   * dropped (AGENT-BRIEF §8). A dropped reference is exactly the failure the
+   * user cannot see in the output folder, so it has to be said out loud.
+   *
+   * The warnings themselves stay English — they are the same strings that go
+   * into manifest.json and prompt.txt, and they name catalog ids and file paths.
+   * Only the headline is a UI string, and only the ONE path a Hebrew reader can
+   * be expected to recognise gets a Hebrew name.
+   */
+  const report = (outcomes: PromptExportOutcome[]) => {
+    if (!outcomes.length) return
+    const status: PromptExportStatus = outcomes.some((o) => o.status === 'failed')
+      ? 'failed'
+      : outcomes.some((o) => o.status === 'downloaded')
+        ? 'downloaded'
+        : 'saved'
+    const head =
+      status === 'saved'
+        ? strings.promptExport.done
+        : status === 'downloaded'
+          ? strings.promptExport.downloaded
+          : strings.promptExport.failed
+    // deduped: exporting all seven angles repeats the same warning seven times
+    const warnings = [...new Set(outcomes.flatMap((o) => o.warnings))].map((w) =>
+      w.replaceAll(BACKGROUND_REF.path, strings.promptExport.backgroundRef),
+    )
+    // one notice, one line: the rest are in manifest.json, which is the record
+    const shown = warnings.slice(0, 2)
+    const rest = warnings.length - shown.length
+    notify([head, ...shown].join(' · ') + (rest > 0 ? ` (+${rest})` : ''))
+    flash(status !== 'failed')
+  }
+
+  /**
    * Save the current angle. A SEALED angle leaves as a full package — capture,
    * prompt and reference images (PLAN-08 §47) — because that is what an image
    * model needs; a free preset has no template to describe it, so it still
@@ -398,8 +437,7 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
       }
       return
     }
-    await exportPromptPackage(composeExport(scene, active), url, projectName)
-    flash(true)
+    report([await exportPromptPackage(composeExport(scene, active), url, projectName)])
   }
 
   /**
@@ -418,6 +456,9 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
     if (!angles.length) return
     setBusy(true)
     clearSelection()
+    // reported once at the end rather than seven times: the notice is one slot
+    // and the last message would be the only one anybody ever saw
+    const outcomes: PromptExportOutcome[] = []
     try {
       for (const cam of angles) {
         applySealedCamera(controls, cam, false)
@@ -426,9 +467,11 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
         const url = await grabFrame()
         if (!url) continue
         const state = useEditorStore.getState()
-        await exportPromptPackage(composeExport(state.scene, cam.id), url, state.projectName)
+        outcomes.push(
+          await exportPromptPackage(composeExport(state.scene, cam.id), url, state.projectName),
+        )
       }
-      flash(true)
+      report(outcomes)
     } finally {
       setBusy(false)
     }

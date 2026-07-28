@@ -1,11 +1,15 @@
 /**
  * Which reference images ride along with a capture, and in what order.
  *
- * Two jobs (PLAN-08 §46, §47):
+ * Three jobs (PLAN-08 §46, §47 and round 2's §26):
  *  1. decide what is actually IN the frame, so an item the camera cannot see
- *     does not spend one of the fourteen reference slots;
+ *     does not spend one of the scarce reference slots;
  *  2. collapse the survivors to one reference per PRODUCT — forty round tables
- *     are one reference and the number forty goes into the prose instead.
+ *     are one reference and the number forty goes into the prose instead;
+ *  3. separate the hall's OWN fittings from the event's design, so the bar and
+ *     the planters are not the first pictures to be cut. See `isFixedElement`.
+ *
+ * The slot arithmetic itself lives in fragments.ts and only there.
  */
 import { Box3, Frustum, Matrix4, PerspectiveCamera, Vector3 } from 'three'
 import { getCatalogEntry, hasCatalogEntry } from '../catalog/registry'
@@ -14,12 +18,12 @@ import { outlineAABB } from '../layout/bounds'
 import type { Id, SceneObject, SceneState, Transform2D } from '../model/types'
 import { cmToM, composeTransform } from '../space'
 import type { SealedCamera } from '../venuePacks'
-import { colorPhrase, MAX_DESIGN_REFS } from './fragments'
+import { colorPhrase, designRefBudget, MAX_FIXED_REFS } from './fragments'
 
 /** The frame the capture is taken at (Scene3D `doCapture`), so the frustum matches it. */
 export const CAPTURE_SIZE = { width: 1536, height: 1024 }
 
-export type RefRole = 'materials' | 'design'
+export type RefRole = 'materials' | 'background' | 'fixed' | 'design'
 
 export interface ExportRef {
   /** `<root>/<rest>` — resolved and bounds-checked server side, see refPaths.ts */
@@ -43,8 +47,28 @@ export const HALL_MATERIAL_REF: ExportRef = {
 }
 
 /**
- * Which product gets a reference slot when there are more than fourteen kinds of
- * thing in frame, most important first (PLAN-08 A2 §2).
+ * §23: the second fixed reference — a photograph of the land the venue actually
+ * stands on, so the view through the glazing is the real one instead of whatever
+ * the model invents behind a window.
+ *
+ * It lives outside HANAN-APP-DOCS, in the site's own photography, which is why
+ * tools/capture-plugin.ts carries a third entry in REF_ROOTS. `resolveRefPath`
+ * is unchanged and still the trust boundary: adding a root is the only sanctioned
+ * way to widen what the server will read.
+ */
+export const BACKGROUND_REF: ExportRef = {
+  path: 'GAMOS-DOCS/תמונות לאנימציית האתר/ריזורט 1/1.png',
+  role: 'background',
+  caption:
+    'The REAL landscape this building stands in — the view seen through the glazing and beyond ' +
+    'the parapet. Take the horizon, the terrain, the vegetation and the sky from this image. ' +
+    'Do not copy any building, structure or furniture from it.',
+}
+
+/**
+ * Which product gets a reference slot when more kinds of thing are in frame than
+ * there are slots, most important first (PLAN-08 A2 §2). Applied WITHIN each of
+ * the two budgets — fixed elements and design items are ranked separately.
  *
  * The first five tiers are the plan's; the last four are its unavoidable
  * extension — the plan named only the categories a wedding is judged on, and a
@@ -64,6 +88,19 @@ const CATEGORY_PRIORITY: Category[] = [
   'decor',
 ]
 
+/**
+ * A fitting of the HALL rather than of the event (§26): the bar, the DJ booth,
+ * the planters — and anything PLAN-01 baked in as a frozen fixture.
+ *
+ * NOT `entry.zoneKind`: the chuppah carries it and a chuppah is event furniture,
+ * while `plant.potted-2` carries no siting rule at all (the round-2 corrections
+ * removed it) and is plainly a hall planter. The two categories the user named
+ * plus the baked fixtures ARE the set.
+ */
+function isFixedElement(obj: SceneObject, entry: CatalogEntry): boolean {
+  return obj.flags.frozen === true || entry.category === 'bars' || entry.category === 'decor'
+}
+
 export interface DesignGroup {
   catalogId: string
   entry: CatalogEntry
@@ -71,6 +108,12 @@ export interface DesignGroup {
   /** the colour override, already worded — null when the item is its default */
   color: string | null
   caption: string
+  /**
+   * §26: this product is a fitting of the hall, so it is illustrated BEFORE the
+   * design cut rather than last. True when ANY object in the group is one — a
+   * baked fixture and a hand-placed copy of the same bar are one picture.
+   */
+  fixed: boolean
 }
 
 /** World transform of any object; attached children compose with their parent. */
@@ -160,6 +203,7 @@ export function groupForRefs(scene: SceneState, camera: SealedCamera | null): De
     const existing = groups.get(key)
     if (existing) {
       existing.count += 1
+      existing.fixed ||= isFixedElement(obj, entry)
       continue
     }
     groups.set(key, {
@@ -168,6 +212,7 @@ export function groupForRefs(scene: SceneState, camera: SealedCamera | null): De
       count: 1,
       color,
       caption: `${entry.promptFragment ?? entry.id}${color ?? ''}`,
+      fixed: isFixedElement(obj, entry),
     })
   }
   return [...groups.values()].sort(byPriority)
@@ -188,43 +233,73 @@ export interface RefSelection {
 }
 
 /**
- * The hall material shot, then up to MAX_DESIGN_REFS product shots in priority
- * order. What gets cut is named in `warnings`: silently dropping a reference
- * would leave the prompt asking for an item the model has never been shown.
+ * `thumbnail` is a web path ("/thumbs/x.webp"); the file is under public/. It is
+ * the catalog's own product-shot mapping, so it cannot drift from the entry.
+ *
+ * ⚠ What ships IS the 512px thumbnail. An earlier comment here claimed the dev
+ * server upgrades it to the full-resolution original in HANAN-APP-DOCS/GPT —
+ * it does not: tools/capture-plugin.ts `copyFileSync`s the webp as it stands.
+ * A real export measured the two fixed-role references at 8.8 MB and 10.4 MB
+ * and every product shot at 4–22 KB, which is the whole of the evidence. See
+ * handoff/FOUND-08.md.
+ */
+function productRef(group: DesignGroup, role: 'fixed' | 'design'): ExportRef {
+  return { path: `public${group.entry.thumbnail}`, role, caption: group.caption }
+}
+
+/**
+ * The two fixed shots — hall materials, then the site's landscape — then the
+ * hall's own fittings, then the event's design items, each in priority order.
+ *
+ * §26's defect was one of PRIORITY, not of framing: `objectsInFrame` already
+ * honours "as long as they appear in the same view", but CATEGORY_PRIORITY ranks
+ * `bars` seventh and `decor` last, so the bar, the DJ booth and the planters
+ * were the first references to be cut — the three things that make a render
+ * recognisable as THIS building. They now get their own budget ahead of the cut.
+ *
+ * BOTH cuts are named in `warnings`: silently dropping a reference would leave
+ * the prompt asking for an item the model has never been shown.
  *
  * `groups` is returned uncut on purpose — an item that lost its picture is still
  * in the room and still belongs in the written description.
  */
 export function selectRefs(scene: SceneState, camera: SealedCamera | null): RefSelection {
   const groups = groupForRefs(scene, camera)
-  const kept = groups.slice(0, MAX_DESIGN_REFS)
-  const dropped = groups.slice(MAX_DESIGN_REFS)
+  const fixedGroups = groups.filter((g) => g.fixed)
+  const designGroups = groups.filter((g) => !g.fixed)
   const warnings: string[] = []
-  if (dropped.length) {
+
+  const keptFixed = fixedGroups.slice(0, MAX_FIXED_REFS)
+  const cutFixed = fixedGroups.slice(MAX_FIXED_REFS)
+  const fixedRefs = keptFixed.filter((g) => g.entry.thumbnail).map((g) => productRef(g, 'fixed'))
+
+  // the slots the fixed elements did NOT take go back to the design list
+  const budget = designRefBudget(fixedRefs.length)
+  const keptDesign = designGroups.slice(0, budget)
+  const cutDesign = designGroups.slice(budget)
+  const designRefs = keptDesign.filter((g) => g.entry.thumbnail).map((g) => productRef(g, 'design'))
+
+  if (cutFixed.length) {
     warnings.push(
-      `${groups.length} design items in frame, ${MAX_DESIGN_REFS} references included. ` +
-        `Without a reference image: ${dropped.map((g) => g.catalogId).join(', ')}.`,
+      `${fixedGroups.length} fixed hall elements in frame, ${MAX_FIXED_REFS} references included. ` +
+        `Without a reference image: ${cutFixed.map((g) => g.catalogId).join(', ')}.`,
     )
   }
-  const missingArt = kept.filter((g) => !g.entry.thumbnail).map((g) => g.catalogId)
+  if (cutDesign.length) {
+    warnings.push(
+      `${designGroups.length} design items in frame, ${budget} references included. ` +
+        `Without a reference image: ${cutDesign.map((g) => g.catalogId).join(', ')}.`,
+    )
+  }
+  const missingArt = [...keptFixed, ...keptDesign]
+    .filter((g) => !g.entry.thumbnail)
+    .map((g) => g.catalogId)
   if (missingArt.length) {
     warnings.push(`No product shot on file for: ${missingArt.join(', ')}.`)
   }
+
   return {
-    refs: [
-      HALL_MATERIAL_REF,
-      ...kept
-        .filter((g) => g.entry.thumbnail)
-        .map<ExportRef>((g) => ({
-          // `thumbnail` is a web path ("/thumbs/x.webp"); the file is under public/.
-          // It is the catalog's own product-shot mapping, so it cannot drift from the
-          // entry. The dev server upgrades it to the full-resolution original in
-          // HANAN-APP-DOCS/GPT when tools/thumbs-prep.mjs knows one (gate 1).
-          path: `public${g.entry.thumbnail}`,
-          role: 'design',
-          caption: g.caption,
-        })),
-    ],
+    refs: [HALL_MATERIAL_REF, BACKGROUND_REF, ...fixedRefs, ...designRefs],
     groups,
     warnings,
   }

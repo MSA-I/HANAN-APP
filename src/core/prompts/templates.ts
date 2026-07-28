@@ -47,12 +47,44 @@ const HALL_SHELL =
   'and a floor of pale sand-coloured large-format stone inlaid with darker geometric chevron banding that ' +
   'divides it into big square panels.'
 
-/** Constraints that apply to every angle. Kept out of the per-angle text. */
+/**
+ * Constraints that apply to every angle. Kept out of the per-angle text.
+ *
+ * The last two sentences are §25 — "the image has to be realistic and not look
+ * like an SKP or CGI". SHARED_DIRECTION already ASKS for a photograph; what was
+ * missing is the refusal, and in these models a negation carries further than
+ * the matching positive. Everything named is a specific way the supplied capture
+ * can bleed through into the render, because the capture IS a viewport
+ * screenshot of a SketchUp-derived model.
+ */
 export const SHARED_NEGATIVE =
   'Do not add people, text, watermarks, logos or signage. ' +
   'Do not add furniture, decor or lighting fixtures that are not listed above. ' +
   'Do not alter the building itself — no new walls, windows, columns or ceiling. ' +
-  'Do not move the camera, change the framing, or change the time of day.'
+  'Do not move the camera, change the framing, or change the time of day. ' +
+  'This is not a SketchUp export, not CGI, not a 3D render, not a clay or grey-shaded render ' +
+  'and not a viewport screenshot. ' +
+  'No model outlines, no wireframe or silhouette edges, no flat untextured materials — every ' +
+  'surface carries real material texture, and the light is photographed light.'
+
+/**
+ * §23–24: what the landscape reference IS, and what the render has to do with
+ * it. Kept apart from the per-angle text because the reference is fixed for
+ * every angle, and apart from SHARED_DIRECTION because it is about one image
+ * rather than about the rendering.
+ *
+ * The deck angles are named here rather than in k1/k2's own `base`: on those two
+ * the landscape is not a view through a window, it is most of the frame, and the
+ * templates were written before there was a photograph of it to point at.
+ */
+export const SHARED_BACKGROUND =
+  'The landscape reference is a photograph of the real site this venue stands on. ' +
+  'Everything visible past the building is that landscape: take the horizon line, the terrain, ' +
+  'the planting and the sky from it. The full-height glazing between the columns, and every ' +
+  'other opening, must show that view rather than a blank, a glare or an invented one; on the ' +
+  'raised reception deck the whole space beyond the parapet is that same landscape and sky. ' +
+  'Take no building, structure, furniture or planting arrangement from that reference — only ' +
+  'the setting, and only at the depth the frame puts it.'
 
 /**
  * Rendering instruction shared by every angle, kept separate from the negative

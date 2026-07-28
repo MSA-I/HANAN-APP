@@ -4,8 +4,17 @@ import { createDefaultScene, createObject } from '../model/factory'
 import type { SceneObject, SceneState, Vec2 } from '../model/types'
 import { getVenuePack, type SealedCamera } from '../venuePacks'
 import { composeExport } from './compose'
-import { colorPhrase, hexToColorName, MAX_DESIGN_REFS, pluralize, quantityWord } from './fragments'
-import { HALL_MATERIAL_REF, objectsInFrame, selectRefs } from './refs'
+import {
+  colorPhrase,
+  designRefBudget,
+  hexToColorName,
+  MAX_DESIGN_REFS,
+  MAX_FIXED_REFS,
+  MAX_INPUT_IMAGES,
+  pluralize,
+  quantityWord,
+} from './fragments'
+import { BACKGROUND_REF, HALL_MATERIAL_REF, objectsInFrame, selectRefs } from './refs'
 import { listAngleTemplates, templateFor } from './templates'
 
 const PACK = 'resort'
@@ -45,6 +54,17 @@ function sceneWithFixtures(...objects: SceneObject[]): SceneState {
 
 const at = (x: number, y: number): Vec2 => ({ x, y })
 const venue = { wallHeight: 1160, venuePackId: PACK }
+
+/** The path selectRefs builds for a product — read from the catalog, never spelled out. */
+const shotOf = (catalogId: string): string =>
+  `public${listCatalog().find((e) => e.id === catalogId)!.thumbnail}`
+
+const entriesIn = (...categories: string[]) =>
+  listCatalog().filter((e) => categories.includes(e.category))
+
+/** One of every centrepiece, standing mid-hall where s1 can see the lot. */
+const everyCentrepiece = (y = 700) =>
+  entriesIn('tableDecor').map((e, i) => createObject(e.id, at(1600 + i * 40, y), venue))
 
 /** Mid-hall, well inside s1's view cone and inside s3's central axis. */
 const MIDDLE = at(2100, 800)
@@ -201,31 +221,137 @@ describe('colour is mentioned only when it was changed (§44)', () => {
   })
 })
 
-describe('the 14-reference cap', () => {
-  it('cuts to MAX_DESIGN_REFS and says what was cut', () => {
+describe('the image budget', () => {
+  it('cuts the design list to its budget and says what was cut', () => {
     // one of every table-decor product, all standing mid-hall in s1's view
-    const decor = listCatalog()
-      .filter((e) => e.category === 'tableDecor')
-      .map((e, i) => createObject(e.id, at(1600 + i * 40, 700), venue))
-    expect(decor.length).toBeGreaterThan(MAX_DESIGN_REFS)
+    const decor = everyCentrepiece()
+    const budget = designRefBudget(0) // nothing fixed in frame, so the slack comes back
+    expect(decor.length).toBeGreaterThan(budget)
 
     const { refs, groups, warnings } = selectRefs(sceneWith(...decor), cam('s1'))
     expect(groups.length).toBe(decor.length)
-    expect(refs.filter((r) => r.role === 'design')).toHaveLength(MAX_DESIGN_REFS)
-    expect(refs).toHaveLength(MAX_DESIGN_REFS + 1) // + the hall material shot
-    expect(warnings.join(' ')).toContain(`${MAX_DESIGN_REFS} references included`)
+    expect(refs.filter((r) => r.role === 'design')).toHaveLength(budget)
+    expect(refs).toHaveLength(budget + 2) // + the hall material shot and the landscape
+    expect(warnings.join(' ')).toContain(`${budget} references included`)
   })
 
   it('still describes the items it could not illustrate', () => {
-    const decor = listCatalog()
-      .filter((e) => e.category === 'tableDecor')
-      .map((e, i) => createObject(e.id, at(1600 + i * 40, 700), venue))
-    const scene = sceneWith(...decor)
+    const scene = sceneWith(...everyCentrepiece())
     const pkg = composeExport(scene, 's1')
     const cut = pkg.warnings.join(' ')
     // every product is named somewhere: in the prose if not in the pictures
-    for (const entry of listCatalog().filter((e) => e.category === 'tableDecor')) {
+    for (const entry of entriesIn('tableDecor')) {
       expect(pkg.prompt.includes(entry.promptFragment!) || cut.includes(entry.id)).toBe(true)
+    }
+  })
+
+  /**
+   * The ceiling gpt-image-1 documents. Everything else in this file is a
+   * judgement about which pictures are worth a slot; this is the one number that
+   * makes the request fail outright if it is wrong, so it is asserted on the
+   * arithmetic AND on real scenes.
+   */
+  it('never sends more than MAX_INPUT_IMAGES, for any number of fixed elements', () => {
+    for (let fixedCount = 0; fixedCount <= 10; fixedCount++) {
+      const capture = 1
+      const alwaysOn = 2 // materials + background
+      const used = Math.min(fixedCount, MAX_FIXED_REFS)
+      expect(capture + alwaysOn + used + designRefBudget(fixedCount)).toBeLessThanOrEqual(
+        MAX_INPUT_IMAGES,
+      )
+    }
+  })
+
+  it('holds the ceiling on a room crammed with both kinds of thing', () => {
+    // every product isFixedElement would claim, added one at a time on top of a
+    // room already holding one of every centrepiece
+    const fixedProducts = entriesIn('bars', 'decor')
+    expect(fixedProducts.length).toBeGreaterThan(0)
+    for (let n = 0; n <= fixedProducts.length; n++) {
+      const scene = sceneWith(
+        ...fixedProducts.slice(0, n).map((e, i) => createObject(e.id, at(1700 + i * 60, 950), venue)),
+        ...everyCentrepiece(),
+      )
+      const { refs } = selectRefs(scene, cam('s1'))
+      expect(1 + refs.length, `${n} fixed products`).toBeLessThanOrEqual(MAX_INPUT_IMAGES)
+      expect(refs.filter((r) => r.role === 'fixed').length).toBeLessThanOrEqual(MAX_FIXED_REFS)
+    }
+  })
+
+  it('spends the worst case exactly: five fixed elements leave MAX_DESIGN_REFS', () => {
+    expect(designRefBudget(MAX_FIXED_REFS)).toBe(MAX_DESIGN_REFS)
+    expect(designRefBudget(99)).toBe(MAX_DESIGN_REFS)
+    expect(1 + 2 + MAX_FIXED_REFS + MAX_DESIGN_REFS).toBe(MAX_INPUT_IMAGES)
+  })
+})
+
+/**
+ * §26: "the fixed elements like the bar or the DJ booth or the vegetation, as
+ * long as they appear in the same view."
+ *
+ * The frame test was never the problem — objectsInFrame already answered "in the
+ * same view". The defect was priority: CATEGORY_PRIORITY ranks `bars` seventh
+ * and `decor` last, so in a dressed hall those three were the FIRST references
+ * to be cut. They are what makes a render recognisable as this building.
+ */
+describe('fixed hall elements are illustrated before the design cut (§26)', () => {
+  const bar = () => createObject('bar.resort-left', at(1900, 850), venue)
+  const dj = () => createObject('dj.booth', at(2000, 850), venue)
+  const planter = () => createObject('plant.potted-2', at(2100, 850), venue)
+
+  it('keeps the bar, the DJ booth and the planter and cuts centrepieces instead', () => {
+    const scene = sceneWith(bar(), dj(), planter(), ...everyCentrepiece())
+    const { refs, warnings } = selectRefs(scene, cam('s1'))
+
+    const fixed = refs.filter((r) => r.role === 'fixed').map((r) => r.path)
+    expect(fixed).toEqual([shotOf('bar.resort-left'), shotOf('dj.booth'), shotOf('plant.potted-2')])
+
+    // …and the design list is what gave up the slots
+    expect(refs.filter((r) => r.role === 'design')).toHaveLength(designRefBudget(3))
+    const cut = warnings.join(' ')
+    expect(cut).toContain('design items in frame')
+    for (const id of ['bar.resort-left', 'dj.booth', 'plant.potted-2']) {
+      expect(cut, `${id} was cut`).not.toContain(id)
+    }
+    expect(1 + refs.length).toBeLessThanOrEqual(MAX_INPUT_IMAGES)
+  })
+
+  it('orders them materials, background, fixed, design', () => {
+    const scene = sceneWith(bar(), planter(), createObject('table.round', MIDDLE, venue))
+    const roles = selectRefs(scene, cam('s1')).refs.map((r) => r.role)
+    expect(roles).toEqual(['materials', 'background', 'fixed', 'fixed', 'design'])
+  })
+
+  it('counts a baked venue fixture as fixed without anything being placed', () => {
+    // the resort bakes its bar in (core/venueFixtures.ts, flags.frozen)
+    const { refs } = selectRefs(sceneWithFixtures(), cam('s2'))
+    expect(refs.filter((r) => r.role === 'fixed').length).toBeGreaterThan(0)
+  })
+
+  it('does not claim the chuppah, which carries zoneKind but is event furniture', () => {
+    const scene = sceneWith(createObject('chuppah.draped-white', at(2200, 900), venue))
+    const { refs } = selectRefs(scene, cam('s1'))
+    expect(refs.filter((r) => r.role === 'fixed')).toEqual([])
+    expect(refs.filter((r) => r.role === 'design')).toHaveLength(1)
+  })
+
+  it('names the fixed cut in warnings too, never dropping one silently', () => {
+    const fixedProducts = entriesIn('bars', 'decor')
+    expect(fixedProducts.length).toBeGreaterThan(MAX_FIXED_REFS)
+    const scene = sceneWith(
+      ...fixedProducts.map((e, i) => createObject(e.id, at(1700 + i * 60, 950), venue)),
+    )
+    const { refs, groups, warnings } = selectRefs(scene, cam('s1'))
+    const inFrame = groups.filter((g) => g.fixed)
+    expect(inFrame.length).toBeGreaterThan(MAX_FIXED_REFS)
+
+    const kept = inFrame.slice(0, MAX_FIXED_REFS)
+    expect(refs.filter((r) => r.role === 'fixed')).toHaveLength(
+      kept.filter((g) => g.entry.thumbnail).length,
+    )
+    expect(warnings.join(' ')).toContain('fixed hall elements in frame')
+    for (const group of inFrame.slice(MAX_FIXED_REFS)) {
+      expect(warnings.join(' '), group.catalogId).toContain(group.catalogId)
     }
   })
 })
@@ -237,12 +363,78 @@ describe('the hall material reference (§46)', () => {
     expect(pkg.refs[0].role).toBe('materials')
   })
 
+  it('is still first with a room full of things to illustrate', () => {
+    const pkg = composeExport(sceneWith(...everyCentrepiece()), 's1')
+    expect(pkg.refs[0]).toEqual(HALL_MATERIAL_REF)
+  })
+
   it('is present on the reception-deck angles too', () => {
     expect(composeExport(sceneWith(), 'k1').refs[0]).toEqual(HALL_MATERIAL_REF)
   })
 
   it('tells the model to take only materials from it', () => {
     expect(HALL_MATERIAL_REF.caption).toMatch(/Do not copy furniture/i)
+  })
+})
+
+/**
+ * §23: "a third fixed image, which is the background behind the building … named
+ * 1.png". It is the real landscape of the site, so the glazing shows a real view
+ * instead of one the model invents.
+ */
+describe('the background reference (§23)', () => {
+  it('is second on every sealed angle, right after the materials shot', () => {
+    for (const camera of cameras) {
+      const pkg = composeExport(sceneWith(), camera.id)
+      expect(pkg.refs[0], camera.id).toEqual(HALL_MATERIAL_REF)
+      expect(pkg.refs[1], camera.id).toEqual(BACKGROUND_REF)
+    }
+  })
+
+  it('keeps its place ahead of every product shot in a dressed room', () => {
+    const pkg = composeExport(sceneWith(...everyCentrepiece()), 's1')
+    expect(pkg.refs[1]).toEqual(BACKGROUND_REF)
+    expect(pkg.refs.filter((r) => r.role === 'background')).toHaveLength(1)
+  })
+
+  it('comes out of the site photography root, not the docs folder', () => {
+    // the closed root list that makes this readable lives in tools/capture-plugin.ts
+    expect(BACKGROUND_REF.path.startsWith('GAMOS-DOCS/')).toBe(true)
+    expect(BACKGROUND_REF.role).toBe('background')
+  })
+
+  it('asks for the setting and nothing that was built', () => {
+    expect(BACKGROUND_REF.caption).toMatch(/horizon/i)
+    expect(BACKGROUND_REF.caption).toMatch(/Do not copy any building/i)
+  })
+
+  it('is explained in the prompt, on the hall angles and the deck ones (§24)', () => {
+    for (const id of ['s1', 's3', 'k1', 'k2']) {
+      const prompt = composeExport(sceneWith(), id).prompt
+      expect(prompt, id).toContain('BACKGROUND: reference image 2')
+      expect(prompt, id).toContain('real site this venue stands on')
+      expect(prompt, id).toContain('beyond the parapet')
+    }
+  })
+})
+
+/** §25: "the image has to be realistic and not look like an SKP or CGI." */
+describe('realism, by explicit negation (§25)', () => {
+  it('refuses the render look in as many words', () => {
+    const prompt = composeExport(sceneWith(), 's1').prompt
+    expect(prompt).toMatch(/not a SketchUp export/i)
+    expect(prompt).toMatch(/not CGI/i)
+    expect(prompt).toMatch(/not a 3D render/i)
+    expect(prompt).toMatch(/not a clay or grey-shaded render/i)
+    expect(prompt).toMatch(/not a viewport screenshot/i)
+    expect(prompt).toMatch(/no wireframe or silhouette edges/i)
+    expect(prompt).toMatch(/no flat untextured materials/i)
+  })
+
+  it('still ASKS for a photograph as well as refusing the alternative', () => {
+    expect(composeExport(sceneWith(), 's1').prompt).toContain(
+      'photorealistic architectural interior photograph',
+    )
   })
 })
 
@@ -276,7 +468,27 @@ describe('composeExport', () => {
   it('numbers the reference instructions to match the reference list', () => {
     const pkg = composeExport(sceneWith(createObject('table.round', MIDDLE, venue)), 's1')
     expect(pkg.prompt).toContain('MATERIALS: match reference image 1')
-    expect(pkg.prompt).toContain('DESIGN ELEMENTS: match reference image 2.')
+    expect(pkg.prompt).toContain('BACKGROUND: reference image 2')
+    expect(pkg.prompt).toContain('DESIGN ELEMENTS: match reference image 3.')
+  })
+
+  it('renumbers when fixed elements take slots ahead of the design list', () => {
+    const scene = sceneWith(
+      createObject('bar.resort-left', at(1900, 850), venue),
+      createObject('dj.booth', at(2000, 850), venue),
+      createObject('table.round', MIDDLE, venue),
+    )
+    const pkg = composeExport(scene, 's1')
+    // 1 materials · 2 background · 3-4 the bar and the DJ booth · 5 the table
+    expect(pkg.prompt).toContain('VENUE FIXTURES: reference images 3-4')
+    expect(pkg.prompt).toContain("this building's OWN bar")
+    expect(pkg.prompt).toContain('DESIGN ELEMENTS: match reference image 5.')
+  })
+
+  it('leaves out the instruction for a role that sent no image', () => {
+    const pkg = composeExport(sceneWith(), 's1')
+    expect(pkg.prompt).not.toContain('DESIGN ELEMENTS')
+    expect(pkg.prompt).not.toContain('VENUE FIXTURES')
   })
 
   it('carries the angle label, for the output folder', () => {

@@ -31,19 +31,29 @@ import { resolveRefPath, type RefRoots } from '../src/core/prompts/refPaths'
 const DOCS_DIR = resolve(fileURLToPath(new URL('../../HANAN-APP-DOCS', import.meta.url)))
 const OUT_DIR = join(DOCS_DIR, 'צילומים')
 const PUBLIC_DIR = resolve(fileURLToPath(new URL('../public', import.meta.url)))
+/** The other sibling — the site's own photography, where the landscape shot lives. */
+const GAMOS_DIR = resolve(fileURLToPath(new URL('../../GAMOS-DOCS', import.meta.url)))
 
 /**
  * ⚠ TRUST BOUNDARY. Reference paths arrive from the browser, and the server
- * READS whatever they name. These two directories are the whole of what it is
- * willing to read: the docs folder (the hall photo) and the app's own public/
- * (the product thumbnails). `resolveRefPath` proves a request stays inside one
- * of them before anything is opened — see src/core/prompts/refPaths.test.ts,
- * which is where the `../../../` cases live.
+ * READS whatever they name. These THREE directories are the whole of what it is
+ * willing to read: the docs folder (the hall material photo), GAMOS-DOCS (the
+ * site's own background photography — the real landscape behind the building,
+ * §23) and the app's own public/ (the product thumbnails). `resolveRefPath`
+ * proves a request stays inside one of them before anything is opened — see
+ * src/core/prompts/refPaths.test.ts, which is where the `../../../` cases live.
+ *
+ * A new root is the ONLY sanctioned way to widen this. Loosening resolveRefPath
+ * instead would turn every reference path into an arbitrary file read.
  *
  * `safeSegment` below is NOT this check and cannot be: it sanitises one file
  * NAME, and these are paths with directories in them.
  */
-const REF_ROOTS: RefRoots = { 'HANAN-APP-DOCS': DOCS_DIR, public: PUBLIC_DIR }
+const REF_ROOTS: RefRoots = {
+  'HANAN-APP-DOCS': DOCS_DIR,
+  'GAMOS-DOCS': GAMOS_DIR,
+  public: PUBLIC_DIR,
+}
 
 const MAX_BODY = 32 * 1024 * 1024 // a 1536×1024 PNG data-URL is ~2–5 MB
 const PNG_PREFIX = 'data:image/png;base64,'
@@ -105,13 +115,22 @@ interface IncomingRef {
   caption: string
 }
 
+/** RefRole in core/prompts/refs.ts. Anything else the browser sends is a design shot. */
+const REF_ROLES = new Set(['materials', 'background', 'fixed', 'design'])
+
 function readRefs(raw: unknown): IncomingRef[] {
   if (!Array.isArray(raw)) return []
   return raw.flatMap<IncomingRef>((item) => {
     if (!item || typeof item !== 'object') return []
     const { path, role, caption } = item as Record<string, unknown>
     if (typeof path !== 'string') return []
-    return [{ path, role: role === 'materials' ? 'materials' : 'design', caption: String(caption ?? '') }]
+    return [
+      {
+        path,
+        role: typeof role === 'string' && REF_ROLES.has(role) ? role : 'design',
+        caption: String(caption ?? ''),
+      },
+    ]
   })
 }
 
@@ -120,8 +139,9 @@ function refFileName(ref: IncomingRef, index: number): string {
   const ext = /\.[a-z0-9]+$/i.exec(ref.path)?.[0] ?? '.png'
   const n = String(index + 1).padStart(2, '0')
   if (ref.role === 'materials') return `${n}-materials-hall${ext}`
+  if (ref.role === 'background') return `${n}-background-landscape${ext}`
   const stem = ref.path.split('/').pop()?.replace(/\.[a-z0-9]+$/i, '') ?? 'ref'
-  return `${n}-${safeSegment(stem, 'ref')}${ext}`
+  return `${n}-${ref.role === 'fixed' ? 'fixed-' : ''}${safeSegment(stem, 'ref')}${ext}`
 }
 
 export function capturePlugin(): Plugin {

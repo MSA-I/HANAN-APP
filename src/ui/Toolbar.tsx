@@ -10,7 +10,6 @@ import {
   Magnet,
   MousePointer2,
   PartyPopper,
-  Pin,
   Redo2,
   Tag,
   Trash2,
@@ -22,8 +21,6 @@ import { indexedDbRepository } from '../persistence/indexedDbRepository'
 import { makeProjectFile, saveNow } from '../persistence/autosave'
 import { downloadProjectJson, exportFloorPlanPng, importProjectJson } from '../persistence/export'
 import { clearAllObjects, closeProject, loadProject, redo, setActiveZone, setMode, setProjectName, undo, updateSettings } from '../state/actions'
-import { notify } from '../state/notice'
-import { isFrozen } from '../state/selectors'
 import { temporalStore, useEditorStore, type ViewMode } from '../state/store'
 import { getVenuePack } from '../core/venuePacks'
 import { isLightingPlanOn, overlay, useOverlayStore } from '../editor2d/overlayStore'
@@ -94,51 +91,6 @@ function ToggleChip({ label, icon, active, ...rest }: ToggleChipProps) {
 
 const Divider = () => <div className="mx-1.5 h-7 border-s border-line" />
 
-/**
- * Source doc §16 — the temporary development button that turns the current
- * arrangement into `src/core/venueFixtures.ts`. DEV ONLY: `import.meta.env.DEV`
- * here and `apply: 'serve'` in tools/bake-plugin.ts, so it neither renders nor
- * has an endpoint to call in a production build.
- *
- * Removing it later needs no other change — the baked file stays, the factory
- * keeps seeding it, and `flags.frozen` keeps the fixtures put.
- */
-function BakeButton() {
-  const bake = async () => {
-    const { scene } = useEditorStore.getState()
-    const venueId = scene.venue.venuePackId
-    if (!venueId) return
-    // fixtures are top-level and never a fixture-of-a-fixture; children (chairs,
-    // decor) follow their root and are not baked separately
-    const objects = scene.objectOrder
-      .map((id) => scene.objects[id])
-      .filter((obj) => !!obj && !isFrozen(obj))
-    if (!objects.length) {
-      notify(strings.presets.bakeEmpty)
-      return
-    }
-    if (!window.confirm(strings.presets.bakeConfirm(objects.length))) return
-    try {
-      const res = await fetch('/__bake', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ venueId, objects }),
-      })
-      if (!res.ok) throw new Error(`bake failed: ${res.status}`)
-      notify(strings.presets.bakeDone(objects.length))
-    } catch (err) {
-      console.error('bake failed', err)
-      notify(strings.presets.bakeFailed)
-    }
-  }
-
-  return (
-    <IconButton title={strings.presets.bake} onClick={() => void bake()}>
-      <Pin size={18} />
-    </IconButton>
-  )
-}
-
 export function Toolbar() {
   const projectName = useEditorStore((s) => s.projectName)
   const mode = useEditorStore((s) => s.mode)
@@ -197,12 +149,6 @@ export function Toolbar() {
         <IconButton title="יד · H" active={handTool} onClick={() => overlay.setHandTool(true)}>
           <Hand size={18} />
         </IconButton>
-        {import.meta.env.DEV && (
-          <>
-            <Divider />
-            <BakeButton />
-          </>
-        )}
       </div>
 
       {/* center: view mode switch */}

@@ -91,7 +91,23 @@ export function exportFloorPlanPng(projectName: string): boolean {
   return true
 }
 
-export type PromptExportResult = 'saved' | 'downloaded'
+export type PromptExportStatus = 'saved' | 'downloaded' | 'failed'
+
+/**
+ * What became of one export — and, crucially, what it has to say about itself.
+ *
+ * The return value used to be a bare 'saved' | 'downloaded' and the caller threw
+ * it away, so a package whose background reference was missing from disk looked
+ * exactly like a clean save (AGENT-BRIEF §8). Warnings travel back with the
+ * result now; only their PRESENTATION is the caller's problem.
+ */
+export interface PromptExportOutcome {
+  status: PromptExportStatus
+  /** the package's own warnings, plus whatever the server added while copying refs */
+  warnings: string[]
+  /** where the server said it landed, when there was a server */
+  path?: string
+}
 
 /**
  * Send one composed angle to the dev server, which writes the whole package —
@@ -104,12 +120,15 @@ export type PromptExportResult = 'saved' | 'downloaded'
  * zip is the obvious alternative and was rejected: `jszip` is a new dependency
  * for a path that only exists in a production build the user does not currently
  * use, and PLAN-08 A3 says not to add it.
+ *
+ * Never throws: the caller is a capture button, and both failure modes are worth
+ * more as a message than as an exception.
  */
 export async function exportPromptPackage(
   pkg: ExportPackage,
   dataUrl: string,
   projectName: string,
-): Promise<PromptExportResult> {
+): Promise<PromptExportOutcome> {
   try {
     const res = await fetch('/__capture', {
       method: 'POST',
@@ -117,15 +136,33 @@ export async function exportPromptPackage(
       body: JSON.stringify({ dataUrl, pkg, project: projectName }),
     })
     if (!res.ok) throw new Error(String(res.status))
-    return 'saved'
+    // The server COPIES the references, so it is the only place that learns a
+    // path was rejected or is not on disk; it echoes pkg.warnings back with its
+    // own appended. A body that will not parse is not worth failing an otherwise
+    // successful write over — fall back to what we already knew.
+    const body = (await res.json().catch(() => null)) as { path?: unknown; warnings?: unknown } | null
+    return {
+      status: 'saved',
+      warnings: Array.isArray(body?.warnings) ? body.warnings.map(String) : pkg.warnings,
+      path: typeof body?.path === 'string' ? body.path : undefined,
+    }
   } catch {
+    // no dev server (or it refused) — fall through to the browser download
+  }
+
+  try {
     const stem = `${sanitizeFilename(projectName)} — ${sanitizeFilename(pkg.angleLabel)}`
     triggerDownload(dataUrlToBlob(dataUrl), `${stem}.png`)
     triggerDownload(
       new Blob([promptFileText(pkg)], { type: 'text/plain;charset=utf-8' }),
       `${stem}.txt`,
     )
-    return 'downloaded'
+    return { status: 'downloaded', warnings: pkg.warnings }
+  } catch (err) {
+    return {
+      status: 'failed',
+      warnings: [...pkg.warnings, err instanceof Error ? err.message : String(err)],
+    }
   }
 }
 
