@@ -521,6 +521,46 @@
       "pxPerCm": 4.0018,
       "w": 294,
       "h": 259
+    },
+    "/props/bar-back-wall.glb": {
+      "file": "bar-back-wall.webp",
+      "cmW": 192.7,
+      "cmD": 87.66,
+      "pxPerCm": 4.001,
+      "w": 771,
+      "h": 351
+    },
+    "/props/bar-resort-left.glb": {
+      "file": "bar-resort-left.webp",
+      "cmW": 264.98,
+      "cmD": 142.25,
+      "pxPerCm": 3.8645,
+      "w": 1024,
+      "h": 550
+    },
+    "/props/bar-resort-right.glb": {
+      "file": "bar-resort-right.webp",
+      "cmW": 264.98,
+      "cmD": 142.25,
+      "pxPerCm": 3.8645,
+      "w": 1024,
+      "h": 550
+    },
+    "/props/design-candelabrum-hurricane.glb": {
+      "file": "design-candelabrum-hurricane.webp",
+      "cmW": 26.38,
+      "cmD": 26.82,
+      "pxPerCm": 4.0178,
+      "w": 106,
+      "h": 108
+    },
+    "/props/dj-resort.glb": {
+      "file": "dj-resort.webp",
+      "cmW": 316.2,
+      "cmD": 247.85,
+      "pxPerCm": 3.2385,
+      "w": 1024,
+      "h": 803
     }
   },
   "failed": []

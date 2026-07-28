@@ -38,7 +38,21 @@ describe('bake output', () => {
     expect(bakeSource('resort', [], NOW)).toContain('"resort": [')
   })
 
-  it('ships empty — nothing is baked into the repo for the user', () => {
-    expect(VENUE_FIXTURES).toEqual({})
+  it('carries the resort bar, baked 2026-07-28, and every object frozen', () => {
+    // This used to assert the table was empty. It is not any more, and that is the
+    // point of the bake: the bar, its mirrored half and the back wall belong to the
+    // hall, so they ship with the repo instead of being placed per event.
+    expect(Object.keys(VENUE_FIXTURES)).toEqual(['resort'])
+    expect(VENUE_FIXTURES.resort.map((o) => o.catalogId)).toEqual([
+      'bar.back-wall',
+      'bar.resort-left',
+      'bar.resort-right',
+    ])
+    for (const o of VENUE_FIXTURES.resort) {
+      expect(o.flags).toEqual({ locked: true, visible: true, frozen: true })
+      expect(o.meta.fixture).toBe(true)
+      expect(o.parentId).toBeNull()
+      expect(o.id).toMatch(/^fixture-resort-\d{3}$/)
+    }
   })
 })

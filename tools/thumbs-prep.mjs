@@ -56,19 +56,24 @@ const MAPPING = [
   { id: 'table.serpentine', src: 'שולחן נחש.png' },
   // the DOUBLE (two butted banquets) knights table with its cloth — matches table-knights-480.glb
   { id: 'table.knights-480', src: 'שולחן אבירים.png' },
-  // ⛔ SUSPENDED — see Plans/R2/handoff/BLOCKED-02-A3.md. Its source,
-  // 'hf_20260716_135125_47b47fe3-7f8f-4c59-9400-3df6bda50128.png', was DELETED from
-  // HANAN-APP-DOCS (searched the whole tree, 2026-07-28) when the user swapped the
-  // bar references the way they swapped the DJ's. The replacements — בר1..בר4.png and
-  // קיר מאחורי הבר.png — are DIFFERENT PRODUCTS: the old shot is the double-counter
-  // station with a slat display wall, בר1 is a marble-top mobile bar, בר3 an L-shaped
-  // stainless service bar, and קיר מאחורי הבר is the ANKO back-wall shelving. Those
-  // four belong to PLAN-01's new bar entities, not to bar.straight.
-  // The row is commented out rather than repointed because guessing would silently
-  // change a shipped thumbnail. public/thumbs/bar-straight.webp is UNTOUCHED on disk
-  // (this script only writes), so nothing regresses meanwhile.
+  // ✅ BACK IN SERVICE. It was suspended in BLOCKED-02-A3 because its source,
+  // 'hf_20260716_135125_47b47fe3-7f8f-4c59-9400-3df6bda50128.png', had been deleted
+  // and it was not safe to guess which of בר1..בר4 replaced it. The user answered
+  // (ANSWERS-WAVE-1 §2): בר2.png is the bar's photo.
   // NOT "…05_36_28 PM.png" — that green-marble bar is the HALL's built-in bar.
-  // { id: 'bar.straight', src: 'hf_20260716_135125_47b47fe3-7f8f-4c59-9400-3df6bda50128.png' },
+  //
+  // ⚠ The same photo feeds the two resort halves below, because the user's answer
+  // says they are the same product — which is precisely the REAL-INVENTORY problem
+  // written up in Plans/R2/handoff/BLOCKED-1B.md. Pointing all three at one shot
+  // does not create that duplication, it makes it visible.
+  { id: 'bar.straight', src: 'בר2.png' },
+  // One product, two hands: both halves take the same shot. Nothing in this script
+  // mirrors an image, and a mirrored photo of a bar is not more truthful than the
+  // photo itself.
+  { id: 'bar.resort-left', src: 'בר2.png' },
+  { id: 'bar.resort-right', src: 'בר2.png' },
+  // the ANKO shelving unit that stands behind the counters
+  { id: 'bar.back-wall', src: 'קיר מאחורי הבר.png' },
   // §36 of the corrections document: the user replaced the DJ reference. DJ2.png of
   // the four DJ*.png at the GPT root is the one they named. Only the SOURCE moves —
   // the output is still dj-booth.webp, so entries/bars.ts:70 needs no edit.
@@ -179,12 +184,15 @@ const MAPPING = [
   { id: 'design.candelabrum-crystal', src: 'עיצובי שולחן/hf_20260728_112931_47cfbdbd-e81d-4899-881f-6ad8f09e7957.png' },
   { id: 'design.lamp-glass-rod', src: 'עיצובי שולחן/hf_20260728_113042_5fc051fc-fe19-44d0-af78-69bac8da134c.png' },
   { id: 'design.orchid-sculpture', src: 'עיצובי שולחן/hf_20260728_113010_fd8e5a67-e942-442d-afcf-741574706aa8.png' },
-  // ⛔ NOT MAPPED, on purpose (gate 1 of PLAN-02):
-  // 'עיצובי שולחן/hf_20260728_113310_8a388231-066b-4561-959b-d9d550f14e9f.png'
-  // — a glass candelabra with tall hurricane chimneys over its candles on a round
-  // glass foot. No GLB reproduces it. Real-inventory says a shot without a model
-  // gets neither an entry nor a thumbnail. Do not "fix" this by pointing it at
+  // ✅ NOW MAPPED. This shot was the unmapped one under gate 1 of PLAN-02 — the
+  // glass candelabrum with tall hurricane chimneys over its candles on a round
+  // glass foot. Its model existed all along; it was saved at 19:07 on 2026-07-28,
+  // after that scan, as "crystal candelabrum 3d mode3l.glb" (sic), which is why it
+  // did not read as a second copy of the crystal candelabrum's own file.
+  // Confirmed by rendering the new GLB: chimneys, scrolled S-arms and a round glass
+  // disc — the exact four features …112931 lacks. Still do NOT point this at
   // design.candelabrum-crystal; that is the other candelabrum.
+  { id: 'design.candelabrum-hurricane', src: 'עיצובי שולחן/hf_20260728_113310_8a388231-066b-4561-959b-d9d550f14e9f.png' },
 
   // עיצוב בתוך שולחן עגול גדול — 2 shots, 2 models, and the pair is decided by
   // whether the urn is in frame: …113541 is the bare draped table, …113245 has the

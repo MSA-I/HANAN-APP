@@ -3,7 +3,7 @@
  * table as a finished look, as opposed to the individual pieces a look is built
  * from (entries/tableDecor.ts). New in schema v9.
  *
- * Source models: HANAN-APP-DOCS\מודלים GLB\עיצובי שולחן\ — three Tripo GLBs
+ * Source models: HANAN-APP-DOCS\מודלים GLB\עיצובי שולחן\ — four Tripo GLBs
  * normalised by glb-prep --mode prop. Sizes below are the EXACT prepped bounds,
  * so the 2D footprint, the 3D fit and the surface clamp all agree; they come from
  * A1's measurements (handoff/02-a1-measurements.md), never from the plan.
@@ -20,14 +20,14 @@
  * placement only; a saved design lays its own arrangement, which is the point of a
  * design.
  *
- * ⛔ TWO OPEN GATES, both in handoff/BLOCKED-02-A2.md:
- * 1. The source folder holds FOUR product photos and only THREE models. Nothing is
- *    declared for the fourth — REAL-INVENTORY (core/presets.ts:7-9) forbids both
- *    inventing a model for a photo and shipping an entity without one.
- * 2. Source doc line 75 says some existing decor MOVED into this group. It names no
- *    items, and the category it names ("עיצובי בסיס") does not exist in the code.
- *    Nothing was moved: a category move orphans `settings.layers` in every saved
- *    project, so it needs the user's list, not a guess.
+ * ✅ Gate 1 of handoff/BLOCKED-02-A2.md is CLOSED. The fourth product photo now has
+ * its model — it was saved hours after that gate was written, under a name with a
+ * typo. Four photos, four models, four entries.
+ *
+ * ⛔ Gate 2 is still open: source doc line 75 says some existing decor MOVED into
+ * this group. It names no items, and the category it names ("עיצובי בסיס") does not
+ * exist in the code. Nothing was moved: a category move orphans `settings.layers`
+ * in every saved project, so it needs the user's list, not a guess.
  */
 import { surfaceProp } from './tableDecor'
 import type { CatalogEntry } from '../types'
@@ -67,4 +67,25 @@ export const tableDesignEntries: CatalogEntry[] = [
   design('design.orchid-sculpture', 'designOrchidSculpture',
     'three white orchid stems with trailing leaves in a tall brass rod frame',
     P('design-orchid-sculpture.glb'), { width: 26.4, depth: 26.3, height: 80 }, '#b5b191'),
+  // The fourth product shot, hf_20260728_113310, which gate 1 above reported as
+  // having no model: the model arrived at 19:07 that evening, named
+  // "crystal candelabrum 3d mode3l.glb" — the typo is why it does not read as a
+  // second copy of the file behind `design.candelabrum-crystal`.
+  //
+  // Identified by render, not by name. It is the OTHER 13-light two-tier
+  // candelabrum, and the two are separable on exactly the features the gate named:
+  // this one is all glass, its arms are scrolled S-curves, every candle stands in
+  // a tall cylindrical chimney and it rises from a plain round glass disc; the
+  // crystal one has open cups, plain C-arms, a fluted column and a stepped faceted
+  // foot. Both match their own photo feature for feature.
+  //
+  // ⚠ 85 is a CHOSEN height, on the same footing as the three above (see
+  // 02-a1-measurements.md "Why those heights") — Tripo normalises every source to
+  // ~0.98 so the file carries no real scale. It is the tallest of the four because
+  // the chimneys stand above the candle cups, and it lands the footprint at
+  // 25.9 × 26.3, in line with the orchid's 26.4 × 26.3. Width and depth are NOT
+  // chosen: they are the exact prepped bounds that the height implies.
+  design('design.candelabrum-hurricane', 'designCandelabrumHurricane',
+    'a thirteen-light glass candelabrum, each candle inside a tall glass chimney, on scrolled glass arms',
+    P('design-candelabrum-hurricane.glb'), { width: 25.9, depth: 26.3, height: 85 }, '#cecdc8'),
 ]
