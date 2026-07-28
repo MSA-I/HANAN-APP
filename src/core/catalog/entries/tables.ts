@@ -17,6 +17,18 @@ const LEGS = { name: 'legs', labelKey: 'legs', defaultColor: '#a67b5b' }
 /** The house chair — what a freshly-dropped table seats until the user picks another. */
 const DEFAULT_CHAIR = 'chair.x-white'
 
+/**
+ * Source doc §20: "the tables need a description of the number of chairs". Every
+ * entry below carries `librarySubtitle: 'seats'`, so its library tile prints
+ * `seating.defaultCount` in place of the footprint — the number that decides
+ * which table a party of 90 needs, where the diameter does not.
+ *
+ * Unlike every other family in the catalogue these six are written out rather
+ * than built by a shared factory, so the field is repeated per entry. A seventh
+ * table that forgets it would silently fall back to printing its size; that is
+ * what catalog/librarySubtitle.test.ts sweeps for.
+ */
+
 export const roundTable: CatalogEntry = {
   id: 'table.round',
   category: 'tables',
@@ -38,6 +50,7 @@ export const roundTable: CatalogEntry = {
   model: '/props/table-round-180.glb',
   thumbnail: '/thumbs/table-round.webp',
   seating: { min: 0, max: 20, defaultCount: 12, defaultChair: DEFAULT_CHAIR, defaultGap: 10, defaultOffset: 6 },
+  librarySubtitle: 'seats',
   labelByDefault: true,
 }
 
@@ -80,15 +93,22 @@ export const roundTableLarge: CatalogEntry = {
   model: '/props/table-round-380.glb',
   thumbnail: '/thumbs/table-round-large.webp',
   seating: { min: 0, max: 30, defaultCount: 22, defaultChair: DEFAULT_CHAIR, defaultGap: 10, defaultOffset: 6 },
+  librarySubtitle: 'seats',
   labelByDefault: true,
 }
 
 /**
- * ⚠ `defaultGap: 8` is load-bearing, exactly as on the knights table. Capacity is
- * 4·⌊160/(45+gap)⌋: 4·3 = 12 at gap 8, but 4·2 = 8 at gap 9 — 160 takes three
- * 53cm units with 1cm to spare and only two 54cm ones. The inspector caps the gap
- * field at whatever still seats `defaultCount` (see maxGapForSeats), so the field
- * can no longer silently delete four chairs. Covered in seatLayout.test.ts.
+ * `defaultCount: 10` is the user's call (corrections document §48: "the default
+ * for chairs on the square table will be 10"), not a capacity limit — the table
+ * still SEATS 12. It is a comfort choice: 10 leaves elbow room on a 160 side.
+ *
+ * ⚠ `defaultGap: 8` is load-bearing all the same, exactly as on the knights
+ * table. Capacity is 4·⌊160/(45+gap)⌋: 4·3 = 12 at gap 8, but 4·2 = 8 at gap 9 —
+ * 160 takes three 53cm units with 1cm to spare and only two 54cm ones. There is
+ * no middle value; it falls straight from 12 to 8. So the inspector's gap cap
+ * (maxGapForSeats: the largest gap that still seats `defaultCount`) is still 8
+ * even at a target of 10, and the field still cannot silently delete chairs.
+ * Covered in seatLayout.test.ts.
  */
 export const squareTable: CatalogEntry = {
   id: 'table.square',
@@ -110,7 +130,8 @@ export const squareTable: CatalogEntry = {
   // real resort table: "מרובע-ריזורט-מפה" (Tripo).
   model: '/props/table-square-160.glb',
   thumbnail: '/thumbs/table-square.webp',
-  seating: { min: 0, max: 16, defaultCount: 12, defaultChair: DEFAULT_CHAIR, defaultGap: 8, defaultOffset: 6 },
+  seating: { min: 0, max: 16, defaultCount: 10, defaultChair: DEFAULT_CHAIR, defaultGap: 8, defaultOffset: 6 },
+  librarySubtitle: 'seats',
   labelByDefault: true,
 }
 
@@ -140,6 +161,7 @@ export const banquetTable: CatalogEntry = {
   model: '/props/table-banquet-240.glb',
   thumbnail: '/thumbs/table-banquet.webp',
   seating: { min: 0, max: 40, defaultCount: 12, defaultChair: DEFAULT_CHAIR, defaultGap: 8, defaultOffset: 6 },
+  librarySubtitle: 'seats',
   labelByDefault: true,
 }
 
@@ -183,6 +205,7 @@ export const knightsTable: CatalogEntry = {
   model: '/props/table-knights-480.glb',
   thumbnail: '/thumbs/table-knights-480.webp',
   seating: { min: 0, max: 22, defaultCount: 22, defaultChair: DEFAULT_CHAIR, defaultGap: 8, defaultOffset: 6 },
+  librarySubtitle: 'seats',
   labelByDefault: true,
 }
 
@@ -249,6 +272,7 @@ export const serpentineTable: CatalogEntry = {
   // heads sit past the band's end caps, which the flank walk never reaches.
   // Asserted against the geometry in serpentine.test.ts so the two cannot drift.
   seating: { min: 0, max: 22, defaultCount: 22, defaultChair: DEFAULT_CHAIR, defaultGap: 10, defaultOffset: 6 },
+  librarySubtitle: 'seats',
   labelByDefault: true,
 }
 

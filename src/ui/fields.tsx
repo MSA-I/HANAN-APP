@@ -76,19 +76,81 @@ export function NumberField({ label, value, unit = 'm', step, min, max, onCommit
   )
 }
 
+/**
+ * The venue's REAL linen, sampled from its three fabric sample charts
+ * (HANAN-APP-DOCS/GPT/צבעי מפות ומפיות/, source doc §50) rather than chosen —
+ * 22 solid velvet napkins, then 22 patterned table fabrics, then 10 folded
+ * linens, in each chart's own reading order.
+ *
+ * Each hex is the PER-CHANNEL MEDIAN of a patch at the centre of one swatch.
+ * Median, not mean: half of the second chart's fabrics carry a woven lattice or a
+ * printed motif, and a mean would drag every one of them toward the motif. The
+ * sampling script and the exact patch coordinates are in handoff/03-sizes.md, and
+ * re-running it reproduces this list. Sampling is stable to ±8/255 per channel
+ * across a wide range of patch sizes, so these are the fabrics' colours and not
+ * an artefact of where the patch was put.
+ *
+ * 11 of the 54 swatches are dropped as perceptual duplicates of an earlier one
+ * (redmean² ≤ 250 — the same metric core/prompts/fragments.ts uses). That is not
+ * a preference: `ColorField` renders this array with `key={c}`, so two identical
+ * hexes would be two identical React keys, and two circles a user cannot tell
+ * apart are one control drawn twice. Which 11, and what they collided with, is in
+ * handoff/03-sizes.md.
+ *
+ * ⚠ core/prompts/fragments.ts:38-51 opens with these twelve VERBATIM, so that a
+ * palette pick becomes an exact English colour word for the image prompt. It no
+ * longer matches — that file is PLAN-08's, and the mismatch is written up in
+ * handoff/FOUND-03.md. Nothing breaks: `hexToColorName` falls through to
+ * nearest-neighbour over its remaining 20 general names.
+ */
 export const EVENT_SWATCHES = [
-  '#ffffff',
-  '#f5f0e8',
-  '#eddcc5',
-  '#e8c4c4',
-  '#c98d8d',
-  '#b96a4b',
-  '#c9a86a',
-  '#a8b5a0',
-  '#708c5f',
-  '#33518f',
-  '#7a2e3f',
-  '#3a3633',
+  // chart 1 — solid velvet napkins (hf_20260728_115447), row 1
+  '#e7e5e0',
+  '#e3ca8d',
+  '#a5601a',
+  '#141312',
+  '#18244d',
+  '#c2060d',
+  '#92bcdf',
+  '#f05d08',
+  '#ec3d60',
+  '#f1c3bb',
+  '#cece1b',
+  // chart 1, row 2
+  '#0890a5',
+  '#94bb0c',
+  '#27adbb',
+  '#28134a',
+  '#372a79',
+  '#c3708c',
+  '#d7070e',
+  '#beb7b2',
+  '#5c3a23',
+  '#d5ae81',
+  '#f5d00a',
+  // chart 2 — patterned table fabrics (hf_20260728_115548)
+  '#263759',
+  '#b4b6ba',
+  '#323e4b',
+  '#c5cfd1',
+  '#a8a4a1',
+  '#b8aea7',
+  '#e1dfda',
+  '#cbc3bb',
+  '#d5ccbd',
+  '#d9c5a7',
+  '#d2c3b0',
+  '#dcd8d4',
+  '#0e3779',
+  '#8e928a',
+  // chart 3 — folded linens (hf_20260728_115632)
+  '#cbb09b',
+  '#e6d7ca',
+  '#435870',
+  '#d0a26b',
+  '#bd8879',
+  '#81a4cb',
+  '#746f60',
 ]
 
 /** Rainbow rim on the free-picker control — reads as "any colour" without a label. */
@@ -103,9 +165,9 @@ interface ColorFieldProps {
   onChange: (color: string) => void
   /**
    * Adds a native picker next to the fixed palette. Off by default: commit
-   * 57e15f9 deliberately narrowed this field to the twelve event colours, and
-   * only the slots that opt in via `MaterialSlotDef.allowCustomColor` (the two
-   * napkins) may reopen it.
+   * 57e15f9 deliberately narrowed this field to the event colours, and only the
+   * slots that opt in via `MaterialSlotDef.allowCustomColor` (the three napkins)
+   * may reopen it.
    */
   allowCustom?: boolean
 }

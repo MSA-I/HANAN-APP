@@ -54,11 +54,13 @@ export const TABLE_PRESETS: TablePreset[] = [
   { id: 'preset.round-12-gold-white', labelKey: 'presetRound12GoldWhite', tableCatalogId: 'table.round', chairCatalogId: 'chair.gold-white', seatCount: 12 },
   { id: 'preset.round-10-x-white', labelKey: 'presetRound10XWhite', tableCatalogId: 'table.round', chairCatalogId: 'chair.x-white', seatCount: 10 },
   { id: 'preset.round-large-22-gold-black', labelKey: 'presetRoundLarge22GoldBlack', tableCatalogId: 'table.round-large', chairCatalogId: 'chair.gold-black', seatCount: 22 },
-  // 12 now really is 12: the square table's defaultGap dropped to 8, so a 160cm
-  // side takes floor(160/53) = 3 chairs and the reconciler no longer clamps this
-  // to 8. ⚠ The Hebrew label still reads "8" — strings.presets.items
-  // .presetSquare8XWood is owned elsewhere; see handoff/FOUND-02.md.
-  { id: 'preset.square-8-x-wood', labelKey: 'presetSquare8XWood', tableCatalogId: 'table.square', chairCatalogId: 'chair.x-wood', seatCount: 12 },
+  // 10, matching the square table's own defaultCount (corrections document §48).
+  // It is a choice, not a ceiling: at the table's defaultGap of 8 a 160cm side
+  // takes floor(160/53) = 3 chairs, so 12 would fit and the reconciler will not
+  // clamp 10 down. The preset id still says "8" because ids are stable — saved
+  // projects reference it; the label now reads 10 (strings.presets.items
+  // .presetSquare8XWood, owned by PLAN-02) and all three places agree.
+  { id: 'preset.square-8-x-wood', labelKey: 'presetSquare8XWood', tableCatalogId: 'table.square', chairCatalogId: 'chair.x-wood', seatCount: 10 },
   { id: 'preset.banquet-12-black', labelKey: 'presetBanquet12Black', tableCatalogId: 'table.banquet', chairCatalogId: 'chair.black', seatCount: 12 },
   { id: 'preset.knights-22-brown', labelKey: 'presetKnights22Brown', tableCatalogId: 'table.knights-480', chairCatalogId: 'chair.brown', seatCount: 22 },
   { id: 'preset.serpentine-20-x-white', labelKey: 'presetSerpentine20XWhite', tableCatalogId: 'table.serpentine', chairCatalogId: 'chair.x-white', seatCount: 20 },

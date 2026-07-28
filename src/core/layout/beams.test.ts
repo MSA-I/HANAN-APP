@@ -51,7 +51,11 @@ describe('beamGrid', () => {
 })
 
 describe('hangRange', () => {
-  const chandelier = 90 // lamp.chandelier-diamond
+  // A plain 90 cm drop, deliberately NOT read from the catalog: these cases pin
+  // the arithmetic of hangRange itself, so the height has to stay put while
+  // catalogued sizes move. (It WAS lamp.chandelier-diamond's height until the
+  // ×2.5 of corrections document §8 took that entry to 225.)
+  const chandelier = 90
 
   it('runs from the truss line down to 4 m below the CEILING', () => {
     // top starts at hangHeight 895 − 90 = 805. The floor of the range is measured

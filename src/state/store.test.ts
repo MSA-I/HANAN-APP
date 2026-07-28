@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { getCatalogEntry } from '../core/catalog/registry'
+import { getCatalogEntry, listCatalog } from '../core/catalog/registry'
 import { HALL_LAYOUTS } from '../core/hallLayouts'
-import { hangRange } from '../core/layout/beams'
+import { hangRange, MAX_DROP_FROM_CEILING } from '../core/layout/beams'
 import { attachedChairs } from '../core/model/seatingReconciler'
 import { getHallDesign, getTableDesign, getTablePreset } from '../core/presets'
 import { getVenuePack } from '../core/venuePacks'
@@ -261,14 +261,20 @@ describe('hang height', () => {
 
   it('lowers a fixture and clamps to 4 m below the CEILING', () => {
     const id = addObject('lamp.chandelier-diamond', { x: 1000, y: 200 })
-    const top = 895 - 90
+    // read the drop from the catalog: it is a catalogued size, not a constant of
+    // the venue, and it has already moved once (×2.5, corrections document §8)
+    const drop = getCatalogEntry('lamp.chandelier-diamond').defaultSize.height
+    const top = 895 - drop
     expect(scene().objects[id].transform.elevation).toBe(top)
     // the limit is measured off the roof (1160), not the truss it hangs from
-    const { min } = hangRange({ hangHeight: 895 }, 1160, 90)
-    expect(min).toBe(670)
+    const { min } = hangRange({ hangHeight: 895 }, 1160, drop)
+    expect(min).toBe(1160 - MAX_DROP_FROM_CEILING - drop)
+    // ...which is genuinely below the anchor, so there is a band to slide in
+    expect(min).toBeLessThan(top)
 
-    setElevation(id, 700)
-    expect(scene().objects[id].transform.elevation).toBe(700)
+    const middle = Math.round((min + top) / 2)
+    setElevation(id, middle)
+    expect(scene().objects[id].transform.elevation).toBe(middle)
     setElevation(id, 0)
     expect(scene().objects[id].transform.elevation).toBe(min)
     setElevation(id, 9999)
@@ -343,9 +349,17 @@ describe('appearance permissions', () => {
     }
   })
 
-  it('allows body on the two napkins and rejects every other item and slot', () => {
+  it('allows body on the three napkins and rejects every other item and slot', () => {
+    // The napkin() wrapper is what grants the free picker, so the catalog decides
+    // who is on the list — a fourth napkin has to appear here rather than slip in.
+    // decor.napkin-folded joined the other two in this round (source doc §14).
+    const napkins = listCatalog()
+      .filter((e) => e.materialSlots.some((s) => s.allowCustomColor))
+      .map((e) => e.id)
+    expect(napkins).toEqual(['decor.fabric-folded', 'decor.napkin-folded', 'decor.napkin-white'])
+
     const tableId = addObject('table.round', { x: 500, y: 500 })
-    for (const catalogId of ['decor.napkin-folded', 'decor.napkin-white']) {
+    for (const catalogId of napkins) {
       expect(getCatalogEntry(catalogId).editableColorSlot).toBe('body')
       const id = addObjectToSurface(catalogId, tableId, { x: 500, y: 500 })!
       setAppearance([id], 'body', '#7a2e3f')
@@ -494,25 +508,30 @@ describe('table-top decor (surface attachment)', () => {
   })
 
   // Regression: the clamp used to collapse a ROTATED rect child to its circumradius
-  // (45×33 → hw=hh=27.9 instead of 22.5/16.5), stopping it 8.4cm short of the rim on
-  // every table. Shoved outward, a rotated decor must reach its EXACT rotated extent.
+  // (hw=hh=half the diagonal instead of half the width / half the depth), stopping
+  // it short of the rim on every table. Shoved outward, a rotated decor must reach
+  // its EXACT rotated extent. Turned 180° or 90°, that extent is half its depth, so
+  // every expectation below is the table's own half-extent minus that — read from
+  // the catalog, because the setting was resized in this round (source doc §2a).
   it('a rotated rect decor reaches the exact rim, not its circumradius', () => {
-    const RECT = 'decor.place-setting' // 45×33
+    const RECT = 'decor.place-setting'
+    const halfDepth = getCatalogEntry(RECT).defaultSize.depth / 2
+    const round = getCatalogEntry('table.round').defaultSize
+    const banquetSize = getCatalogEntry('table.banquet').defaultSize
     const shoveTo = (childId: string, deg: number, delta: { x: number; y: number }) => {
       rotateObjectsBy([childId], deg)
       moveObjectsBy([childId], delta)
       return scene().objects[childId].transform.position
     }
-    const round = addObject('table.round', { x: 500, y: 500 })
-    const onRound = addObjectToSurface(RECT, round, { x: 500, y: 500 })!
-    // 33cm deep across the radius → 90 − 16.5, not the old 90 − 27.9 = 62.1
-    expect(shoveTo(onRound, 180, { x: 0, y: 999 }).y).toBeCloseTo(73.5)
+    const roundId = addObject('table.round', { x: 500, y: 500 })
+    const onRound = addObjectToSurface(RECT, roundId, { x: 500, y: 500 })!
+    expect(shoveTo(onRound, 180, { x: 0, y: 999 }).y).toBeCloseTo(round.width / 2 - halfDepth)
 
-    const banquet = addObject('table.banquet', { x: 1000, y: 500 }) // 240×120
+    const banquet = addObject('table.banquet', { x: 1000, y: 500 })
     const onLong = addObjectToSurface(RECT, banquet, { x: 1000, y: 500 })!
-    expect(shoveTo(onLong, 180, { x: 0, y: 999 }).y).toBeCloseTo(43.5) // long side: 60 − 16.5
+    expect(shoveTo(onLong, 180, { x: 0, y: 999 }).y).toBeCloseTo(banquetSize.depth / 2 - halfDepth)
     const onEnd = addObjectToSurface(RECT, banquet, { x: 1000, y: 500 })!
-    expect(shoveTo(onEnd, 90, { x: 999, y: 0 }).x).toBeCloseTo(103.5) // end: 120 − 16.5
+    expect(shoveTo(onEnd, 90, { x: 999, y: 0 }).x).toBeCloseTo(banquetSize.width / 2 - halfDepth)
   })
 })
 
