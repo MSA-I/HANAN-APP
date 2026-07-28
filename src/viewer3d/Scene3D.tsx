@@ -4,7 +4,7 @@
  * DOM preset overlay. Falls back to a friendly card if WebGL is unavailable or
  * the GL context throws.
  */
-import { Component, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Component, Suspense, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { Environment, useTexture } from '@react-three/drei'
 import type CameraControlsImpl from 'camera-controls'
@@ -30,6 +30,27 @@ import { ObjectGroup } from './ObjectGroup'
 import { Placement3D } from './Placement3D'
 import { strings3d } from './strings3d'
 import { VenueMesh } from './VenueMesh'
+
+/**
+ * Dev-only escape hatch for headless verification: the R3F store is not
+ * reachable from page scripts (no `canvas.__r3f`), so perf measurement and
+ * screenshot framing have no other way at the renderer or the camera.
+ *
+ * `scene` is here because the camera is NOT parented into the graph, so walking
+ * up from it reaches nothing — and the shadow rig can only be asserted on by
+ * finding the sun and reading its shadow frustum (Plans/R2/PERF-REPORT.md).
+ */
+function DevProbe({ controlsRef }: { controlsRef: RefObject<CameraControlsImpl | null> }) {
+  const { gl, scene, camera, invalidate } = useThree()
+  useEffect(() => {
+    const w = window as typeof window & { __viewer3d?: unknown }
+    w.__viewer3d = { gl, scene, camera, controlsRef, invalidate, info: () => gl.info }
+    return () => {
+      delete w.__viewer3d
+    }
+  }, [gl, scene, camera, controlsRef, invalidate])
+  return null
+}
 
 function detectWebGL(): boolean {
   try {
@@ -504,6 +525,7 @@ export default function Scene3D() {
           <CameraRig controlsRef={controlsRef} />
           <FlyControls controlsRef={controlsRef} />
           <CaptureRegistrar />
+          {import.meta.env.DEV && <DevProbe controlsRef={controlsRef} />}
         </Canvas>
       </GLErrorBoundary>
       <PresetBar controlsRef={controlsRef} />

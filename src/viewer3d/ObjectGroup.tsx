@@ -51,8 +51,12 @@ import {
 import { applyPlanTransform, planTransformMatrix } from './planTransform'
 import { commitPlacement3D, previewPlacement3D } from './Placement3D'
 import { useModelParts } from './propModel'
+import { slotTextureUrl, useSlotTexture } from './slotTextures'
 
 const SELECT_COLOR = new THREE.Color(SELECT_TINT)
+
+/** No pack, no measured truss to match — the cord stays the near-black it always was. */
+const DEFAULT_CORD_COLOR = '#2a2a2a'
 
 type MoveDrag = {
   pointerId: number
@@ -129,9 +133,9 @@ function RotationHandle({ id, object }: { id: Id; object: THREE.Object3D }) {
       showX={false}
       showY
       showZ={false}
-      // 5° detents always; Shift releases them for a free angle, mirroring Alt
-      // releasing the grid snap on a move drag.
-      rotationSnap={shiftHeld ? null : degToRad(5)}
+      // Free rotation by default; Shift engages 5° detents (source doc §25).
+      // Must mirror SelectionTransformer.tsx or 2D and 3D behave opposite ways.
+      rotationSnap={shiftHeld ? degToRad(5) : null}
       onMouseDown={() => {
         dragging.current = true
         beginGesture()
@@ -190,6 +194,12 @@ export function ObjectGroup({ id }: { id: Id }) {
       obj.transform.elevation,
     )
   })
+  // The cord is the roof truss's own metal (source doc §16). PLAN-01 measured it
+  // off venue.glb: #ddd1c1 at metalness/roughness 0.5 — a warm beige, NOT steel
+  // (Plans/R2/handoff/01-venue-data.md §6), so the cord's PBR matches those.
+  const cordColor = useEditorStore(
+    (s) => getVenuePack(s.scene.venue.venuePackId)?.beamColor ?? DEFAULT_CORD_COLOR,
+  )
 
   // Transient transform sync — the hot path. fireImmediately seeds the initial
   // placement; subsequent drag frames update the matrix without React.
@@ -360,6 +370,7 @@ export function ObjectGroup({ id }: { id: Id }) {
               catalogId={catalogId}
               url={entry.model}
               size={size}
+              slot={entry.editableColorSlot}
               color={entry.editableColorSlot ? appearance[entry.editableColorSlot]?.color : undefined}
             />
           </ModelFallback>
@@ -367,7 +378,7 @@ export function ObjectGroup({ id }: { id: Id }) {
           procedural
         )}
         {isSelected && <SelectionOutline outline={entry.footprint(size).outline} />}
-        {drop > 0 && <HangingCord from={size.height} length={drop} />}
+        {drop > 0 && <HangingCord from={size.height} length={drop} color={cordColor} />}
         {hasSeating && !seatingHidden && <ChairInstances tableId={id} />}
         <SurfaceChildren parentId={id} />
       </group>
@@ -486,6 +497,7 @@ function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
               catalogId={catalogId}
               url={entry.model}
               size={size}
+              slot={entry.editableColorSlot}
               color={entry.editableColorSlot ? appearance[entry.editableColorSlot]?.color : undefined}
             />
           </ModelFallback>
@@ -502,36 +514,57 @@ function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
 /**
  * The real GLB of a catalog entry. An editable appearance override gets private
  * cloned materials, keeping textures/PBR data intact without tinting other instances.
+ *
+ * An override is a tint, a `map`, or both. The map comes from `slotTextures.ts`,
+ * which is empty today: with nothing registered for the slot this is the same
+ * clone-and-tint it always was. Both are applied to the CLONE — the cached
+ * material in `propModel.partCache` is never touched, so no cache key has to
+ * carry the texture (BRIEF §1.8).
  */
 function ModelParts({
   catalogId,
   url,
   size,
+  slot,
   color,
 }: {
   catalogId: string
   url: string
   size: Size3D
+  slot?: string
   color?: string
 }) {
   const parts = useModelParts(catalogId, url, size)
-  const tintedMaterials = useMemo(
+  const invalidate = useThree((s) => s.invalidate)
+  const map = useSlotTexture(slotTextureUrl(catalogId, slot))
+  const overriddenMaterials = useMemo(
     () =>
-      color
+      color || map
         ? parts.map(({ material }) => {
             const clone = material.clone()
-            const tintable = clone as THREE.Material & { color?: THREE.Color }
-            if (tintable.color?.isColor) tintable.color.set(color)
+            const tintable = clone as THREE.Material & {
+              color?: THREE.Color
+              map?: THREE.Texture | null
+            }
+            if (color && tintable.color?.isColor) tintable.color.set(color)
+            if (map && 'map' in clone) {
+              tintable.map = map
+              clone.needsUpdate = true
+            }
             return clone
           })
         : null,
-    [color, parts],
+    [color, map, parts],
   )
+  // frameloop is "demand": a texture that arrives after the object was drawn has
+  // to ask for the frame that shows it
+  useEffect(() => invalidate(), [overriddenMaterials, invalidate])
   useEffect(
     () => () => {
-      tintedMaterials?.forEach((material) => material.dispose())
+      // the clones are ours; the texture is shared per URL and outlives them
+      overriddenMaterials?.forEach((material) => material.dispose())
     },
-    [tintedMaterials],
+    [overriddenMaterials],
   )
   return (
     <>
@@ -539,7 +572,7 @@ function ModelParts({
         <mesh
           key={key}
           geometry={geometry}
-          material={tintedMaterials?.[index] ?? material}
+          material={overriddenMaterials?.[index] ?? material}
           castShadow
           receiveShadow
         />
@@ -571,17 +604,23 @@ function ModelFallback({ children, fallback }: { children: ReactNode; fallback: 
  * Suspension cord for a fixture pulled below its seeded height (source doc §13:
  * "some of the chandeliers need a cord added so it does not look disconnected").
  * Only the EXTRA drop is drawn — each GLB already models its own cord down to the
- * catalogued height — so at the top of the range nothing is added at all.
+ * catalogued height — so at the top of the range nothing is added at all. That
+ * last 15 cm to the beam was tried and photographed; see `cordLength`.
  *
  * 3 cm across and 6-sided: a cord reads as a line at any sane camera distance, so
  * a rounder or thicker one only costs triangles. `raycast` off, or the cord would
  * shield the fixture from clicks along its whole length.
+ *
+ * `color` is the venue's own truss metal, so the cord reads as part of the roof
+ * rather than as a black wire hung off it (source doc §16). Its metalness and
+ * roughness are the beams' measured 0.5/0.5 — the resort truss is warm beige, not
+ * polished steel, and a shinier cord next to a matte beam looks like a mistake.
  */
-function HangingCord({ from, length }: { from: number; length: number }) {
+function HangingCord({ from, length, color }: { from: number; length: number; color: string }) {
   return (
     <mesh position={[0, cmToM(from + length / 2), 0]} raycast={() => null} castShadow>
       <cylinderGeometry args={[cmToM(1.5), cmToM(1.5), cmToM(length), 6]} />
-      <meshStandardMaterial color="#2a2a2a" roughness={0.8} />
+      <meshStandardMaterial color={color} metalness={0.5} roughness={0.5} />
     </mesh>
   )
 }

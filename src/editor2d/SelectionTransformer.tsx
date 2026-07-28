@@ -19,7 +19,7 @@ const ALL_ANCHORS = [
   'bottom-right',
 ]
 const CORNER_ANCHORS = ['top-left', 'top-right', 'bottom-left', 'bottom-right']
-/** 5° detents, always on — Shift releases them, mirroring Alt on a move drag. */
+/** Free rotation by default; Shift engages these 5° detents (source doc §25). */
 const SNAP_5 = Array.from({ length: 72 }, (_, i) => i * 5)
 
 /**
@@ -82,7 +82,7 @@ export function SelectionTransformer({ stageRef }: Props) {
         enabledAnchors={anchors}
         keepRatio={keepRatio}
         rotateEnabled
-        rotationSnaps={shiftHeld ? [] : SNAP_5}
+        rotationSnaps={shiftHeld ? SNAP_5 : []}
         rotationSnapTolerance={2.5}
         rotateAnchorOffset={26}
         borderStroke={ACCENT}

@@ -24,6 +24,7 @@ import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 import { getCatalogEntry } from '../core/catalog/registry'
 import type { Size3D } from '../core/model/types'
+import { LruCache } from './lru'
 
 export interface ModelPart {
   key: string
@@ -31,7 +32,19 @@ export interface ModelPart {
   material: THREE.Material
 }
 
-const partCache = new Map<string, ModelPart[]>()
+/**
+ * Bounded by entry x size: 63 catalog entries, and a long session tries a
+ * handful of sizes for each. 200 is roughly three sizes apiece — past that,
+ * evicting the least recently used one costs a reload of geometry that is
+ * already off screen.
+ *
+ * Only the GEOMETRY is disposed. The material belongs to the GLB scene that
+ * drei's useGLTF cache still owns and other sizes of the same entry still point
+ * at it; disposing it here would take out a model that is on screen.
+ */
+const partCache = new LruCache<ModelPart[]>(200, (parts) => {
+  for (const part of parts) part.geometry.dispose()
+})
 
 function buildParts(scene: THREE.Object3D, catalogId: string, size: Size3D): ModelPart[] {
   const entry = getCatalogEntry(catalogId)
