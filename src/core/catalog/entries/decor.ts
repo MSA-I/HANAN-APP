@@ -56,13 +56,27 @@ function vegetationEntry(
  * quantisation). See handoff/FOUND-03.md §A1-1 — and FOUND-02.md §A3-1 for the
  * round-1 case where an entry and its file had silently drifted apart.
  *
- * ⛔ Source doc §14 puts it in a ring AROUND the pool, and `allowedZones` is the
- * mechanism for exactly that — but the ring's WIDTH has no measured source. The
- * plan's 150cm is its own admitted guess, and the number decides whether the
- * rule reads as "on the pool coping" (~80) or "the whole pool side of the hall"
- * (~300). Left unwired until the user answers; see handoff/BLOCKED-03-A2.md §1.
- * One line here when the number arrives:
- *   { allowedZones: [{ kind: 'pool', within: <cm> }] }
+ * Source doc §14 puts it in a ring AROUND the pool, and the ring is now a zone in
+ * its own right: the user drew it in the SKP as the `ZONE_SAVIV` layer, so the rule
+ * below invents no distance at all. `within: 0` means inside that rectangle or
+ * touching it — the band IS the drawing. Round 1 left this unwired precisely
+ * because the plan's 150cm was an admitted guess about the ring's width
+ * (handoff/BLOCKED-03-A2.md §1); the guess has been removed, not answered.
+ *
+ * Deliberately NOT `zoneKind`. That marks a FIXED STATION, and a station is exempt
+ * from the placement rules rather than bound by them: collision.ts returns [] for
+ * one before any geometry runs, and actions.ts's `ruled()` drops it from the gate
+ * entirely. The plants would then pass through every other object in the hall —
+ * the exact inverse of source doc §15.
+ *
+ * ⚠ What the user actually drew is a RING of four rectangles (72.2 m² —
+ * handoff/01c-venue-data.md). venuePacks.ts:145 currently holds the BOUNDING BOX of
+ * that ring, straight from the 18:03 import, so on paper it covers the water across
+ * x 2579…3839; PLAN-01C has the four rectangles and has not merged them yet. Today's
+ * behaviour is still a subset of the truth rather than a false permission: a zone
+ * only stops being a no-go for the entry that NAMES it, so `pool` goes on refusing
+ * the water and vegetation 1's real allowance is the strip x 3839…3962. When
+ * PLAN-01C lands, this same line yields the whole ring with no change here.
  */
 export const pottedPlant = vegetationEntry(
   'plant.potted',
@@ -72,14 +86,23 @@ export const pottedPlant = vegetationEntry(
   '/props/plant-vegetation-1.glb',
   // the prepped file's own bounds — the pre-1.5× defaultSize
   { width: 101, depth: 94.6, height: 160 },
+  { allowedZones: [{ kind: 'saviv', within: 0 }] },
 )
 
 /**
- * Vegetation 2 goes against walls only, the passage included (source doc §15).
- * 60cm is the threshold for "touching the wall", not a design distance, so it is
- * here rather than in a tunable. Collision measures it EDGE to wall
- * (`contourDistance − shapeReach`, collision.ts:475-480), so it is independent of
- * how wide the plant is and the ×1.5 below does not move it.
+ * Vegetation 2 has NO siting rule: it stands anywhere on the venue floor.
+ *
+ * That REVERSES round 1, on purpose — do not read the missing rule as a
+ * regression and do not restore it. Source doc §15 read "vegetation 2 goes only
+ * against walls" and this entry carried `nearWall: 60` for it. The round-2
+ * corrections (§4, 2026-07-28) say the opposite in as many words: "vegetation 2
+ * can be placed wherever you want, it has no location restriction." The 60 was
+ * the threshold for "touching the wall" under the old instruction; there is no
+ * distance to reinstate, because there is no longer a wall rule.
+ *
+ * The `nearWall` MECHANISM stays — in CatalogEntry, in collision.ts and in the
+ * status bar. Nobody asked for it to go, and it is the catalog's only way to say
+ * "against a wall". This entry was its only user, so it currently has none.
  *
  * Same ×1.5 as vegetation 1 (corrections document §6), and the same reason for
  * `modelSize`: the GLB is untouched, so it must state its own prepped bounds.
@@ -93,7 +116,6 @@ export const pottedPlant2 = vegetationEntry(
   '/props/plant-vegetation-2.glb',
   // the prepped file's own bounds — the pre-1.5× defaultSize
   { width: 47.5, depth: 43.8, height: 160 },
-  { nearWall: 60 },
 )
 
 export const dividerScreen: CatalogEntry = {

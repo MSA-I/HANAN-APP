@@ -18,8 +18,11 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { getCatalogEntry } from '../catalog/registry'
 import { getVenuePack } from '../venuePacks'
 import type { SceneState, Vec2 } from '../model/types'
+import { composeTransform } from '../space'
+import { holeRadius } from './bounds'
 import {
   addObject,
+  addObjectToSurface,
   addSeatItemsToTable,
   moveObjectsBy,
   newProject,
@@ -29,7 +32,7 @@ import {
 } from '../../state/actions'
 import { objectAABB } from '../../state/selectors'
 import { useEditorStore } from '../../state/store'
-import { checkPlacement, slideToLegal, TABLE_CLEARANCE, type Violation } from './collision'
+import { allowedOnDeck, checkPlacement, slideToLegal, TABLE_CLEARANCE, type Violation } from './collision'
 
 const scene = (): SceneState => useEditorStore.getState().scene
 const pack = getVenuePack('resort')!
@@ -57,6 +60,67 @@ const bareTable = (catalogId: string, position: Vec2): string => {
 beforeEach(() => {
   newProject({ name: 'collision', venueWidth: 4000, venueDepth: 3000 })
 })
+
+// --- table-top helpers (PLAN-06) -------------------------------------------
+// The three ways a table-top pose can be stated. Keeping them apart in the tests
+// is the point: the frame a candidate arrives in is exactly what the sibling rule
+// can get silently wrong.
+
+/** The outer radius a round catalog item is drawn at — never a copied number. */
+const outlineR = (catalogId: string): number => {
+  const entry = getCatalogEntry(catalogId)
+  const outline = entry.footprint(entry.defaultSize).outline
+  if (outline.kind !== 'circle') throw new Error(`${catalogId} is not round`)
+  return outline.r
+}
+
+/**
+ * A ghost of a NEW table-top item: WORLD coordinates plus the table under it,
+ * which is what editor2d/Stage2D.tsx and viewer3d/Placement3D.tsx hand over. The
+ * local point is stated and `composeTransform` converts it, so the test says where
+ * on the table it means and collision.ts has to undo the same transform.
+ */
+const surfaceGhost = (catalogId: string, tableId: string, local: Vec2, rotation = 0) => {
+  const world = composeTransform(scene().objects[tableId].transform, {
+    position: local,
+    rotation,
+    elevation: 0,
+  })
+  return { ...ghost(catalogId, world.position, world.rotation), parentId: tableId }
+}
+
+/** The same item as an EXISTING child being probed — parent-local, the frame a
+ *  child's stored transform already lives in (state/actions.ts `candidateFor`). */
+const localProbe = (catalogId: string, tableId: string, local: Vec2) => ({
+  ...ghost(catalogId, local),
+  parentId: tableId,
+  parentLocal: true,
+})
+
+/**
+ * A surface child at an EXACT parent-local pose and storey.
+ *
+ * `addObjectToSurface` builds it properly and the pose is overwritten afterwards,
+ * because every `surfaceProp` entry is `surfaceAnchor: 'center'` (tableDecor.ts:57)
+ * — it pins whatever it is given to the middle of the table, and most of these
+ * cases are about two items NOT sharing the middle.
+ */
+const surfaceChild = (
+  catalogId: string,
+  tableId: string,
+  local: Vec2,
+  opts: { inHole?: boolean; rotation?: number } = {},
+): string => {
+  const id = addObjectToSurface(catalogId, tableId, scene().objects[tableId].transform.position)
+  if (!id) throw new Error(`could not attach ${catalogId}`)
+  useEditorStore.setState((s) => {
+    const child = s.scene.objects[id]
+    child.transform.position = { ...local }
+    child.transform.rotation = opts.rotation ?? 0
+    if (child.attachment?.kind === 'surface') child.attachment.inHole = opts.inHole || undefined
+  })
+  return id
+}
 
 describe('overlap (source doc §42 — elements may never intersect)', () => {
   it('catches two round tables sitting inside one another', () => {
@@ -185,19 +249,21 @@ describe("the catalog's own siting rules", () => {
     newProject({ name: 'resort', venuePackId: 'resort' })
   })
 
-  it('keeps vegetation 2 against a wall (§15)', () => {
-    const near = getCatalogEntry('plant.potted-2').nearWall!
-    expect(near).toBeGreaterThan(0)
-    // the hall's north wall runs along y = 0
-    expect(kinds(checkPlacement(scene(), ghost('plant.potted-2', { x: 500, y: 30 })))).not.toContain('nearWall')
-    expect(kinds(checkPlacement(scene(), ghost('plant.potted-2', { x: 500, y: 700 })))).toContain('nearWall')
-  })
-
-  it('lets the passage walls count too — it is a wall like any other (§15)', () => {
-    const passage = pack.restricted!.find((z) => z.kind === 'passage')!
-    // the passage is a corridor; its own side wall is part of the hall contour
-    const atWall = { x: passage.x + passage.width - 40, y: passage.y + 200 }
-    expect(kinds(checkPlacement(scene(), ghost('plant.potted-2', atWall)))).not.toContain('nearWall')
+  /**
+   * REVERSED in round 2, and the reversal is the assertion. §15 read "vegetation 2
+   * goes only against walls", this entry carried `nearWall: 60`, and the two cases
+   * here were the 60cm band either side. The corrections (§4, 2026-07-28) say the
+   * opposite outright — it may stand wherever the user likes — so what is checked
+   * now is that the middle of the room is legal AND that the field is gone from the
+   * entry, which is what makes the old rule un-restorable by accident rather than
+   * merely slack. The passage-wall case went with it: with no wall rule left it
+   * asserted nothing.
+   */
+  it('lets vegetation 2 stand anywhere, wall or no wall (round-2 §4 reverses §15)', () => {
+    expect(getCatalogEntry('plant.potted-2').nearWall).toBeUndefined()
+    // out in the open, and against the hall's north wall along y = 0 — both fine
+    expect(checkPlacement(scene(), ghost('plant.potted-2', { x: 500, y: 700 }))).toEqual([])
+    expect(checkPlacement(scene(), ghost('plant.potted-2', { x: 500, y: 40 }))).toEqual([])
   })
 
   it('refuses a napkin with no place setting under it, and accepts one with (§27)', () => {
@@ -324,6 +390,265 @@ describe('no retroactive enforcement (plan decision — old projects load as the
   })
 })
 
+/**
+ * The table top is a place with rules of its own (PLAN-06). Until now a
+ * surface/seat candidate left `check()` before any geometry ran, so two
+ * centrepieces could be dropped into the same square centimetre.
+ *
+ * Every case below is one row of the plan's contract table. The four SKIPS matter
+ * as much as the refusals: each names a pair that shares a spot BY DESIGN, and
+ * turning any of them into a collision would refuse a placement the app performs
+ * itself — laySeatItems lays the settings, §27 stacks the napkin on one, §46 puts
+ * the arrangement on the ring table, §48 puts a piece through the open centre.
+ */
+describe('two items on the same table (PLAN-06)', () => {
+  const DECOR = 'decor.candelabra-crystal'
+  const DESIGN = 'design.candelabrum-crystal'
+  const NAPKIN = 'decor.napkin-white'
+  const SETTING = 'decor.place-setting'
+
+  // How far a place setting has to stand from a centrepiece to clear it, derived
+  // from both outlines rather than picked. The cover has already been rescaled once
+  // (tableDecor.ts's uniform 0.8), and a hardcoded offset would quietly stop
+  // separating them — the test would keep passing while testing nothing.
+  const REACH = outlineR(DECOR) + getCatalogEntry(SETTING).defaultSize.width / 2
+  const CLEAR_X = REACH + 10
+  const HIT_X = REACH - 10
+
+  // The candidate in the point-based cases is a place setting on purpose: it is
+  // `surfaceAnchor: 'free'`, so it is judged where it is put. Every plain
+  // centrepiece is `'center'` and lands in the middle whatever the pointer said,
+  // which is its own pair of cases further down.
+  it('catches two table-top items in one another, and clears them once apart', () => {
+    const table = addObject('table.round', { x: 1000, y: 1000 })
+    const standing = surfaceChild(DECOR, table, { x: 0, y: 0 })
+    expect(getCatalogEntry(SETTING).surfaceAnchor).toBe('free')
+
+    const hit = checkPlacement(scene(), surfaceGhost(SETTING, table, { x: 0, y: 0 }))
+    expect(kinds(hit)).toEqual(['overlapsSibling'])
+    expect(hit[0]).toMatchObject({ id: standing })
+    expect(checkPlacement(scene(), surfaceGhost(SETTING, table, { x: CLEAR_X, y: 0 }))).toEqual([])
+  })
+
+  it('counts a centrepiece against a place setting', () => {
+    const table = addObject('table.round', { x: 1000, y: 1000 })
+    // a cover pushed to the middle, which is where a centrepiece will land
+    const setting = surfaceChild(SETTING, table, { x: 0, y: 0 })
+
+    const v = checkPlacement(scene(), surfaceGhost(DECOR, table, { x: CLEAR_X, y: 0 }))
+    expect(kinds(v)).toEqual(['overlapsSibling'])
+    expect(v[0]).toMatchObject({ id: setting })
+  })
+
+  it('leaves two place settings alone — laySeatItems already spaces them', () => {
+    const table = addObject('table.round', { x: 1000, y: 1000 })
+    const settings = addSeatItemsToTable(SETTING, table)
+    const at = scene().objects[settings[0]].transform.position
+    expect(checkPlacement(scene(), surfaceGhost(SETTING, table, at))).toEqual([])
+  })
+
+  it('lets a napkin stand on the setting it requires (§27)', () => {
+    const table = addObject('table.round', { x: 1000, y: 1000 })
+    const settings = addSeatItemsToTable(SETTING, table)
+    expect(getCatalogEntry(NAPKIN).requiresHost).toBe(SETTING)
+    const at = scene().objects[settings[0]].transform.position
+    expect(checkPlacement(scene(), surfaceGhost(NAPKIN, table, at))).toEqual([])
+  })
+
+  it('counts a napkin against a centrepiece that is NOT its host', () => {
+    const table = addObject('table.round', { x: 1000, y: 1000 })
+    addSeatItemsToTable(SETTING, table) // the host has to exist or missingHost wins
+    const standing = surfaceChild(DECOR, table, { x: 0, y: 0 })
+
+    const v = checkPlacement(scene(), surfaceGhost(NAPKIN, table, { x: 0, y: 0 }))
+    expect(kinds(v)).toEqual(['overlapsSibling'])
+    expect(v[0]).toMatchObject({ id: standing })
+  })
+
+  it('still refuses a hostless napkin before it looks at the neighbours at all', () => {
+    const table = addObject('table.round', { x: 1000, y: 1000 })
+    surfaceChild(DECOR, table, { x: 0, y: 0 })
+    const v = checkPlacement(scene(), surfaceGhost(NAPKIN, table, { x: 0, y: 0 }))
+    expect(kinds(v)).toEqual(['missingHost'])
+  })
+
+  it('keeps the ring arrangement and the table it stands on out of each other (§46)', () => {
+    const table = addObject('table.round-large', { x: 1200, y: 1200 })
+    expect(getCatalogEntry('ring.floral').requiresHost).toBe('ring.table')
+    surfaceChild('ring.table', table, { x: 0, y: 0 }, { inHole: true })
+
+    // Dropped out on the RIM — halfway between the edge of the well and the edge of
+    // the table, so the pointer is demonstrably OVER THE TOP and not over the
+    // opening. Both pieces are centre-anchored, so both land in the well anyway,
+    // and neither the spot nor the storey may be taken from the pointer.
+    const outline = getCatalogEntry('table.round-large').footprint(
+      getCatalogEntry('table.round-large').defaultSize,
+    ).outline
+    if (outline.kind !== 'circle') throw new Error('the ⌀380 is a ring')
+    const rim = { x: (holeRadius(outline) + outline.r) / 2, y: 0 }
+    expect(rim.x).toBeGreaterThan(holeRadius(outline))
+    expect(checkPlacement(scene(), surfaceGhost('ring.floral', table, rim))).toEqual([])
+    // and it is the HOST relationship doing that, not the geometry: anything else
+    // landing in the same well is refused
+    expect(kinds(checkPlacement(scene(), surfaceGhost(DECOR, table, rim)))).toEqual([
+      'overlapsSibling',
+    ])
+  })
+
+  it('does not count a chair — it hangs off the table, not on it', () => {
+    const table = addObject('table.round', { x: 1000, y: 1000 })
+    const chair = Object.values(scene().objects).find(
+      (o) => o.parentId === table && o.attachment?.kind === 'seat',
+    )
+    expect(chair).toBeDefined()
+    // free-anchored, so it really is judged AT the chair rather than at the centre
+    expect(checkPlacement(scene(), surfaceGhost(SETTING, table, chair!.transform.position))).toEqual([])
+  })
+
+  it('keeps the open centre and the table top apart — they are two storeys (§48)', () => {
+    const table = addObject('table.round-large', { x: 1200, y: 1200 })
+    const inWell = surfaceChild('ring.table', table, { x: 0, y: 0 }, { inHole: true })
+    expect(scene().objects[inWell].attachment).toMatchObject({ inHole: true })
+
+    // the same point, probed from each storey
+    expect(
+      kinds(checkPlacement(scene(), { ...localProbe(DECOR, table, { x: 0, y: 0 }), inHole: true })),
+    ).toEqual(['overlapsSibling'])
+    expect(
+      checkPlacement(scene(), { ...localProbe(DECOR, table, { x: 0, y: 0 }), inHole: false }),
+    ).toEqual([])
+  })
+
+  it('READS a sibling’s storey instead of re-deriving it from the point', () => {
+    // A piece on the TOP of a ring table, sitting over the opening. Deriving the
+    // flag from its position would call it an in-well piece and swap which
+    // candidates it blocks — the flag is decided once at drop (model/types.ts:53-55).
+    const table = addObject('table.round-large', { x: 1200, y: 1200 })
+    const onTop = surfaceChild(DECOR, table, { x: 0, y: 0 }, { inHole: false })
+    // a plain surface attachment: on the top, carrying no well flag at all
+    expect(scene().objects[onTop].attachment).toEqual({ kind: 'surface' })
+
+    expect(
+      checkPlacement(scene(), { ...localProbe('ring.table', table, { x: 0, y: 0 }), inHole: true }),
+    ).toEqual([])
+    expect(
+      kinds(
+        checkPlacement(scene(), { ...localProbe('ring.table', table, { x: 0, y: 0 }), inHole: false }),
+      ),
+    ).toEqual(['overlapsSibling'])
+  })
+
+  it('excludes the child being probed from its own siblings', () => {
+    const table = addObject('table.round', { x: 1000, y: 1000 })
+    const decor = surfaceChild(DECOR, table, { x: 0, y: 0 })
+    expect(
+      checkPlacement(scene(), { ...localProbe(DECOR, table, { x: 0, y: 0 }), excludeId: decor }),
+    ).toEqual([])
+  })
+
+  // `clampToSurface` pins a hand-placed centre-anchored piece to the middle of the
+  // table whatever the pointer said (§28/§54), so a ghost judged at the pointer
+  // answers the wrong question in BOTH directions. These two are that pair.
+  it('refuses a centre-anchored design when the middle is taken, wherever the pointer is', () => {
+    const table = addObject('table.round', { x: 1000, y: 1000 })
+    const middle = surfaceChild(DECOR, table, { x: 0, y: 0 })
+    expect(getCatalogEntry(DESIGN).surfaceAnchor).toBe('center')
+
+    // the rim spot really is empty — a free-anchored item is welcome there
+    const rim = { x: CLEAR_X, y: 0 }
+    expect(checkPlacement(scene(), surfaceGhost(SETTING, table, rim))).toEqual([])
+
+    // the design dropped on that same empty rim still lands in the taken middle
+    const v = checkPlacement(scene(), surfaceGhost(DESIGN, table, rim))
+    expect(kinds(v)).toEqual(['overlapsSibling'])
+    expect(v[0]).toMatchObject({ id: middle })
+  })
+
+  it('allows one over an occupied rim when the middle it will take is free', () => {
+    const table = addObject('table.round', { x: 1000, y: 1000 })
+    const rim = { x: CLEAR_X, y: 0 }
+    surfaceChild(DECOR, table, rim) // a piece parked out on the rim
+
+    // that spot is genuinely occupied for anything judged AT the pointer
+    expect(kinds(checkPlacement(scene(), surfaceGhost(SETTING, table, rim)))).toEqual([
+      'overlapsSibling',
+    ])
+    // but the design is not judged there — it lands in the middle, which is empty
+    expect(checkPlacement(scene(), surfaceGhost(DESIGN, table, rim))).toEqual([])
+  })
+
+  it('judges an EXISTING centre-anchored child where it actually stands', () => {
+    // The relocation above is for ghosts only. A design lays its pieces off-centre
+    // and `clampToSurface` exempts them from the centre lock (its `meta.design`
+    // branch) — but a candidate carries no `meta` to recognise them by, so moving
+    // every centre-anchored probe to the origin would collapse a four-piece
+    // arrangement into one point and report it as colliding with itself.
+    const table = addObject('table.round', { x: 1000, y: 1000 })
+    surfaceChild(DECOR, table, { x: 0, y: 0 })
+    const arm = { x: CLEAR_X, y: 0 } // where a design would have put its outer piece
+    expect(checkPlacement(scene(), localProbe(DECOR, table, arm))).toEqual([])
+  })
+
+  it('measures in the PARENT frame — a turned table answers both callers alike', () => {
+    // The two callers speak different spaces: the ghost of a new drop is in world
+    // coordinates, an existing child is parent-local. Turning the table is what
+    // separates a real conversion from a subtraction that happens to work at 0°.
+    const table = addObject('table.round', { x: 1200, y: 900 })
+    rotateObjectsBy([table], 30)
+    expect(scene().objects[table].transform.rotation).toBe(30)
+    surfaceChild(DECOR, table, { x: 0, y: 0 })
+
+    const hit = { x: HIT_X, y: 0 }
+    const clear = { x: CLEAR_X, y: 0 }
+    expect(kinds(checkPlacement(scene(), surfaceGhost(SETTING, table, hit)))).toEqual(['overlapsSibling'])
+    expect(kinds(checkPlacement(scene(), localProbe(SETTING, table, hit)))).toEqual(['overlapsSibling'])
+    expect(checkPlacement(scene(), surfaceGhost(SETTING, table, clear))).toEqual([])
+    expect(checkPlacement(scene(), localProbe(SETTING, table, clear))).toEqual([])
+
+    // the guard that makes the two above mean something: the WORLD numbers read as
+    // if they were local land 1.5 metres away, so a missing conversion cannot pass
+    const world = composeTransform(scene().objects[table].transform, {
+      position: hit,
+      rotation: 0,
+      elevation: 0,
+    })
+    expect(checkPlacement(scene(), localProbe(DECOR, table, world.position))).toEqual([])
+  })
+})
+
+/**
+ * NaN survives every comparison in `check()` — `box.minX < -0.01` and the SAT
+ * interval tests are all FALSE for it — so a non-finite pose would read as legal
+ * and be written into the scene. Nothing but an explicit gate stops it.
+ */
+describe('a non-finite pose is refused outright', () => {
+  it('refuses a floor candidate with a NaN coordinate', () => {
+    expect(kinds(checkPlacement(scene(), ghost('table.round', { x: NaN, y: 1000 })))).toEqual([
+      'outOfBounds',
+    ])
+    expect(kinds(checkPlacement(scene(), ghost('table.round', { x: 1000, y: NaN })))).toEqual([
+      'outOfBounds',
+    ])
+  })
+
+  it('refuses a NaN size', () => {
+    const size = { ...getCatalogEntry('table.round').defaultSize, width: NaN }
+    const v = checkPlacement(scene(), { ...ghost('table.round', { x: 1000, y: 1000 }), size })
+    expect(kinds(v)).toEqual(['outOfBounds'])
+  })
+
+  it('refuses a table-top candidate too, which has no bounds rule of its own', () => {
+    const table = addObject('table.round', { x: 1000, y: 1000 })
+    surfaceChild('decor.candelabra-crystal', table, { x: 0, y: 0 })
+    const v = checkPlacement(scene(), surfaceGhost('decor.candelabra-crystal', table, { x: NaN, y: 0 }))
+    expect(kinds(v)).toEqual(['outOfBounds'])
+  })
+
+  it('does not slide toward a non-finite target', () => {
+    expect(slideToLegal(scene(), ghost('table.round', { x: NaN, y: 1000 }), { x: 500, y: 1000 })).toBeNull()
+  })
+})
+
 describe('performance — this runs on every drag frame', () => {
   it('answers a 40-table hall in well under a frame', () => {
     newProject({ name: 'full', venueWidth: 6000, venueDepth: 4000 })
@@ -360,5 +685,145 @@ describe('performance — this runs on every drag frame', () => {
     // it did get stopped rather than sailing through
     expect(scene().objects[mover].transform.position.x).toBeLessThan(1200 - 180)
     expect(perFrame).toBeLessThan(8) // measured 3.8ms — ~11% of a 33ms frame
+  })
+})
+
+/**
+ * Zones an entry is allowed INTO (PLAN-06, round-2 corrections §3ב, §4 and §27).
+ *
+ * A restricted rectangle used to mean one thing — nobody may stand here — with the
+ * reception deck as the single hand-written exception. Two rules now share that
+ * inverted shape and one loop in `check()`:
+ *
+ *  - the deck names the entries it lets in (`allowedOnDeck`);
+ *  - an entry names the zones it belongs to (`allowedZones`), and is refused
+ *    everywhere else by the band rule that follows.
+ *
+ * The cases that matter most are the ones where the exception does NOT spread: the
+ * pool still refuses the vegetation whose ring touches it, and the deck still
+ * refuses everything the whitelist leaves out.
+ *
+ * ⚠ Nothing here may assume the SHAPE of the surround. The pack held one bounding
+ * box while this was written and PLAN-01C replaces it with the four rectangles the
+ * user actually drew, so a test that names a corner of it passes today and fails on
+ * the merge for a reason that has nothing to do with the rule. Points are SEARCHED
+ * for against whatever the pack currently holds, and the assertions are about the
+ * rule: somewhere in the surround is legal, the water is not, and the hall is not.
+ */
+describe('zones an entry is allowed into (PLAN-06)', () => {
+  const SAVIV = pack.restricted!.filter((z) => z.kind === 'saviv')
+  const POOLS = pack.restricted!.filter((z) => z.kind === 'pool')
+  const DECK = pack.restricted!.find((z) => z.kind === 'kabalatPanim')!
+  const PLANT = 'plant.potted'
+  const deckCentre = { x: DECK.x + DECK.width / 2, y: DECK.y + DECK.depth / 2 }
+
+  /** A point inside SOME saviv rectangle where the plant is fully legal, or null. */
+  const legalRingPoint = (): Vec2 | null => {
+    for (const z of SAVIV) {
+      for (let x = z.x + 10; x <= z.x + z.width - 10; x += 20) {
+        for (let y = z.y + 10; y <= z.y + z.depth - 10; y += 20) {
+          if (!checkPlacement(scene(), ghost(PLANT, { x, y })).length) return { x, y }
+        }
+      }
+    }
+    return null
+  }
+  /** Plain hall floor — asserted clear of every rectangle so a moved zone shows up here. */
+  const openHall = { x: 500, y: 700 }
+
+  beforeEach(() => {
+    newProject({ name: 'resort', venuePackId: 'resort' })
+    for (const z of pack.restricted!) {
+      const covered = openHall.x > z.x && openHall.x < z.x + z.width && openHall.y > z.y && openHall.y < z.y + z.depth
+      expect(covered).toBe(false)
+    }
+  })
+
+  it('lets vegetation 1 stand in the surround (§3ב)', () => {
+    // The claim is that the ring is USABLE — that naming it in `allowedZones` buys a
+    // real place to stand and not an empty intersection. Which point that is depends
+    // on the pack, so it is searched for; what is asserted is that one exists and
+    // that it is inside a rectangle the user painted as the surround.
+    const point = legalRingPoint()
+    expect(point).not.toBeNull()
+    expect(checkPlacement(scene(), ghost(PLANT, point!))).toEqual([])
+    const inSaviv = SAVIV.some(
+      (z) => point!.x >= z.x && point!.x <= z.x + z.width && point!.y >= z.y && point!.y <= z.y + z.depth,
+    )
+    expect(inSaviv).toBe(true)
+  })
+
+  it('refuses vegetation 1 out in the hall — the ring is the only place it belongs', () => {
+    const v = checkPlacement(scene(), ghost(PLANT, openHall))
+    expect(kinds(v)).toEqual(['wrongZone'])
+    expect(v[0]).toMatchObject({ allowed: ['saviv'] })
+  })
+
+  it('drops the rule entirely in a venue that HAS no such zone', () => {
+    // "Vegetation 1 belongs around the pool" is a statement about a hall that has a
+    // pool surround. In a procedural room there is no `saviv` rectangle, so the rule
+    // is not failed — it is not evaluable, and the plant is placed freely. Exactly
+    // what `zoneKind` says of itself (catalog/types.ts:188-193). Reading an empty
+    // zone list as "nowhere is allowed" made vegetation 1 unplaceable in every venue
+    // but the resort — Dashboard's own sample project among them.
+    newProject({ name: 'procedural', venueWidth: 4000, venueDepth: 3000 })
+    expect(getVenuePack(scene().venue.venuePackId)).toBeUndefined()
+    expect(getCatalogEntry(PLANT).allowedZones).toHaveLength(1)
+    expect(checkPlacement(scene(), ghost(PLANT, { x: 1000, y: 1000 }))).toEqual([])
+  })
+
+  it('still refuses vegetation 1 over the WATER — naming one zone opens only that one', () => {
+    // Middle of the water, whatever shape the water is. The point of the assertion is
+    // that `pool` is named as the refusal: the exemption is per-zone-per-entry, not a
+    // blanket "this entry ignores restricted rectangles". Whether a `wrongZone` joins
+    // it depends on how far the surround reaches, and that is not what is under test.
+    for (const water of POOLS) {
+      const v = checkPlacement(
+        scene(),
+        ghost(PLANT, { x: water.x + water.width / 2, y: water.y + water.depth / 2 }),
+      )
+      expect(v.some((x) => x.kind === 'forbiddenZone' && x.zone === 'pool')).toBe(true)
+    }
+  })
+
+  it('holds vegetation 2 to no zone at all (§4)', () => {
+    expect(getCatalogEntry('plant.potted-2').allowedZones).toBeUndefined()
+    expect(getCatalogEntry('plant.potted-2').nearWall).toBeUndefined()
+    expect(checkPlacement(scene(), ghost('plant.potted-2', openHall))).toEqual([])
+  })
+
+  it('lets a guest table stand on the reception deck (§27)', () => {
+    expect(allowedOnDeck(getCatalogEntry('table.round'))).toBe(true)
+    expect(checkPlacement(scene(), ghost('table.round', deckCentre))).toEqual([])
+  })
+
+  it('keeps the buffet on the deck, which the category line alone would not', () => {
+    // `buffet.table` is filed with the service furniture, not the guest tables, so
+    // the explicit id in `allowedOnDeck` is load-bearing rather than redundant.
+    expect(getCatalogEntry('buffet.table').category).toBe('bars')
+    expect(allowedOnDeck(getCatalogEntry('buffet.table'))).toBe(true)
+    expect(checkPlacement(scene(), ghost('buffet.table', deckCentre))).toEqual([])
+  })
+
+  it('leaves everything else off the deck', () => {
+    // A bar unit carries `zoneKind`, so it leaves check() at the fixed-station line
+    // and the deck never judges it — the whitelist is the only thing to assert here,
+    // and the eviction itself is state/kabalatPanim.test.ts's job.
+    expect(allowedOnDeck(getCatalogEntry('bar.straight'))).toBe(false)
+    expect(allowedOnDeck(getCatalogEntry('divider.screen'))).toBe(false)
+    const v = checkPlacement(scene(), ghost('divider.screen', deckCentre))
+    expect(kinds(v)).toEqual(['forbiddenZone'])
+    expect(v[0]).toMatchObject({ zone: 'kabalatPanim' })
+  })
+
+  it('shows that what stops a second chuppah is `unique`, not the deck (§27)', () => {
+    // Half of §27 — "it will not let me put a chuppah on the reception deck" — is
+    // not a zone rule at all. A chuppah carries `zoneKind`, so it leaves check()
+    // before any rectangle is consulted; the refusal the user hit is the
+    // one-per-scene tag, and it bites in the hall exactly as hard as on the deck.
+    expect(checkPlacement(scene(), ghost('chuppah.draped-white', deckCentre))).toEqual([])
+    addObject('chuppah.draped-white', { x: 2000, y: 1800 })
+    expect(kinds(checkPlacement(scene(), ghost('chuppah.round-beige', deckCentre)))).toEqual(['duplicate'])
+    expect(kinds(checkPlacement(scene(), ghost('chuppah.round-beige', { x: 300, y: 300 })))).toEqual(['duplicate'])
   })
 })

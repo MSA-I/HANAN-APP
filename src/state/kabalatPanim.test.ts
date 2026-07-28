@@ -91,9 +91,16 @@ describe('the whitelist — what may stand on the deck', () => {
     expect(insideDeck(id)).toBe(true)
   })
 
-  it('pushes a round table off the deck entirely', () => {
+  /**
+   * REVERSED in round 2 (corrections §27): this asserted that a round table was
+   * pushed off the deck. The user's complaint is that exact behaviour — "when I try
+   * to place tables or a chuppah in the reception area, even when it is switched on,
+   * it will not let me" — so guest tables joined the whitelist and a table dropped
+   * up here now stays, clamped in like the buffet.
+   */
+  it('keeps a round table on the deck (§27)', () => {
     const id = addObject('table.round', centre)
-    expect(overlapsDeck(id)).toBe(false)
+    expect(insideDeck(id)).toBe(true)
   })
 
   it('pushes a bar unit off the deck — a fixed station belongs to its own zone', () => {
@@ -131,6 +138,23 @@ describe('one chuppah per event (§43)', () => {
     expect(insideDeck(onDeck)).toBe(true)
     expect(addObject('chuppah.draped-blush', { x: 300, y: 300 })).toBe(onDeck)
     expect(placed()).toHaveLength(1)
+  })
+
+  /**
+   * The other half of round-2 §27, kept as a test so the finding does not get lost:
+   * "it will not let me place a chuppah in the reception area" is NOT a zone rule.
+   * The deck has always let a chuppah in — the whitelist named it first — and what
+   * the user actually hit is the one-per-event tag, which refuses the second canopy
+   * in the hall exactly as flatly as on the deck. Widening the deck rule would have
+   * changed nothing; only deleting the first chuppah does.
+   */
+  it('shows that `unique`, not the deck, is what refuses a chuppah there (§27)', () => {
+    const onDeck = addObject('chuppah.draped-white', centre)
+    expect(insideDeck(onDeck)).toBe(true)
+    expect(uniqueBlocker(scene(), 'chuppah.round-beige')?.id).toBe(onDeck)
+    expect(addObject('chuppah.round-beige', centre)).toBe(onDeck)
+    expect(addObject('chuppah.round-beige', { x: 300, y: 300 })).toBe(onDeck)
+    expect(Object.keys(scene().objects)).toHaveLength(1)
   })
 
   it('still allows swapping the chuppah for another model in place', () => {
