@@ -130,11 +130,18 @@ export const VENUE_PACKS: VenuePack[] = [
       // old single rectangle exactly: the no-go footprint has not changed, it is
       // only subdivided now so the surround can carry its own rules.
       { x: 766, y: 1408, width: 3073, depth: 1136, label: 'בריכה', kind: 'pool' },
-      // ⚠ `strings.zones.saviv` does not exist yet, so the label right here is
-      // what the user actually sees (VenueLayer.tsx:130 falls back to it). Neither
-      // inner zone crosses into this one — the chuppah ends at 2569 and the DJ at
-      // exactly 2579, flush against its left edge — so the "chuppah sits inside
-      // the pool" arrangement below is untouched.
+      // The label the user sees comes from `strings.zones.saviv`, which PLAN-02
+      // seeded in the same wave; this one is the declared fallback the other zones
+      // carry too (VenueLayer.tsx:130). Neither inner zone crosses into this one —
+      // the chuppah ends at 2569 and the DJ at exactly 2579, flush against its left
+      // edge — so the "chuppah sits inside the pool" arrangement below is untouched.
+      //
+      // ⚠ It DOES overlap `pool`, and by most of itself: 1260 of its 1383 cm sit
+      // inside 766…3839, a good part of that over the water face (889…3839 ×
+      // 1611…2544). Only 3839…3962 is clear of the pool. Anything scoped to this
+      // zone must decide what it means by it — see PLAN-06's note before wiring
+      // `allowedZones`, because the two available mechanisms fail in opposite
+      // directions here.
       { x: 2579, y: 1408, width: 1383, depth: 1136, label: 'סביב הבריכה', kind: 'saviv' },
       // 15:09: the bar took 50cm out of the dance floor. Together the two still
       // span y 0…1408 exactly, so only the seam between them moved.
