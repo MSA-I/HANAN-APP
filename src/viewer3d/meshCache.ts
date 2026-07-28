@@ -17,6 +17,7 @@ import { getCatalogEntry } from '../core/catalog/registry'
 import type { MeshPart } from '../core/catalog/types'
 import type { Size3D } from '../core/model/types'
 import { cmToM } from '../core/space'
+import { LruCache } from './lru'
 
 export interface SlotGeometry {
   slot: string
@@ -41,7 +42,15 @@ function partGeometry(part: MeshPart): THREE.BufferGeometry {
   return geo
 }
 
-const geometryCache = new Map<string, SlotGeometry[]>()
+/**
+ * Ceiling of 300 (catalogId x size) recipes. Every distinct size the user drags
+ * a resize handle through used to stay resident for the session; the merged
+ * geometry behind a 10-seat round table is not small, so this was the larger of
+ * the two viewer leaks (AGENT-BRIEF §1.8).
+ */
+const geometryCache = new LruCache<SlotGeometry[]>(300, (slots) => {
+  for (const slot of slots) slot.geometry.dispose()
+})
 
 /** Merged geometry per material slot (meters), cached by catalog id + size. */
 export function objectSlotGeometries(catalogId: string, size: Size3D): SlotGeometry[] {
@@ -73,7 +82,14 @@ export function objectSlotGeometries(catalogId: string, size: Size3D): SlotGeome
   return result
 }
 
-const materialCache = new Map<string, THREE.MeshStandardMaterial>()
+/**
+ * Keyed by colour hex, so the working set is the palette — a ceiling of 128 only
+ * ever bites if something starts feeding continuous colours (a dragged colour
+ * input). That is exactly the case worth bounding, and the case where disposing
+ * the evicted material is right: nothing is still wearing a colour the user
+ * dragged past.
+ */
+const materialCache = new LruCache<THREE.MeshStandardMaterial>(128, (m) => m.dispose())
 
 /** Shared matte material for a color (do not mutate — it is shared). */
 export function slotMaterial(colorHex: string): THREE.MeshStandardMaterial {
@@ -87,7 +103,7 @@ export function slotMaterial(colorHex: string): THREE.MeshStandardMaterial {
 
 export const SELECT_TINT = '#3056d3'
 const SELECT_EMISSIVE = new THREE.Color(SELECT_TINT)
-const selectedMaterialCache = new Map<string, THREE.MeshStandardMaterial>()
+const selectedMaterialCache = new LruCache<THREE.MeshStandardMaterial>(128, (m) => m.dispose())
 
 /** Emissive-tinted variant of a color, cached — used while an object is selected. */
 export function selectedSlotMaterial(colorHex: string): THREE.MeshStandardMaterial {

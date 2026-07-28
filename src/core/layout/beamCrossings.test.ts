@@ -17,17 +17,29 @@ describe('beamCrossings', () => {
   /**
    * The guard against reading `axis` as the constrained coordinate instead of the
    * run direction. Swapping the two families keeps the grid looking like a grid,
-   * so the only thing that catches it is that the snap target would no longer be
-   * a point this function returns.
+   * so the only thing that catches it is that the snap target would no longer sit
+   * on a line this file draws — the two families' positions are disjoint sets.
+   *
+   * ⚠ This used to assert the snapped point was one of the CROSSINGS. `snapToBeam`
+   * now snaps the nearer family only and lets the fixture slide along that beam
+   * (source doc §32, PLAN-05/A2), so the invariant it can carry is the true one:
+   * a fixture is always ON a beam, never floating mid-bay (source doc §12). The
+   * crossings stay reachable, and the sweep still reaches some.
    */
-  it('holds every point snapToBeam can produce', () => {
+  it('draws a beam through every point snapToBeam can produce', () => {
+    const xs = beams.find((b) => b.axis === 'y')!.positions
+    const ys = beams.find((b) => b.axis === 'x')!.positions
     const marked = new Set(beamCrossings(beams).map(key))
+    let onCrossing = 0
     // primes, so the sweep never lands on a beam by construction
     for (let x = 0; x <= resort.size.width; x += 137) {
       for (let y = 0; y <= resort.size.depth; y += 149) {
-        expect(marked.has(key(snapToBeam({ x, y }, beams)))).toBe(true)
+        const point = snapToBeam({ x, y }, beams)
+        expect(xs.includes(point.x) || ys.includes(point.y)).toBe(true)
+        if (marked.has(key(point))) onCrossing++
       }
     }
+    expect(onCrossing).toBeGreaterThan(0)
   })
 
   it('marks the procedural room too, so the mode is never empty', () => {

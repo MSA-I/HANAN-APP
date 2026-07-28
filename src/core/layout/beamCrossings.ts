@@ -41,10 +41,14 @@ export function beamSpans(
 }
 
 /**
- * The points where the two families meet — the ONLY places a ceiling fixture may
- * hang, because `snapToBeam` snaps to a crossing and not to a beam (beams.ts).
- * Marking them is what tells the user why a chandelier "jumps": on the resort
- * grid that is 9 × 4 = 36 points spread over the whole hall.
+ * The points where the two families meet: 9 × 4 = 36 of them on the resort grid.
+ *
+ * They used to be the ONLY places a ceiling fixture could hang, and marking them
+ * was what told the user why a chandelier "jumps". Since PLAN-05/A2 a fixture
+ * snaps to the nearest BEAM and slides along it (source doc §32), so these are no
+ * longer the whole story — they are the points where both families hold it, which
+ * `snapToBeam` still pulls onto from either side. The lines in `beamSpans` are now
+ * the part of the drawing that shows where a fixture may actually go.
  */
 export function beamCrossings(beams: CeilingBeams[]): Vec2[] {
   const xs = beams.find((b) => b.axis === 'y')?.positions ?? []
