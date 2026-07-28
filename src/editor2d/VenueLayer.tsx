@@ -3,12 +3,15 @@
  * pile of shapes and colours — the surroundings should look like an
  * architectural plan section, same for the reception area").
  *
- * The rule the whole layer follows: THE BUILDING IS THE DARK THING, the contents
- * are the light thing, and colour appears only when it carries information. So
- * the wall is a filled band of real thickness (poché), a zone is a hatch and a
- * small tag rather than a pastel fill, and nothing in here is coloured by
- * "kind" any more. The full contract, which PLAN-07 also reads so that design
- * mode matches: HANAN-APP-DOCS/Plans/R2/handoff/04-plan-style.md.
+ * The rule the whole layer follows: THE BUILDING IS THE DARK THING and the
+ * contents are the light thing. The wall is a filled band of real thickness
+ * (poché), furniture is a thin outline, and line weight is a hierarchy — wall
+ * over zone over furniture. The full contract, which PLAN-07 also reads so that
+ * design mode matches: HANAN-APP-DOCS/Plans/R2/handoff/04-plan-style.md.
+ *
+ * ⚠ ONE part of that contract was reversed by the user on 2026-07-28: zones are
+ * a soft tint again, not a hatch. The reasoning is with `ZONE_TINT` below. The
+ * handoff document still describes the hatch version — read the code, not it.
  */
 import { Fragment } from 'react'
 import { Group, Layer, Line, Rect, Text } from 'react-konva'
@@ -25,8 +28,6 @@ import { strings } from '../ui/strings'
 
 const PAPER = '#ffffff'
 const WALL = '#2b2724'
-const ZONE_STROKE = '#8a827a'
-const HATCH = '#b9b2a9'
 const FLOOR_AREA_STROKE = '#cfc9c1'
 const LABEL_TEXT = '#4a443e'
 const LABEL_BG = 'rgba(255,255,255,0.82)'
@@ -45,11 +46,6 @@ const LEVEL_TEXT = '#6b635a'
  */
 const WALL_THICKNESS = 20
 
-/** the hatch tile is drawn at 2× and scaled by 0.5, which is what anti-aliases it */
-const TILE = 32
-const HATCH_LINE = 4
-const PATTERN_UNIT = 0.5
-
 const LABEL_FONT_SIZE = 44
 const LEVEL_FONT_SIZE = 30
 
@@ -57,93 +53,60 @@ const LEVEL_FONT_SIZE = 30
  *  the furniture standing on the far side to the same value — one number. */
 export const ZONE_OFF_OPACITY = 0.28
 
-interface Hatch {
-  /** degrees the horizontal tile is turned by — this is the whole difference between kinds */
-  rotation: number
-  /** multiplies the 16 cm base pitch: below 1 is denser, above 1 is sparser */
-  density: number
-  dots?: boolean
+interface ZoneTint {
+  fill: string
+  stroke: string
 }
 
-const ZONE_HATCH: Record<string, Hatch> = {
-  pool: { rotation: 45, density: 0.75 },
-  saviv: { rotation: 45, density: 1.5 },
-  dancefloor: { rotation: 45, density: 1.6 },
-  bar: { rotation: -45, density: 1 },
-  dj: { rotation: -45, density: 0.8 },
-  chuppah: { rotation: 90, density: 1 },
-  passage: { rotation: 0, density: 1, dots: true },
+/**
+ * One soft tint per zone kind. Hue carries the identity, the way it did before
+ * the plan restyle — blue is the pool, pink the ceremony, violet the dance floor
+ * — so the plan is read by colour and not by decoding a pattern legend.
+ *
+ * These replaced a set of hatch fills. Hatching is the correct architectural
+ * convention and it is what §28 asked for, but at hall zoom the floor became one
+ * field of texture with no way to tell two zones apart at a glance, so the user
+ * asked for the colour back (2026-07-28). What is kept from the restyle is
+ * everything ELSE about it: the wall is still poché at real thickness, furniture
+ * is still a thin outline, and the line-weight hierarchy still runs wall over
+ * zone over furniture.
+ *
+ * Both values are deliberately weak. The fills sit a few percent off the paper
+ * and the strokes are desaturated to roughly a third of the originals, which is
+ * the whole difference from the first colour scheme: that one used saturated
+ * strokes (#0891b2, #7c3aed) and they shouted over the furniture they contain.
+ *
+ * Nested zones rely on the biggest-first draw order below — the ceremony and DJ
+ * rectangles sit inside the pool one and paint over it, so their tint is what
+ * shows. That is why the fills are opaque: stacking three translucent layers
+ * would make the innermost zone the darkest, which is backwards.
+ */
+const ZONE_TINT: Record<string, ZoneTint> = {
+  pool: { fill: '#e6f2f5', stroke: '#a6c6cf' },
+  saviv: { fill: '#eaf3ec', stroke: '#aac7b2' },
+  dancefloor: { fill: '#eeecf8', stroke: '#bab4d8' },
+  bar: { fill: '#f7efe1', stroke: '#d3bf9b' },
+  dj: { fill: '#fbeee1', stroke: '#dcbc98' },
+  chuppah: { fill: '#f9eaf1', stroke: '#ddb4c9' },
+  passage: { fill: '#edeff3', stroke: '#bcc3cc' },
   // the pack used to spell the passage `corridor`; both resolve, as in strings.ts
-  corridor: { rotation: 0, density: 1, dots: true },
-  kabalatPanim: { rotation: -45, density: 1.3 },
+  corridor: { fill: '#edeff3', stroke: '#bcc3cc' },
+  kabalatPanim: { fill: '#edf2e9', stroke: '#b4c6a8' },
 }
-const FALLBACK_HATCH: Hatch = { rotation: 45, density: 1.2 }
-
-/**
- * ONE tile per module, not one per shape. Every zone reuses these two canvases
- * and only differs by `fillPatternRotation`/`fillPatternScale`; building a canvas
- * per zone is the performance trap this layer was warned about, because the
- * pattern lives in world coordinates and gets re-rasterised on zoom.
- */
-function makeTile(draw: (ctx: CanvasRenderingContext2D) => void): HTMLCanvasElement | null {
-  if (typeof document === 'undefined') return null
-  const canvas = document.createElement('canvas')
-  canvas.width = TILE
-  canvas.height = TILE
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return null
-  ctx.fillStyle = HATCH
-  draw(ctx)
-  return canvas
-}
-
-let lineTile: HTMLCanvasElement | null | undefined
-let dotTile: HTMLCanvasElement | null | undefined
-
-/**
- * Konva types `fillPatternImage` as HTMLImageElement, but it only ever hands the
- * value to `createPattern`, which takes any CanvasImageSource — a canvas is the
- * cheap way to make a tile without shipping an asset. The cast is the whole of
- * the workaround and lives here alone.
- */
-function hatchTile(hatch: Hatch): HTMLImageElement | undefined {
-  return (tileCanvas(hatch) ?? undefined) as HTMLImageElement | undefined
-}
-
-function tileCanvas(hatch: Hatch): HTMLCanvasElement | null {
-  if (hatch.dots) {
-    if (dotTile === undefined) {
-      dotTile = makeTile((ctx) => {
-        ctx.beginPath()
-        ctx.arc(TILE / 2, TILE / 2, HATCH_LINE / 2 + 1, 0, Math.PI * 2)
-        ctx.fill()
-      })
-    }
-    return dotTile
-  }
-  if (lineTile === undefined) {
-    lineTile = makeTile((ctx) => ctx.fillRect(0, (TILE - HATCH_LINE) / 2, TILE, HATCH_LINE))
-  }
-  return lineTile
-}
+const FALLBACK_TINT: ZoneTint = { fill: '#f0eff4', stroke: '#c0bcc8' }
 
 const zoneKey = (z: RestrictedZone) => `${z.kind}-${z.x}-${z.y}`
 
-function ZoneHatch({ zone }: { zone: RestrictedZone }) {
-  const hatch = ZONE_HATCH[zone.kind ?? ''] ?? FALLBACK_HATCH
-  const scale = PATTERN_UNIT * hatch.density
+function ZoneFill({ zone }: { zone: RestrictedZone }) {
+  const tint = ZONE_TINT[zone.kind ?? ''] ?? FALLBACK_TINT
   return (
     <Rect
       x={zone.x}
       y={zone.y}
       width={zone.width}
       height={zone.depth}
-      fillPatternImage={hatchTile(hatch)}
-      fillPatternRepeat="repeat"
-      fillPatternRotation={hatch.rotation}
-      fillPatternScaleX={scale}
-      fillPatternScaleY={scale}
-      stroke={ZONE_STROKE}
+      fill={tint.fill}
+      stroke={tint.stroke}
       strokeWidth={1.2}
       strokeScaleEnabled={false}
     />
@@ -245,7 +208,7 @@ export function VenueLayer() {
   const zoneNodes = (indices: number[]) => (
     <Fragment>
       {indices.map((i) => (
-        <ZoneHatch key={`z-${zoneKey(zones[i])}`} zone={zones[i]} />
+        <ZoneFill key={`z-${zoneKey(zones[i])}`} zone={zones[i]} />
       ))}
       {indices.map((i) =>
         occupiedKeys.has(zoneKey(zones[i])) ? null : (
