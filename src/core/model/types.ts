@@ -54,6 +54,13 @@ export type Attachment =
        * mid-gesture: a top item is pushed out of the hole, a hole item is held in.
        */
       inHole?: boolean
+      /**
+       * This item stands on ANOTHER surface item of the same table rather than
+       * on the bare top — a folded napkin on its place setting (source doc §27).
+       * It tracks that item's position and dies with it. Optional and additive,
+       * so no schema bump: a scene written before it simply has none.
+       */
+      stackedOn?: Id
     }
 
 /** Children sort: chairs by seat index, surface decor after them (stable). */

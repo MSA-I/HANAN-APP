@@ -14,8 +14,16 @@
 import type { Vec2 } from '../model/types'
 import type { CeilingBeams, VenuePack } from '../venuePacks'
 
-/** How far below the truss a fixture may be pulled down — source doc §13, "up to 4 m". */
-export const MAX_DROP = 400
+/**
+ * Source doc §13: "every chandelier can be at any height, up to 4 m from the
+ * ceiling". Measured from the CEILING — the roof at `wallHeight` — not from the
+ * truss it hangs off. Confirmed by the user 2026-07-28.
+ *
+ * The distinction is the whole range: the resort's truss already sits 2.65 m
+ * below its 11.6 m roof, so of the 4 m only 1.35 m is left to give. Reading it
+ * off the truss instead would let a fixture drop to 4.95 m — well past the limit.
+ */
+export const MAX_DROP_FROM_CEILING = 400
 
 /** ponytail: uniform grid fallback, real beams when the model provides them. */
 const FALLBACK_SPACING = 250
@@ -71,10 +79,12 @@ export function snapToBeam(pos: Vec2, beams: CeilingBeams[]): Vec2 {
 
 /**
  * Legal elevations for a fixture of this height: from the hang anchor (its top
- * touching the truss, the seeded value) down to MAX_DROP below it.
+ * touching the truss, the seeded value) down to the ceiling limit.
  *
- * ⛔ The 4 m figure is the working assumption recorded in PLAN-04 — read as "the
- * fixture may hang up to 4 m below the ceiling". See BLOCKED-04-A3.md.
+ * The TOP of the fixture may not fall below `wallHeight − MAX_DROP_FROM_CEILING`.
+ * A truss that already hangs far below the roof therefore leaves less to give,
+ * and one flush with it leaves the full 4 m — which is the point of measuring
+ * from the ceiling rather than from the anchor.
  */
 export function hangRange(
   pack: Pick<VenuePack, 'hangHeight'> | undefined,
@@ -83,7 +93,9 @@ export function hangRange(
 ): { min: number; max: number } {
   const anchor = pack?.hangHeight ?? wallHeight
   const max = anchor - height
-  return { min: Math.max(0, max - MAX_DROP), max: Math.max(0, max) }
+  // the lowest the TOP may go, measured down from the ceiling
+  const floorOfRange = wallHeight - MAX_DROP_FROM_CEILING - height
+  return { min: Math.max(0, Math.min(max, floorOfRange)), max: Math.max(0, max) }
 }
 
 export function clampHang(

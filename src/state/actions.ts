@@ -21,6 +21,12 @@ import type {
 import { relativeTransform, rotateVec } from '../core/space'
 import { aabbUnion, holeRadius, outlineAABB, type AABB } from '../core/layout/bounds'
 import {
+  checkPlacement,
+  slideToLegal,
+  type PlacementCandidate,
+  type Violation,
+} from '../core/layout/collision'
+import {
   CEILING_INSET,
   DEFAULT_AISLE,
   MAX_CEILING,
@@ -30,7 +36,7 @@ import {
   rectRing,
   tableCellSize,
 } from '../core/layout/fillHall'
-import { clampHang } from '../core/layout/beams'
+import { beamGrid, clampHang, snapToBeam } from '../core/layout/beams'
 import { seatItemTransforms } from '../core/layout/seatItemLayout'
 import { seatsForEntry } from '../core/layout/seatLayout'
 import { getHallLayout } from '../core/hallLayouts'
@@ -62,11 +68,32 @@ import { temporalStore, useEditorStore, type ActiveZone, type EditorState, type 
 const set = useEditorStore.setState
 const get = useEditorStore.getState
 
+/**
+ * Why the last mutation refused to do what it was asked. Written by the rule
+ * gates below (never by a component) and flushed to the overlay store by
+ * `mutateScene`, so a blocked drag explains itself in the status bar and the
+ * message clears the moment anything else succeeds.
+ *
+ * Set BEFORE the producer opens (that is where the gates run) or inside it;
+ * `mutateScene` publishes whatever is pending and clears it, so an action that
+ * refuses nothing publishes null and wipes the previous message.
+ */
+let refusal: Violation | null = null
+
 function mutateScene(fn: (scene: SceneState, state: EditorState) => void): void {
   set((state) => {
     fn(state.scene, state)
     state.dirty = true
   })
+  overlay.setViolation(refusal)
+  refusal = null
+}
+
+/** A gesture that changed nothing still owes the user the reason. No scene write,
+ *  so a refused rotation neither dirties the project nor lands in undo. */
+function publishRefusal(): void {
+  overlay.setViolation(refusal)
+  refusal = null
 }
 
 function clampSize(catalogId: string, size: Size3D): Size3D {
@@ -99,6 +126,87 @@ function subtreeAABB(scene: SceneState, id: Id): AABB | null {
     if (b) boxes.push(b)
   }
   return boxes.length ? aabbUnion(boxes) : null
+}
+
+// ---------------------------------------------------------------------------
+// placement rules — the gate every NEW gesture passes through
+// ---------------------------------------------------------------------------
+
+/** The legality question for an existing object, optionally at a hypothetical pose. */
+function candidateFor(
+  obj: SceneObject,
+  at?: { transform?: Transform2D; size?: Size3D },
+  group?: Id[],
+): PlacementCandidate {
+  return {
+    catalogId: obj.catalogId,
+    transform: at?.transform ?? obj.transform,
+    size: at?.size ?? obj.size,
+    excludeId: group ?? obj.id,
+    subtreeOf: obj.id,
+    parentId: obj.parentId ?? undefined,
+  }
+}
+
+/**
+ * Do the rules apply to this object at all?
+ *
+ * Two exemptions, both deliberate:
+ *
+ *  - A fixed station (`zoneKind`: bar, DJ booth, chuppah) is not placed by the
+ *    user at all — `clampToVenue` snaps it into its home zone from wherever it
+ *    was let go. Gating it would refuse moves that were going to be overridden.
+ *  - An object that is ALREADY illegal where it stands. Enforcement is not
+ *    retroactive (plan decision, source doc §9): a project saved before these
+ *    rules, or one a legacy path pushed into a zone, must stay editable. Gating
+ *    it would freeze it in place forever, since every candidate pose inherits
+ *    the same violation.
+ */
+function ruled(scene: SceneState, obj: SceneObject): boolean {
+  if (obj.parentId) return false // table-top items answer to clampToSurface
+  if (getCatalogEntry(obj.catalogId).zoneKind) return false
+  return checkPlacement(scene, candidateFor(obj)).length === 0
+}
+
+function shiftedBy(t: Transform2D, delta: Vec2, factor = 1): Transform2D {
+  return { ...t, position: { x: t.position.x + delta.x * factor, y: t.position.y + delta.y * factor } }
+}
+
+/**
+ * The largest fraction of `delta` the whole selection may travel. A group moves
+ * rigidly — bisecting one scalar keeps it that way, and stopping AT the contact
+ * point is what makes a blocked drag read as sliding into place rather than
+ * freezing at the start of the gesture.
+ */
+function allowedDelta(scene: SceneState, objs: SceneObject[], delta: Vec2): Vec2 {
+  const gated = objs.filter((o) => ruled(scene, o))
+  if (!gated.length || (!delta.x && !delta.y)) return delta
+  const ids = gated.map((o) => o.id)
+  const violationsAt = (factor: number): Violation[] =>
+    gated.flatMap((o) =>
+      checkPlacement(scene, candidateFor(o, { transform: shiftedBy(o.transform, delta, factor) }, ids)),
+    )
+
+  const blocking = violationsAt(1)
+  if (!blocking.length) return delta
+  refusal = blocking[0]
+  let lo = 0
+  let hi = 1
+  for (let i = 0; i < 12; i++) {
+    const mid = (lo + hi) / 2
+    if (violationsAt(mid).length) hi = mid
+    else lo = mid
+  }
+  return { x: delta.x * lo, y: delta.y * lo }
+}
+
+/** Refuse a pose change (rotation, resize) outright — there is nothing to slide along. */
+function poseAllowed(scene: SceneState, obj: SceneObject, at: { transform?: Transform2D; size?: Size3D }): boolean {
+  if (!ruled(scene, obj)) return true
+  const blocking = checkPlacement(scene, candidateFor(obj, at))
+  if (!blocking.length) return true
+  refusal = blocking[0]
+  return false
 }
 
 /** Shift needed to bring a box back onto the floor [0,width]×[0,depth]. */
@@ -175,17 +283,37 @@ function zoneShift(box: AABB, z: RestrictedZone): Vec2 {
 }
 
 /**
- * HARD bounds enforcement. Shifts each touched TOP-LEVEL object so its footprint
- * (table + chairs) stays on the venue floor and off any restricted zone (pool…).
- * Fixed stations (entry.zoneKind: bar, DJ booth) are the exception: they are
- * clamped INTO their matching zone and can never leave it. The single write path
- * means this catches drag, paste, duplicate, arrow-nudge, resize and rotate in
- * one place. Attached chairs follow their clamped table, so we skip them here.
- * Objects larger than the venue align to the near edge.
+ * Bounds enforcement. Clamps each touched TOP-LEVEL object into its home zone
+ * (fixed stations) or onto the reception deck (whitelist), and — in `legacy`
+ * mode only — shoves it back onto the venue floor and out of every no-go zone.
+ * Attached chairs follow their clamped table, so we skip them here. Objects
+ * larger than the venue align to the near edge.
+ *
+ * ## The two modes
+ *
+ * `strict` (default) does NOT push. Since the placement gate above refuses an
+ * illegal move before it happens, a push here could only ever fire on a pose the
+ * user did not ask for — silently relocating furniture behind a legal-looking
+ * drag, which is the behaviour source doc §57 complains about.
+ *
+ * `legacy` keeps the original shove, and four kinds of caller need it:
+ *
+ * | route | why it must still push |
+ * |---|---|
+ * | `addObject` | the drop point is pre-validated by the ghost; the reception deck still has to eject what does not belong on it, and the kabalatPanim rule is a push by definition |
+ * | `applyHallLayout` / `applySavedLayout` | the authored layout wins over the rules; refusing would silently drop tables from a saved plan |
+ * | `fillHallWithTables` | the filler already solved occupancy; re-judging it here would reject its own valid slots |
+ * | `duplicateObjects` / `pasteSubtrees` / align / distribute | a group operation is nudged as a unit, never rejected item by item |
+ *
+ * A migration needs no entry: `migrations/index.ts` deliberately does not clamp,
+ * and an old project is only ever re-clamped by the user's first real edit.
  */
-function clampToVenue(scene: SceneState, ids: Iterable<Id>): void {
+type ClampMode = 'strict' | 'legacy'
+
+function clampToVenue(scene: SceneState, ids: Iterable<Id>, mode: ClampMode = 'strict'): void {
   const { width, depth } = scene.venue.size
-  const zones = getVenuePack(scene.venue.venuePackId)?.restricted ?? []
+  const pack = getVenuePack(scene.venue.venuePackId)
+  const zones = pack?.restricted ?? []
   const done = new Set<Id>()
   const shift = (obj: SceneObject, box: AABB, d: Vec2): AABB => {
     obj.transform.position.x += d.x
@@ -198,7 +326,7 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>): void {
     done.add(id)
     let box = subtreeAABB(scene, id)
     if (!box) continue
-    let d = floorShift(box, width, depth)
+    let d = mode === 'legacy' ? floorShift(box, width, depth) : { x: 0, y: 0 }
     if (d.x || d.y) box = shift(obj, box, d)
 
     // The reception deck wins over the home zone: a chuppah dropped up there is
@@ -230,9 +358,17 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>): void {
       // A translation cannot put an over-wide AABB inside its home zone, so snap
       // only those impossible rotations to the nearest quarter turn and measure
       // again. Smaller stations keep their free rotation.
+      //
+      // handoff/04-to-03.md §3 asks whether this should refuse instead of
+      // rewriting the angle now that the clamp blocks elsewhere. It stays a
+      // rewrite: a fixed station is exempt from the placement gate entirely
+      // (see `ruled`), and which chuppot are over-wide depends on CATALOG_SCALE,
+      // still open as gate 4b in BLOCKED-01-A3. chuppah.test.ts locks the
+      // current behaviour; flipping it is PLAN-01's gate to close, not ours.
       if (box.maxX - box.minX > nearest.width || box.maxY - box.minY > nearest.depth) {
         obj.transform.rotation = Math.round(obj.transform.rotation / 90) * 90
         box = subtreeAABB(scene, id) ?? box
+        // a station is clamped in both modes, so it is re-seated in both too
         d = floorShift(box, width, depth)
         if (d.x || d.y) box = shift(obj, box, d)
         nearest = nearestHome(box)
@@ -244,9 +380,17 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>): void {
 
     // Restricted zones are FLOOR no-go areas — their own contract says furniture
     // is pushed out. A ceiling fixture is not on the floor, and pushing it meant
-    // nothing could ever hang over the dance floor or the bar.
-    if (getCatalogEntry(obj.catalogId).placement === 'ceiling') continue
+    // nothing could ever hang over the dance floor or the bar. Instead it is
+    // pinned to the truss lattice (source doc §12), which is what makes 2D drag,
+    // arrow keys, paste and align agree with the 3D drag and the initial drop.
+    if (getCatalogEntry(obj.catalogId).placement === 'ceiling') {
+      const beamed = snapToBeam(obj.transform.position, beamGrid(pack, scene.venue.size))
+      obj.transform.position.x = beamed.x
+      obj.transform.position.y = beamed.y
+      continue
+    }
 
+    if (mode === 'strict') continue
     for (const z of zones) {
       const p = zonePush(box, z, width, depth)
       if (!p.x && !p.y) continue
@@ -270,10 +414,44 @@ function clampToSurface(scene: SceneState, child: SceneObject): void {
   if (child.attachment?.kind !== 'surface' || !child.parentId) return
   const parent = scene.objects[child.parentId]
   if (!parent) return
+  const entry = getCatalogEntry(child.catalogId)
+
+  // stacked on another item (napkin on its place setting): it IS that item's
+  // position — it rides along when the setting is nudged and cannot drift off it
+  const host = child.attachment.stackedOn ? scene.objects[child.attachment.stackedOn] : undefined
+  if (host && host.parentId === child.parentId) {
+    child.transform.position = { ...host.transform.position }
+    child.transform.rotation = host.transform.rotation
+    child.transform.elevation = parent.size.height + host.size.height
+    return
+  }
+
+  // Source doc §28 pins a hand-placed centrepiece to the middle of the table.
+  //
+  // A DESIGN is exempt, and has to be: all four built-ins lay a candelabrum in
+  // the centre with a pair of candlesticks at ±38 cm, and every saved design is
+  // an arrangement by definition. Locking those to the centre would stack each
+  // design into one point and quietly turn four designs into four single items.
+  // Same rule the layouts already follow — authored content beats the placement
+  // law, and the law governs what the user does by hand.
   const pOutline = getCatalogEntry(parent.catalogId).footprint(parent.size).outline
-  const cOutline = getCatalogEntry(child.catalogId).footprint(child.size).outline
+  const cOutline = entry.footprint(child.size).outline
   const rot = child.transform.rotation
   const pos = child.transform.position
+
+  if (entry.surfaceAnchor === 'center' && child.meta.design === undefined) {
+    // On a ring table the two rules are the same place: the middle of the table
+    // IS the opening (§48), so a centrepiece there stands on the floor and rises
+    // through it. Anchoring it at table height instead would float it over a
+    // hole. On a solid top the hole radius is 0 and this reads as before.
+    const throughHole = holeRadius(pOutline) > 0
+    child.attachment.inHole = throughHole || undefined
+    child.transform.position.x = 0
+    child.transform.position.y = 0
+    child.transform.elevation = throughHole ? 0 : parent.size.height
+    return
+  }
+
   const inHole = child.attachment.inHole === true
   if (pOutline.kind === 'circle') {
     const len = Math.hypot(pos.x, pos.y)
@@ -421,7 +599,7 @@ export function addObject(catalogId: string, position: Vec2, seating?: Partial<S
       // the chairs are a different category — hiding it would swallow them silently
       unhideCategoryOf(scene, obj.seating.chairCatalogId)
     }
-    clampToVenue(scene, [obj.id])
+    clampToVenue(scene, [obj.id], 'legacy')
   })
   select([obj.id])
   return obj.id
@@ -473,6 +651,19 @@ export function seatItems(scene: SceneState, tableId: Id): SceneObject[] {
   )
 }
 
+/** Items standing ON `hostId` — a napkin dies with the place setting under it. */
+function stackedOn(scene: SceneState, hostId: Id): SceneObject[] {
+  return Object.values(scene.objects).filter(
+    (o) => o.attachment?.kind === 'surface' && o.attachment.stackedOn === hostId,
+  )
+}
+
+/** Delete a surface item and whatever is stacked on top of it. */
+function deleteWithStack(scene: SceneState, item: SceneObject): void {
+  for (const rider of stackedOn(scene, item.id)) delete scene.objects[rider.id]
+  delete scene.objects[item.id]
+}
+
 /**
  * Lay one 'seat'-placement item (place setting) in front of EVERY chair of a table,
  * already turned to face its guest — the whole point is that a 22-seat table costs
@@ -484,6 +675,12 @@ export function seatItems(scene: SceneState, tableId: Id): SceneObject[] {
  * can never change (all six chairs share one CHAIR_SIZE), so nothing the reconciler
  * watches can invalidate them. Changing seat count or gap DOES leave them stale —
  * that is the case re-dropping recovers.
+ *
+ * An entry with `requiresHost` (the napkins) lays one copy per HOST instead of per
+ * seat, pinned to it — so it inherits the settings' own layout for free, including
+ * the serpentine's curve, and refuses outright when the table is bare (§27).
+ * "Replace the previous set" is scoped to the same catalog id for the same reason:
+ * dropping napkins must not sweep away the settings they stand on.
  */
 export function addSeatItemsToTable(catalogId: string, tableId: Id): Id[] {
   let ids: Id[] = []
@@ -499,19 +696,42 @@ function laySeatItems(scene: SceneState, catalogId: string, tableId: Id): Id[] {
   const table = scene.objects[tableId]
   if (!table?.seating || table.parentId || isEffectivelyLocked(scene, table)) return []
   const ids: Id[] = []
-  for (const stale of seatItems(scene, tableId)) delete scene.objects[stale.id]
+  // scoped to the same catalog id: dropping napkins must not sweep away the
+  // place settings they are about to stand on (source doc §27)
+  for (const stale of seatItems(scene, tableId)) {
+    if (stale.catalogId === catalogId) deleteWithStack(scene, stale)
+  }
+
+  const entry = getCatalogEntry(catalogId)
+  const lay = (t: Transform2D, host?: SceneObject) => {
+    const obj = createObject(catalogId, { x: 0, y: 0 })
+    obj.parentId = tableId
+    obj.attachment = host ? { kind: 'surface', stackedOn: host.id } : { kind: 'surface' }
+    obj.transform = { ...t, elevation: table.size.height + (host?.size.height ?? 0) }
+    scene.objects[obj.id] = obj
+    ids.push(obj.id)
+  }
+
+  // an entry with `requiresHost` (the napkins) lays one copy per HOST rather than
+  // per seat, so it inherits the settings' own layout — including the serpentine's
+  // curve — and refuses outright on a bare table
+  if (entry.requiresHost) {
+    const hosts = seatItems(scene, tableId).filter((o) => o.catalogId === entry.requiresHost)
+    if (!hosts.length) {
+      refusal = { kind: 'missingHost', requires: entry.requiresHost }
+      return ids
+    }
+    for (const host of hosts) lay(host.transform, host)
+    unhideCategoryOf(scene, catalogId)
+    return ids
+  }
+
   const chair = getCatalogEntry(table.seating.chairCatalogId).defaultSize
-  const item = getCatalogEntry(catalogId).defaultSize
   // seatsForEntry, not the outline math: on the serpentine the seats follow the
   // curve, and settings laid on rect positions would float beside the table
   const seats = seatsForEntry(getCatalogEntry(table.catalogId), table.size, table.seating, chair)
-  for (const t of seatItemTransforms(seats, chair, item, table.seating.offset)) {
-    const obj = createObject(catalogId, { x: 0, y: 0 })
-    obj.parentId = tableId
-    obj.attachment = { kind: 'surface' }
-    obj.transform = { ...t, elevation: table.size.height }
-    scene.objects[obj.id] = obj
-    ids.push(obj.id)
+  for (const t of seatItemTransforms(seats, chair, entry.defaultSize, table.seating.offset)) {
+    lay(t)
   }
   unhideCategoryOf(scene, catalogId)
   return ids
@@ -592,7 +812,7 @@ export function fillHallWithTables(presetId: string): Id[] {
     }
     unhideCategoryOf(scene, preset.tableCatalogId)
     unhideCategoryOf(scene, preset.chairCatalogId)
-    clampToVenue(scene, ids)
+    clampToVenue(scene, ids, 'legacy')
   })
   select(ids)
   return ids
@@ -808,7 +1028,7 @@ export function applyHallLayout(layoutId: string): Id[] {
       unhideCategoryOf(scene, preset.chairCatalogId)
       ids.push(obj.id)
     }
-    clampToVenue(scene, ids)
+    clampToVenue(scene, ids, 'legacy')
   })
   pruneSelection()
   return ids
@@ -830,7 +1050,7 @@ export function applySavedLayout(layout: SavedLayout): Id[] {
       unhideCategoryOf(scene, root.catalogId)
       for (const child of childrenOf(scene, id)) unhideCategoryOf(scene, child.catalogId)
     }
-    clampToVenue(scene, ids)
+    clampToVenue(scene, ids, 'legacy')
   })
   pruneSelection()
   return ids
@@ -859,7 +1079,9 @@ export function removeObjects(ids: Id[]): void {
             toReconcile.add(table.id)
           }
         } else {
-          delete scene.objects[id]
+          // whatever stands on it goes too — a napkin without its setting is
+          // exactly the state §27 forbids
+          deleteWithStack(scene, obj)
         }
         continue
       }
@@ -912,7 +1134,7 @@ export function duplicateObjects(ids: Id[], offset: Vec2 = { x: 50, y: 50 }): Id
       }
       newIds.push(copy.id)
     }
-    clampToVenue(scene, newIds)
+    clampToVenue(scene, newIds, 'legacy')
   })
   if (newIds.length) select(newIds)
   return newIds
@@ -1093,7 +1315,7 @@ export function pasteSubtrees(subtrees: Subtree[], target?: Vec2): Id[] {
       }
       newIds.push(root.id)
     }
-    clampToVenue(scene, newIds)
+    clampToVenue(scene, newIds, 'legacy')
   })
   select(newIds)
   return newIds
@@ -1104,17 +1326,25 @@ export function pasteSubtrees(subtrees: Subtree[], target?: Vec2): Id[] {
 // ---------------------------------------------------------------------------
 
 export function moveObjectsBy(ids: Id[], delta: Vec2): void {
+  // The gate runs on the COMMITTED scene, before the producer opens: inside it
+  // every read of the 350-odd objects would go through an immer proxy, which
+  // measured as the dominant cost of a drag frame — see `indexOf` in collision.ts.
+  const before = get().scene
+  const step = allowedDelta(before, editable(before, ids), delta)
   mutateScene((scene) => {
-    for (const obj of editable(scene, ids)) {
+    const objs = editable(scene, ids)
+    for (const obj of objs) {
       if (obj.parentId) {
         const parent = scene.objects[obj.parentId]
+        // a table-top item is bounded by clampToSurface, not by the venue rules,
+        // so it keeps the full delta the pointer asked for
         const local = parent ? rotateVec(delta, -parent.transform.rotation) : delta
         obj.transform.position.x += local.x
         obj.transform.position.y += local.y
         if (obj.attachment?.kind === 'seat') obj.attachment.manual = true
       } else {
-        obj.transform.position.x += delta.x
-        obj.transform.position.y += delta.y
+        obj.transform.position.x += step.x
+        obj.transform.position.y += step.y
       }
     }
     clampToVenue(scene, ids)
@@ -1123,10 +1353,33 @@ export function moveObjectsBy(ids: Id[], delta: Vec2): void {
 }
 
 export function setPosition(id: Id, position: Vec2): void {
+  // gate on the committed scene, then mutate — see `indexOf` in collision.ts
+  const before = get().scene
+  const source = before.objects[id]
+  let landing = position
+  if (source && !isEffectivelyLocked(before, source) && ruled(before, source)) {
+    const target = { ...source.transform, position }
+    const blocking = checkPlacement(before, candidateFor(source, { transform: target }))
+    if (blocking.length) {
+      refusal = blocking[0]
+      // 3D drag and the inspector both land here: slide up to the obstacle
+      // rather than ignoring the gesture outright
+      const legal = slideToLegal(
+        before,
+        candidateFor(source, { transform: target }),
+        source.transform.position,
+      )
+      if (!legal) {
+        publishRefusal()
+        return
+      }
+      landing = legal
+    }
+  }
   mutateScene((scene) => {
     const obj = scene.objects[id]
     if (!obj || isEffectivelyLocked(scene, obj)) return
-    obj.transform.position = { ...position }
+    obj.transform.position = { ...landing }
     if (obj.attachment?.kind === 'seat') obj.attachment.manual = true
     clampToVenue(scene, [id])
     clampSurfaceChildrenIn(scene, [id])
@@ -1134,6 +1387,14 @@ export function setPosition(id: Id, position: Vec2): void {
 }
 
 export function setRotation(id: Id, rotation: number): void {
+  const before = get().scene
+  const source = before.objects[id]
+  if (source && !isEffectivelyLocked(before, source)) {
+    if (!poseAllowed(before, source, { transform: { ...source.transform, rotation } })) {
+      publishRefusal()
+      return
+    }
+  }
   mutateScene((scene) => {
     const obj = scene.objects[id]
     if (!obj || isEffectivelyLocked(scene, obj)) return
@@ -1164,6 +1425,20 @@ export function setElevation(id: Id, elevation: number): void {
 }
 
 export function rotateObjectsBy(ids: Id[], delta: number): void {
+  const before = get().scene
+  // all or nothing: a partially-applied group rotation is not a shape the user
+  // asked for, and there is no "slide" along an angle to fall back to
+  const refused = editable(before, ids).some(
+    (obj) =>
+      !obj.parentId &&
+      !poseAllowed(before, obj, {
+        transform: { ...obj.transform, rotation: obj.transform.rotation + delta },
+      }),
+  )
+  if (refused) {
+    publishRefusal()
+    return
+  }
   mutateScene((scene) => {
     for (const obj of editable(scene, ids)) {
       obj.transform.rotation += delta
@@ -1175,6 +1450,15 @@ export function rotateObjectsBy(ids: Id[], delta: number): void {
 }
 
 export function setSize(id: Id, size: Partial<Size3D>): void {
+  const before = get().scene
+  const source = before.objects[id]
+  if (source && !isEffectivelyLocked(before, source)) {
+    const target = clampSize(source.catalogId, { ...source.size, ...size })
+    if (!poseAllowed(before, source, { size: target })) {
+      publishRefusal()
+      return
+    }
+  }
   mutateScene((scene) => {
     const obj = scene.objects[id]
     if (!obj || isEffectivelyLocked(scene, obj)) return
@@ -1300,7 +1584,7 @@ export function alignObjects(ids: Id[], edge: AlignEdge): void {
       obj.transform.position.x += dx
       obj.transform.position.y += dy
     }
-    clampToVenue(scene, ids)
+    clampToVenue(scene, ids, 'legacy')
   })
 }
 
@@ -1329,7 +1613,7 @@ export function distributeObjects(ids: Id[], axis: 'x' | 'y'): void {
       if (axis === 'x') obj.transform.position.x += target - c
       else obj.transform.position.y += target - c
     })
-    clampToVenue(scene, ids)
+    clampToVenue(scene, ids, 'legacy')
   })
 }
 

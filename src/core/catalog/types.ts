@@ -182,6 +182,31 @@ export interface CatalogEntry {
    */
   zoneKind?: string
   /**
+   * The item belongs in a BAND around a zone, not inside it and not anywhere
+   * else: `within` cm measured outward from the zone rectangle's edge.
+   *
+   * The band, rather than a plain "allowed in zone X" list, is what source doc
+   * §14 actually asks for — "vegetation 1 goes only AROUND the pool". The pool
+   * is a no-go rectangle; nothing can be placed in it, so a membership list
+   * would have made the rule unsatisfiable.
+   *
+   * Absent or empty = the whole legal floor, which is every other entry.
+   */
+  allowedZones?: { kind: string; within: number }[]
+  /** The item must stand against a wall: at most N cm from the venue contour. */
+  nearWall?: number
+  /**
+   * The item cannot stand alone — it sits ON another catalog item, which must
+   * already be on the same table. Dropping it lays one copy per host (the
+   * napkins, which stack on the place settings; source doc §27).
+   */
+  requiresHost?: string
+  /**
+   * Where a surface item sits on its table. 'center' locks it to the middle,
+   * 'free' (the default) lets it be dropped and dragged anywhere on the top.
+   */
+  surfaceAnchor?: 'center' | 'free'
+  /**
    * Exclusivity tag. At most ONE object carrying a given `unique` value may
    * exist in a scene, across every catalog id that shares the tag — all eight
    * chuppot are `unique: 'chuppah'`, so any one of them blocks the rest, in any

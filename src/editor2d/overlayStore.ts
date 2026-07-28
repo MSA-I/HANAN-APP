@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { AABB } from '../core/layout/bounds'
+import type { Violation } from '../core/layout/collision'
 
 export interface Marquee {
   x1: number
@@ -40,6 +41,12 @@ interface OverlayState {
   replaceTarget: string | null
   ghost: PlacingGhost | null
   cursorWorld: { x: number; y: number } | null
+  /**
+   * Why the last placement or move was refused — what the status bar reads. Set
+   * by the single write path (state/actions.ts) and by the ghost, cleared by the
+   * next mutation that succeeds.
+   */
+  violation: Violation | null
   helpOpen: boolean
 }
 
@@ -55,6 +62,7 @@ export const useOverlayStore = create<OverlayState>()(() => ({
   replaceTarget: null,
   ghost: null,
   cursorWorld: null,
+  violation: null,
   helpOpen: false,
 }))
 
@@ -109,6 +117,13 @@ export const overlay = {
   },
   setCursorWorld(cursorWorld: { x: number; y: number } | null) {
     useOverlayStore.setState({ cursorWorld })
+  },
+  /** No-op when the reason has not changed — the ghost re-asks on every mouse move. */
+  setViolation(violation: Violation | null) {
+    const previous = useOverlayStore.getState().violation
+    if (previous === violation) return
+    if (previous && violation && JSON.stringify(previous) === JSON.stringify(violation)) return
+    useOverlayStore.setState({ violation })
   },
   toggleHelp() {
     useOverlayStore.setState((s) => ({ helpOpen: !s.helpOpen }))

@@ -33,6 +33,12 @@ function surfaceProp(
     maxSize: {},
     linkWidthDepth: shape === 'round',
     placement: 'surface',
+    // Source doc §28: a centrepiece dropped by hand belongs in the middle of the
+    // table, not wherever the pointer was. It binds hand placement only — a
+    // built-in or saved design lays its own arrangement, which is the whole point
+    // of a design (see clampToSurface). The three 'tableware' entries below opt
+    // out: they are laid per seat, not on the centre.
+    surfaceAnchor: 'center',
     materialSlots: [{ name: 'body', labelKey: 'body', defaultColor: color }],
     footprint: (s) =>
       shape === 'round'
@@ -76,6 +82,13 @@ function napkin(entry: CatalogEntry): CatalogEntry {
     ...entry,
     category: 'tableware',
     editableColorSlot: 'body',
+    // A napkin is laid ON the place setting, never on the bare cloth (source doc
+    // §27). That makes it a 'seat' item like the setting itself: one drop dresses
+    // every cover, and each napkin is pinned to the setting it stands on, so
+    // removing the settings takes the napkins with them.
+    placement: 'seat',
+    requiresHost: 'decor.place-setting',
+    surfaceAnchor: 'free', // laid per cover, so §28's centre lock does not apply
     materialSlots: entry.materialSlots.map((slot) =>
       slot.name === 'body' ? { ...slot, allowCustomColor: true } : slot,
     ),
@@ -127,5 +140,6 @@ export const tableDecorEntries: CatalogEntry[] = [
     ...surfaceProp('decor.place-setting', 'decorPlaceSetting', P('decor-place-setting.glb'), { width: 45, depth: 33, height: 15.9 }, '#d9d4cb', 'rect'),
     category: 'tableware',
     placement: 'seat',
+    surfaceAnchor: 'free', // one per cover — never the centre
   },
 ]

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { getCatalogEntry } from '../core/catalog/registry'
 import { HALL_LAYOUTS } from '../core/hallLayouts'
-import { MAX_DROP } from '../core/layout/beams'
+import { hangRange } from '../core/layout/beams'
 import { attachedChairs } from '../core/model/seatingReconciler'
 import { getHallDesign, getTableDesign, getTablePreset } from '../core/presets'
 import { getVenuePack } from '../core/venuePacks'
@@ -220,25 +220,27 @@ describe('replace object', () => {
       expect(seatItems(scene(), id).length).toBe(scene().objects[id].seating!.count)
     })
 
-    it('carries hand-placed decor over at its relative position', () => {
+    it('carries hand-placed decor over, re-anchored to the new table', () => {
       const id = addObject('table.round', { x: 800, y: 800 })
       const width = scene().objects[id].size.width
+      // dropped off-centre, but §28 anchors a hand-placed centrepiece to the middle
       addObjectToSurface('decor.vase-ceramic', id, { x: 800 + width / 4, y: 800 })
-      expect(
-        Object.values(scene().objects).find((o) => o.parentId === id && o.attachment?.kind === 'surface')!
-          .transform.position.x,
-      ).toBeCloseTo(width / 4)
+      const before = Object.values(scene().objects).find(
+        (o) => o.parentId === id && o.attachment?.kind === 'surface',
+      )!
+      expect(before.transform.position).toEqual({ x: 0, y: 0 })
+      expect(before.transform.elevation).toBe(scene().objects[id].size.height)
 
+      // the ring table's middle is its opening, so the same rule now puts the
+      // piece on the FLOOR through it (source doc §48)
       replaceObject(id, 'table.round-large')
       const decor = Object.values(scene().objects).filter(
         (o) => o.parentId === id && o.attachment?.kind === 'surface',
       )
       expect(decor).toHaveLength(1)
-      // a quarter of the half-width before, a quarter of the NEW half-width after
-      const newWidth = scene().objects[id].size.width
-      expect(newWidth).toBeGreaterThan(width)
-      expect(decor[0].transform.position.x).toBeCloseTo(newWidth / 4)
-      expect(decor[0].transform.elevation).toBe(scene().objects[id].size.height)
+      expect(scene().objects[id].size.width).toBeGreaterThan(width)
+      expect(decor[0].transform.position).toEqual({ x: 0, y: 0 })
+      expect(decor[0].transform.elevation).toBe(0)
     })
 
     it('is still a single undo entry', () => {
@@ -257,15 +259,18 @@ describe('hang height', () => {
     newProject({ name: 'resort', venuePackId: 'resort' })
   })
 
-  it('lowers a fixture and clamps to 4 m below the truss', () => {
+  it('lowers a fixture and clamps to 4 m below the CEILING', () => {
     const id = addObject('lamp.chandelier-diamond', { x: 1000, y: 200 })
     const top = 895 - 90
     expect(scene().objects[id].transform.elevation).toBe(top)
+    // the limit is measured off the roof (1160), not the truss it hangs from
+    const { min } = hangRange({ hangHeight: 895 }, 1160, 90)
+    expect(min).toBe(670)
 
-    setElevation(id, 600)
-    expect(scene().objects[id].transform.elevation).toBe(600)
+    setElevation(id, 700)
+    expect(scene().objects[id].transform.elevation).toBe(700)
     setElevation(id, 0)
-    expect(scene().objects[id].transform.elevation).toBe(top - MAX_DROP)
+    expect(scene().objects[id].transform.elevation).toBe(min)
     setElevation(id, 9999)
     expect(scene().objects[id].transform.elevation).toBe(top)
   })
@@ -440,16 +445,16 @@ describe('table-top decor (surface attachment)', () => {
   const TABLE_H = getCatalogEntry('table.round').defaultSize.height
   const DECOR = 'decor.candlestick-brass' // round, ⌀21.4
 
-  it('drops onto a table as an attached child standing on the table height', () => {
+  it('drops onto a table as an attached child, pulled to the centre', () => {
     const tableId = addObject('table.round', { x: 500, y: 500 })
     const decorId = addObjectToSurface(DECOR, tableId, { x: 520, y: 510 })!
     const decor = scene().objects[decorId]
     expect(decor.parentId).toBe(tableId)
     expect(decor.attachment).toEqual({ kind: 'surface' })
     expect(decor.transform.elevation).toBe(TABLE_H)
-    // parent-local position = drop point minus table centre
-    expect(decor.transform.position.x).toBeCloseTo(20)
-    expect(decor.transform.position.y).toBeCloseTo(10)
+    // source doc §28: a hand-placed centrepiece belongs in the middle of the
+    // table, so the 20/10 offset of the drop point is deliberately discarded
+    expect(decor.transform.position).toEqual({ x: 0, y: 0 })
     // children never enter objectOrder
     expect(scene().objectOrder).not.toContain(decorId)
   })

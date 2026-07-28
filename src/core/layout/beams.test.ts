@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { beamGrid, clampHang, cordLength, hangRange, MAX_DROP, snapToBeam } from './beams'
+import { beamGrid, clampHang, cordLength, hangRange, MAX_DROP_FROM_CEILING, snapToBeam } from './beams'
 import { getVenuePack } from '../venuePacks'
 
 const resort = getVenuePack('resort')!
@@ -53,20 +53,29 @@ describe('beamGrid', () => {
 describe('hangRange', () => {
   const chandelier = 90 // lamp.chandelier-diamond
 
-  it('runs from the truss line down MAX_DROP', () => {
-    // hangHeight 895 − height 90 = 805 at the top, 4 m below that at the bottom
-    expect(hangRange(resort, resort.wallHeight, chandelier)).toEqual({ min: 405, max: 805 })
-    expect(hangRange(resort, resort.wallHeight, chandelier).max - MAX_DROP).toBe(405)
+  it('runs from the truss line down to 4 m below the CEILING', () => {
+    // top starts at hangHeight 895 − 90 = 805. The floor of the range is measured
+    // off the roof, not the truss: 1160 − 400 − 90 = 670.
+    expect(hangRange(resort, resort.wallHeight, chandelier)).toEqual({ min: 670, max: 805 })
+    // the truss is already 265 cm below the roof, so only 135 of the 4 m is left
+    const trussBelowRoof = resort.wallHeight - (resort.hangHeight ?? resort.wallHeight)
+    expect(805 - 670).toBe(MAX_DROP_FROM_CEILING - trussBelowRoof)
   })
 
-  it('falls back to the wall height with no truss', () => {
+  it('gives the full drop when the anchor IS the ceiling', () => {
+    // no truss: the anchor is wallHeight, so the whole 4 m is available
+    expect(hangRange(undefined, 1160, 90)).toEqual({ min: 670, max: 1070 })
+  })
+
+  it('never inverts when the ceiling limit sits above the anchor', () => {
+    // a low room: wallHeight 350 puts the limit below zero, so min floors at 0
     expect(hangRange(undefined, 350, 50)).toEqual({ min: 0, max: 300 })
   })
 
   it('clamps both ends', () => {
     expect(clampHang(resort, resort.wallHeight, chandelier, 9999)).toBe(805)
-    expect(clampHang(resort, resort.wallHeight, chandelier, 0)).toBe(405)
-    expect(clampHang(resort, resort.wallHeight, chandelier, 600)).toBe(600)
+    expect(clampHang(resort, resort.wallHeight, chandelier, 0)).toBe(670)
+    expect(clampHang(resort, resort.wallHeight, chandelier, 700)).toBe(700)
   })
 })
 
