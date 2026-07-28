@@ -356,6 +356,13 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>, mode: ClampMode = 's
       // A translation cannot put an over-wide AABB inside its home zone, so snap
       // only those impossible rotations to the nearest quarter turn and measure
       // again. Smaller stations keep their free rotation.
+      //
+      // handoff/04-to-03.md §3 asks whether this should refuse instead of
+      // rewriting the angle now that the clamp blocks elsewhere. It stays a
+      // rewrite: a fixed station is exempt from the placement gate entirely
+      // (see `ruled`), and which chuppot are over-wide depends on CATALOG_SCALE,
+      // still open as gate 4b in BLOCKED-01-A3. chuppah.test.ts locks the
+      // current behaviour; flipping it is PLAN-01's gate to close, not ours.
       if (box.maxX - box.minX > nearest.width || box.maxY - box.minY > nearest.depth) {
         obj.transform.rotation = Math.round(obj.transform.rotation / 90) * 90
         box = subtreeAABB(scene, id) ?? box
@@ -372,6 +379,15 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>, mode: ClampMode = 's
     // Restricted zones are FLOOR no-go areas — their own contract says furniture
     // is pushed out. A ceiling fixture is not on the floor, and pushing it meant
     // nothing could ever hang over the dance floor or the bar.
+    //
+    // TODO(PLAN-04): handoff/04-to-03.md §2 asks for the truss snap here, so that
+    // 2D drag, arrow keys, paste and align pin a chandelier to a beam crossing the
+    // way `factory.createObject` and the 3D drag already do. Held back for the
+    // same reason as the Placement3D hunk: `core/layout/beams` is on plan-04-3d.
+    //   const snapped = snapToBeam(obj.transform.position, beamGrid(pack, scene.venue.size))
+    //   obj.transform.position.x = snapped.x; obj.transform.position.y = snapped.y
+    // Note `pack` must become the VenuePack object — this function currently keeps
+    // only `pack.restricted` in `zones`.
     if (getCatalogEntry(obj.catalogId).placement === 'ceiling') continue
 
     if (mode === 'strict') continue

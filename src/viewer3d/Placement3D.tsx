@@ -52,6 +52,16 @@ function resolvePlacement(point: Vec2, preferred?: Id): PlacementPoint | null {
   const scene = useEditorStore.getState().scene
   const entry = getCatalogEntry(catalogId)
   const attached = attachesToTable(entry)
+  // TODO(PLAN-04): a ceiling fixture rides the truss grid, not the floor grid
+  // (source doc §12), and `factory.createObject` already snaps the COMMITTED
+  // position that way — so until this lands the ghost is a few cm off where the
+  // fixture ends up. The insertion is `handoff/04-ceiling-placement.diff` item
+  // (א), held back only because `core/layout/beams` lives on `plan-04-3d` and
+  // this branch would not compile against it. After merging that branch:
+  //   const ceiling = entry.placement === 'ceiling'
+  //   const snapped = ceiling
+  //     ? snapToBeam(point, beamGrid(getVenuePack(scene.venue.venuePackId), scene.venue.size))
+  //     : <the expression below>
   const snapped =
     !attached && scene.settings.snapEnabled
       ? {
@@ -118,6 +128,16 @@ export function Placement3D() {
   const ghost = useOverlayStore((s) => s.ghost)
   const width = useEditorStore((s) => s.scene.venue.size.width)
   const depth = useEditorStore((s) => s.scene.venue.size.depth)
+  const hangHeight = useEditorStore((s) => {
+    const pack = getVenuePack(s.scene.venue.venuePackId)
+    return pack?.hangHeight ?? s.scene.venue.wallHeight
+  })
+  // The pick plane has to sit at the height the item will actually hang at, or
+  // the ray crosses the floor metres away from where the pointer looks — which
+  // is why hanging a chandelier in 3D does not work today (source doc §40).
+  // From PLAN-04 via handoff/04-ceiling-placement.diff, item (ב).
+  const ceiling = placing ? getCatalogEntry(placing).placement === 'ceiling' : false
+  const planeY = ceiling ? cmToM(hangHeight) : 0.005
   const gl = useThree((s) => s.gl)
 
   useEffect(() => {
@@ -142,13 +162,13 @@ export function Placement3D() {
   return (
     <>
       <mesh
-        position={[cmToM(width) / 2, 0.005, cmToM(depth) / 2]}
+        position={[cmToM(width) / 2, planeY, cmToM(depth) / 2]}
         rotation={[-Math.PI / 2, 0, 0]}
         onPointerMove={onMove}
         onClick={onClick}
       >
         <planeGeometry args={[cmToM(width), cmToM(depth)]} />
-        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
       </mesh>
       <PlacementFootprint />
     </>
@@ -189,24 +209,44 @@ function PlacementFootprint() {
   const color = ghost.valid ? VALID : INVALID
 
   return (
-    <group
-      position={[cmToM(ghost.x), cmToM(elevation) + 0.025, cmToM(ghost.y)]}
-      rotation={[0, -degToRad(entry.defaultRotation ?? 0), 0]}
-    >
-      <mesh rotation={[-Math.PI / 2, 0, 0]} raycast={() => null} renderOrder={20}>
-        {outline.kind === 'circle' ? (
-          <circleGeometry args={[cmToM(outline.r), 48]} />
-        ) : (
-          <planeGeometry args={[cmToM(outline.w), cmToM(outline.h)]} />
-        )}
-        <meshBasicMaterial
-          color={color}
-          transparent
-          opacity={0.28}
-          depthWrite={false}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
-    </group>
+    <>
+      <group
+        position={[cmToM(ghost.x), cmToM(elevation) + 0.025, cmToM(ghost.y)]}
+        rotation={[0, -degToRad(entry.defaultRotation ?? 0), 0]}
+      >
+        <mesh rotation={[-Math.PI / 2, 0, 0]} raycast={() => null} renderOrder={20}>
+          {outline.kind === 'circle' ? (
+            <circleGeometry args={[cmToM(outline.r), 48]} />
+          ) : (
+            <planeGeometry args={[cmToM(outline.w), cmToM(outline.h)]} />
+          )}
+          <meshBasicMaterial
+            color={color}
+            transparent
+            opacity={0.28}
+            depthWrite={false}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      </group>
+      {entry.placement === 'ceiling' && (
+        <DropLine x={ghost.x} y={ghost.y} top={elevation} color={color} />
+      )}
+    </>
+  )
+}
+
+/**
+ * Plumb line from a ceiling ghost down to the floor. Without it the disc floats
+ * 8m up with nothing tying it to a plan position, and the user cannot tell which
+ * table the chandelier will end up over.
+ * From PLAN-04 via handoff/04-ceiling-placement.diff, item (ג).
+ */
+function DropLine({ x, y, top, color }: { x: number; y: number; top: number; color: string }) {
+  return (
+    <mesh position={[cmToM(x), cmToM(top) / 2, cmToM(y)]} raycast={() => null} renderOrder={20}>
+      <cylinderGeometry args={[0.02, 0.02, cmToM(top), 6]} />
+      <meshBasicMaterial color={color} transparent opacity={0.45} depthWrite={false} />
+    </mesh>
   )
 }
