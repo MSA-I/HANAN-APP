@@ -83,6 +83,12 @@ function chair(
     resizable: [],
     minSize: {},
     maxSize: {},
+    // Source doc §20: no subtitle on any of the six 'seating' chairs. They share
+    // one CHAIR_SIZE, so the line printed "0.5 × 0.5 מ'" six times over and never
+    // told the user anything. ⚠ On the factory only — `chairBridal` below is
+    // 'bridalChair' and keeps the default 'size': a 2.12 m settee is furniture
+    // whose footprint decides whether it fits.
+    librarySubtitle: 'none',
     materialSlots: [
       { name: 'upholstery', labelKey: 'upholstery', defaultColor: upholstery },
       { name: 'frame', labelKey: 'frame', defaultColor: frame },

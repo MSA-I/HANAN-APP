@@ -1,23 +1,26 @@
 import { describe, expect, it } from 'vitest'
+import { getCatalogEntry } from '../catalog/registry'
 import type { Outline } from '../catalog/types'
 import type { SeatingConfig, Size3D, Transform2D } from '../model/types'
 import { rotateVec } from '../space'
 import { seatItemTransforms } from './seatItemLayout'
-import { computeSeatTransforms } from './seatLayout'
+import { computeSeatTransforms, seatsForEntry } from './seatLayout'
 
-const chair: Size3D = { width: 45, depth: 45, height: 92 }
-const item: Size3D = { width: 45, depth: 33, height: 15.9 } // decor.place-setting
+const CHAIR = 'chair.x-white'
+const SETTING = 'decor.place-setting'
+const chair: Size3D = getCatalogEntry(CHAIR).defaultSize
+const item: Size3D = getCatalogEntry(SETTING).defaultSize
 const seating = (count: number, gap: number): SeatingConfig => ({
   enabled: true,
-  chairCatalogId: 'chair.x-white',
+  chairCatalogId: CHAIR,
   count,
   gap,
   offset: 6,
   startAngle: 0,
 })
 
-/** offset 6 + chair 45/2 + inset 3 + item 33/2 */
-const DISTANCE = 48
+/** seat offset + half the chair + seatItemTransforms' 3cm edge inset + half the item */
+const DISTANCE = 6 + chair.depth / 2 + 3 + item.depth / 2
 
 const lay = (outline: Outline, cfg: SeatingConfig) => {
   const seats = computeSeatTransforms(outline, cfg, chair)
@@ -91,16 +94,103 @@ describe('place settings — edge cases', () => {
   it('leaves an unseated table empty', () => {
     expect(seatItemTransforms([], chair, item, 6)).toEqual([])
   })
+})
 
-  // Honest note, not a defect: 12 covers on a ⌀180 round is genuinely tight. The
-  // settings sit on a ⌀141 circle, so the pitch is 36.9cm against a 45cm-wide
-  // setting — they overlap ~8cm. Every other table in the venue is clear.
-  it('admits the ⌀180 × 12 overlap rather than hiding it', () => {
-    const { items } = lay({ kind: 'circle', r: 90 }, seating(12, 10))
+/**
+ * Separating axis theorem on two oriented rectangles: positive = they interpenetrate
+ * by that many cm, negative = they clear each other by that many. Centre pitch alone
+ * is not enough on a round table — neighbouring covers splay by 360/n degrees, so
+ * their far corners meet well before their edges do.
+ */
+function overlap(a: Transform2D, b: Transform2D): number {
+  const polys = [a, b].map(corners)
+  let best = Infinity
+  for (const poly of polys) {
+    for (let i = 0; i < poly.length; i++) {
+      const p = poly[i]
+      const q = poly[(i + 1) % poly.length]
+      const len = Math.hypot(q.x - p.x, q.y - p.y)
+      const nx = -(q.y - p.y) / len
+      const ny = (q.x - p.x) / len
+      const span = (poly2: { x: number; y: number }[]) => {
+        const vs = poly2.map((v) => v.x * nx + v.y * ny)
+        return [Math.min(...vs), Math.max(...vs)]
+      }
+      const [a0, a1] = span(polys[0])
+      const [b0, b1] = span(polys[1])
+      best = Math.min(best, Math.min(a1, b1) - Math.max(a0, b0))
+    }
+  }
+  return best
+}
+
+/** smallest angle between two headings, degrees */
+const between = (p: number, q: number) => Math.abs((((p - q) % 360) + 540) % 360 - 180)
+
+/**
+ * The worst overlap between two covers laid SIDE BY SIDE along the same run of the
+ * table — the thing the cover's width has to answer for, and what source doc §2a
+ * ("they are too big and ride on top of each other") is about.
+ *
+ * Covers that meet near-perpendicular are excluded on purpose: those are the two
+ * rows converging at a corner of a rectangular table, and at the head of the S.
+ * That overlap is a property of how seatLayout allocates seats around a corner —
+ * it survives every credible cover size (it needs scale 0.5 to clear on the
+ * banquet) so it is not a size question. Written up in handoff/FOUND-03.md.
+ */
+function worstInlineOverlap(items: Transform2D[]): number {
+  let worst = -Infinity
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      if (between(items[i].rotation, items[j].rotation) > 45) continue
+      worst = Math.max(worst, overlap(items[i], items[j]))
+    }
+  }
+  return worst
+}
+
+function coversOn(tableId: string): Transform2D[] {
+  const entry = getCatalogEntry(tableId)
+  const s = entry.seating!
+  const cfg = seating(s.defaultCount, s.defaultGap)
+  const seats = seatsForEntry(entry, entry.defaultSize, { ...cfg, offset: s.defaultOffset }, chair)
+  return seatItemTransforms(seats, chair, item, s.defaultOffset)
+}
+
+/**
+ * Source doc §2a and §42: the cover was resized because a full set of them rode on
+ * top of each other. This is that claim, checked on every table the venue owns
+ * rather than on the round one the plan worked out by hand.
+ */
+describe('place settings — a full set on every table in the venue', () => {
+  // The five that a 0.8 cover clears outright. Measured margins at the sizes in
+  // the catalog today: ⌀380 8.6cm, square 17.3, banquet 24.0, knights 17.3,
+  // serpentine 5.0.
+  for (const tableId of [
+    'table.round-large',
+    'table.square',
+    'table.banquet',
+    'table.knights-480',
+    'table.serpentine',
+  ]) {
+    it(`lays a full set on ${tableId} with no two covers touching`, () => {
+      expect(worstInlineOverlap(coversOn(tableId))).toBeLessThan(0)
+    })
+  }
+
+  // Honest note, not a defect, and the one table the resize could not rescue: a
+  // full 12 on the ⌀180 is genuinely over-set. The covers land on a ⌀142.7 circle,
+  // which is 37.3cm of arc each against a 36cm cover — the edges clear, but
+  // neighbours splay 30° apart and their far corners do not. Clearing it needs a
+  // cover about 31cm wide, whose charger would be 21cm and no longer a dinner
+  // plate. Shrinking the setting to 0.8 took this from 18.0cm to 5.7cm.
+  it('admits the ⌀180 × 12 corner clip rather than hiding it', () => {
+    const round = getCatalogEntry('table.round')
+    const items = coversOn('table.round')
+    expect(items).toHaveLength(round.seating!.defaultCount)
     const r = Math.hypot(items[0].position.x, items[0].position.y)
-    expect(r).toBeCloseTo(70.5)
-    const pitch = (2 * Math.PI * r) / items.length
-    expect(pitch).toBeCloseTo(36.9, 1)
-    expect(pitch).toBeLessThan(item.width)
+    expect(r).toBeCloseTo(round.defaultSize.width / 2 - 3 - item.depth / 2)
+    expect((2 * Math.PI * r) / items.length).toBeGreaterThan(item.width)
+    expect(worstInlineOverlap(items)).toBeCloseTo(5.7, 0)
   })
 })

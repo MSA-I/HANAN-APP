@@ -45,6 +45,28 @@ function formatFootprint(entry: CatalogEntry): string {
 }
 
 /**
+ * The tile's second line, per the entry's own `librarySubtitle` (source doc §20:
+ * "most of the items in the library do not even need dimensions … and the tables
+ * need a description of the number of chairs"). 'size' is the default and the
+ * behaviour every tile had before.
+ *
+ * NULL, not '', for 'none': an empty <div> still lays out a line box, so the tile
+ * would keep the height of its neighbours' subtitle and the row would look
+ * exactly as it does today. The caller must skip the element entirely.
+ *
+ * 'seats' falls back to the footprint on an entry that seats nobody. The mode is
+ * declared per category (see catalog/librarySubtitle.test.ts), so an entry that
+ * joins a seating family without a `seating` block prints its size rather than
+ * "undefined כסאות".
+ */
+function subtitleFor(entry: CatalogEntry): string | null {
+  const mode = entry.librarySubtitle ?? 'size'
+  if (mode === 'none') return null
+  if (mode === 'seats' && entry.seating) return strings.library.seatsLabel(entry.seating.defaultCount)
+  return formatFootprint(entry)
+}
+
+/**
  * An 'arc' footprint part as an SVG path: out along the outer radius, back along
  * the inner one. SVG has no arc primitive, so unlike Konva this cannot reuse the
  * catalog fields directly. `large-arc` must be set past 180° or the renderer
@@ -261,6 +283,7 @@ export function LibraryPanel() {
               {items.map((entry) => {
                 const compatible =
                   !!selectedId && canReplaceObject(useEditorStore.getState().scene, selectedId, entry.id)
+                const subtitle = subtitleFor(entry)
                 return (
                   <button
                     key={entry.id}
@@ -289,9 +312,9 @@ export function LibraryPanel() {
                   >
                     <Thumbnail entry={entry} heightClass={size.thumb} />
                     <div className={`mt-1.5 truncate ${size.name} font-medium`}>{itemLabel(entry)}</div>
-                    <div className={`ltr-nums ${size.dims} font-medium text-ink-soft`}>
-                      {formatFootprint(entry)}
-                    </div>
+                    {subtitle !== null && (
+                      <div className={`ltr-nums ${size.dims} font-medium text-ink-soft`}>{subtitle}</div>
+                    )}
                   </button>
                 )
               })}

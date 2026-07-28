@@ -52,6 +52,11 @@ function chuppahDecorProp(
     resizable: [],
     minSize: {},
     maxSize: {},
+    // Source doc §20: no subtitle on 'chuppahDecor' — a ceremony decoration is
+    // picked by look, and the zone clamp decides where it goes, not its width.
+    // The canopies it stands beside (entries/chuppah.ts) keep the default 'size':
+    // a 3.5 m structure has to be checked against the ceremony spot.
+    librarySubtitle: 'none',
     materialSlots: [{ name: 'body', labelKey: 'body', defaultColor: color }],
     footprint: (s) => ({
       parts: [{ kind: 'rect', w: s.width, h: s.depth, cornerRadius: 3, slot: 'body' }],

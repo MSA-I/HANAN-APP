@@ -7,8 +7,8 @@
  * Materials are baked (see propModel.ts) — the single slot colours the 2D shape.
  *
  * The file holds two categories. Most entries are 'tableDecor' — centrepieces,
- * the things that dress a table. Three are 'tableware': the place setting and the
- * two napkins, which are laid FOR a guest rather than arranged on the table, and
+ * the things that dress a table. Four are 'tableware': the place setting and the
+ * three napkins, which are laid FOR a guest rather than arranged on the table, and
  * which the user picks per event. They stay here because they are built by the
  * same `surfaceProp` recipe; splitting the file would duplicate it.
  *
@@ -55,6 +55,12 @@ export function surfaceProp(
     // of a design (see clampToSurface). The three 'tableware' entries below opt
     // out: they are laid per seat, not on the centre.
     surfaceAnchor: 'center',
+    // Source doc §20: "most of the items in the library do not even need
+    // dimensions" — a centrepiece is chosen by look, not by its width. Declared on
+    // the recipe, so it reaches all FOUR surface families built from it:
+    // 'tableDecor' and 'tableware' in this file, plus 'tableDesigns' and
+    // 'ringCenter', which spread this result and override only `category`.
+    librarySubtitle: 'none',
     materialSlots: [{ name: 'body', labelKey: 'body', defaultColor: color }],
     footprint: (s) =>
       shape === 'round'
@@ -87,7 +93,7 @@ export function surfaceProp(
 const P = (file: string) => `/props/${file}`
 
 /**
- * One of the two napkins: 'tableware', and recoloured with a FREE colour picker
+ * One of the three napkins: 'tableware', and recoloured with a FREE colour picker
  * rather than the fixed event palette every other editable slot offers — the
  * napkin is matched to the linen of the day, which is not a house colour.
  * `allowCustomColor` rides on the slot so the inspector widens exactly this one
@@ -129,10 +135,13 @@ export const tableDecorEntries: CatalogEntry[] = [
   // They are stable identifiers (stored projects and thumbnail filenames key off
   // them), so only the visible string changed.
   napkin(surfaceProp('decor.fabric-folded', 'decorFabricFolded', 'a folded fabric napkin standing on the place setting', P('decor-fabric-folded.glb'), { width: 6, depth: 10.8, height: 12 }, '#e8e2d8', 'rect')),
-  {
-    ...surfaceProp('decor.napkin-folded', 'decorNapkinFolded', 'a folded napkin laid flat on the place setting', P('decor-napkin-folded.glb'), { width: 12.2, depth: 30.8, height: 10 }, '#f0ece4', 'rect'),
-    editableColorSlot: 'body',
-  },
+  // 'מפית שטוחה' — source doc §14: the third napkin, which only ever got the
+  // colour slot bolted on and so stayed a centrepiece. It goes through napkin()
+  // like the other two, which is what makes it tableware, laid per cover on the
+  // place setting, and recolourable to anything.
+  // The id and the labelKey are STABLE IDENTIFIERS (stored projects and thumbnail
+  // filenames key off them) — only the visible string in ui/strings.ts changed.
+  napkin(surfaceProp('decor.napkin-folded', 'decorNapkinFolded', 'a folded napkin laid flat on the place setting', P('decor-napkin-folded.glb'), { width: 12.2, depth: 30.8, height: 10 }, '#f0ece4', 'rect')),
   surfaceProp('decor.candleholders-glass', 'decorCandleholdersGlass', 'a row of small glass tealight holders', P('decor-candleholders-glass.glb'), { width: 5.4, depth: 29.4, height: 20 }, '#ccd6da', 'rect'),
   surfaceProp('decor.candelabrum-gold', 'decorCandelabrumGold', 'a gold candelabrum', P('decor-candelabrum-gold.glb'), { width: 30.3, depth: 36.8, height: 55 }, '#c9a86a'),
   surfaceProp('decor.candlestick-gold', 'decorCandlestickGold', 'a slim gold candlestick', P('decor-candlestick-gold.glb'), { width: 6.1, depth: 12.5, height: 40 }, '#c9a86a'),
@@ -150,12 +159,44 @@ export const tableDecorEntries: CatalogEntry[] = [
   surfaceProp('decor.candlestick-wood', 'decorCandlestickWood', 'a turned wooden candlestick', P('decor-candlestick-wood.glb'), { width: 6.3, depth: 25.1, height: 30 }, '#8a6b4f', 'rect'),
   // The only 'seat'-placement entry: dropping it on a table lays one out in front
   // of EVERY chair (see core/layout/seatItemLayout.ts) instead of one at the pointer.
-  // 45×33 is the cover the venue actually lays; the 15.9 height is the wine glass,
-  // the tallest of the model's 9 meshes — footprint was resized, height was not.
+  //
+  // SIZE (source doc §2a and §42). The cover was catalogued at 45 × 33 × 15.9 and
+  // BOTH of those last two numbers were wrong: decor-place-setting.glb measures
+  // 45.00 × 39.14 × 18.73 (w × d × h), so the file's depth is 6.1cm more and its
+  // height 2.8cm more than the entry claimed. With no `modelSize` the loader's fit
+  // ratio was 1 (propModel.ts:58-66), so 3D quietly rendered the file's real size
+  // while 2D drew the declared one. `modelSize` below states the file's own bbox,
+  // which is what makes the fit real; `defaultSize` is a UNIFORM 0.8 of it, so the
+  // charger stays a circle instead of being squashed into an ellipse by a
+  // non-uniform fit onto the old 45 × 33 aspect.
+  //
+  // Why 0.8, measured against every table rather than the round one (cover width
+  // vs the pitch between neighbouring covers on the line seatItemLayout puts them
+  // on — NOT the table rim, which is 22cm further out and flatters the numbers):
+  //
+  //   table              covers  pitch   overlap @1.0   overlap @0.8
+  //   round ⌀180           12    36.9     18.0            5.7
+  //   round-large ⌀380     22    48.8      2.4           −8.6   clear
+  //   square 160           10    53.3     −8.3          −17.3   clear
+  //   banquet 240×120      12    60.0    −15.0          −24.0   clear
+  //   knights 480×120      22    53.3     −8.3          −17.3   clear
+  //   serpentine           22    44.9      5.9           −5.0   clear
+  //
+  // 0.8 clears five of the six. The ⌀180 with 12 covers cannot be cleared by any
+  // credible size — 12 covers on that circle leaves 36.9cm each, and they splay
+  // 30° apart so their far corners meet before their edges do; clearing it needs
+  // scale 0.7, at which the charger is 21cm and no longer a dinner plate. That
+  // table is genuinely over-set, which seatItemLayout.test.ts records rather than
+  // hides. The corners of the three rectangular tables overlap too, and that one
+  // is not a size problem at all — see handoff/FOUND-03.md.
+  //
+  // Height 18.73 → 15.0 is the wine glass, the tallest of the model's 9 meshes.
   {
-    ...surfaceProp('decor.place-setting', 'decorPlaceSetting', 'a full place setting: charger, plate, cutlery and a wine glass', P('decor-place-setting.glb'), { width: 45, depth: 33, height: 15.9 }, '#d9d4cb', 'rect'),
+    ...surfaceProp('decor.place-setting', 'decorPlaceSetting', 'a full place setting: charger, plate, cutlery and a wine glass', P('decor-place-setting.glb'), { width: 36, depth: 31.3, height: 15 }, '#d9d4cb', 'rect'),
     category: 'tableware',
     placement: 'seat',
     surfaceAnchor: 'free', // one per cover — never the centre
+    // measured on the prepped GLB, 2026-07-28 (min [-22.5, 0, -19.57], max [22.5, 18.73, 19.57])
+    modelSize: { width: 45, depth: 39.14, height: 18.73 },
   },
 ]
