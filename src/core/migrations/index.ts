@@ -8,7 +8,9 @@
  * at the boundary rather than crashing the editor downstream.
  */
 import { z } from 'zod'
+import { clampHang } from '../layout/beams'
 import { SCHEMA_VERSION } from '../model/types'
+import { getVenuePack } from '../venuePacks'
 import type { ProjectFile } from '../../persistence/types'
 
 export { SCHEMA_VERSION }
@@ -246,6 +248,99 @@ function splitLayoutTags(raw: unknown): unknown {
 }
 
 /**
+ * v8 → v9: the catalog's nine categories became twelve — 'tableDesigns' and
+ * 'ringCenter' for the two new families of table-top arrangement, 'chuppahDecor'
+ * for the pieces that stand on the floor beside the canopy. Category ids are also
+ * the keys of `settings.layers`, which is why a category change lands here at all.
+ *
+ * What this migration does, and — just as important — what it deliberately does
+ * NOT do:
+ *
+ * 1. LAYERS: nothing, on purpose. v5→v6 had to act because keys were RENAMED and
+ *    SPLIT, so a stored `structure: {hidden:true}` would have been orphaned and
+ *    its objects would have silently reappeared. ADDING a key strands nothing.
+ *    `LayerFlags` states the rule outright — "a missing key means visible +
+ *    unlocked" (model/types.ts:115) — and every consumer implements exactly that,
+ *    reading `layers?.[category]?.hidden` / `?.locked` and nothing else
+ *    (state/selectors.ts:57,61 · layout/collision.ts:270 · prompts/refs.ts:97).
+ *    So an absent key is ALREADY the state a category nobody has touched should be
+ *    in. Seeding `{}` entries would not just be redundant, it would be a state the
+ *    app erases: `setLayerFlag` (state/actions.ts:1801-1814) DELETES an entry once
+ *    both flags are off. The failure this part exists to prevent — a new category
+ *    behaving as hidden or undefined in a saved project — cannot occur in this
+ *    codebase, so the honest form of "seed the new layers" is a documented no-op.
+ *
+ * 2. CATEGORY MOVES: none. Source doc line 75 says some existing decor moved into
+ *    the new "עיצובי שולחן" group, but it names no items and the code has no
+ *    category by the name it uses, so which of tableDecor's 24 entries moved is
+ *    not derivable. Moving one would orphan its layer flags in every saved
+ *    project, so nothing moved and nothing is remapped here. When the user marks
+ *    the list (Plans/R2/handoff/BLOCKED-02-A2.md), a FOLLOW-UP migration carries
+ *    the flags — this one must stay as it shipped.
+ *
+ * 3. NO VENUE RE-CLAMP, though the venue's zones did change. `clampToVenue` is a
+ *    private function of state/actions.ts and needs the store's zone, uniqueness
+ *    and pose rules plus the catalog; importing it would make persistence depend
+ *    on the store — the dependency the v6→v7 `ponytail:` note refused — and
+ *    re-implementing it here would be a second copy free to drift from the first.
+ *    Unlike v6→v7 this is NOT provably a no-op: it is a gap. What runs instead is
+ *    the real `clampToVenue`, on the object's first edit (every mutation site in
+ *    actions.ts calls it), so an object nobody touches keeps a position that may
+ *    now sit in a restricted zone until it is dragged.
+ *
+ * 4. HANG RE-CLAMP, for pack halls only. `clampHang` lives in core (no store), so
+ *    this calls the same function the editor calls rather than a copy, and reads
+ *    both `MAX_DROP_FROM_CEILING` and the pack live — it needs no numbers from the
+ *    plans changing them. Scoped to `venuePackId` because that is exactly where
+ *    the risk is: `hangRange`'s inputs are the object's own height and
+ *    `venue.wallHeight` (both stored IN the file, which no migration rewrites),
+ *    `MAX_DROP_FROM_CEILING` (which only ever lowers the floor of the range, so it
+ *    cannot make a legal elevation illegal), and `pack.hangHeight` — the one input
+ *    that lives outside the file and can move under it when the hall is
+ *    re-measured. A procedural room has no pack and therefore no such input, so
+ *    clamping there could only rewrite values the app never wrote.
+ *
+ * 5. `stackedOn` joins the zod attachment schema (see its comment below). That is
+ *    a schema fix, not a data fix: no stored file needs touching, because the
+ *    field was being stripped on the way IN and every file that ever had one
+ *    lost it long ago. Napkins saved from here on keep their host.
+ *
+ * The ceiling ids are frozen like v5's, and the set is complete by construction:
+ * a v8 file can only hold catalog ids that existed at v8. It is a separate copy
+ * of the same five on purpose — a later edit to either list must not silently
+ * change the other migration's behaviour.
+ */
+const CEILING_CATALOG_IDS_V9 = new Set([
+  'lamp.pendant',
+  'lamp.pendant-cluster',
+  'lamp.chandelier-diamond',
+  'lamp.chandelier-basket',
+  'lamp.chandelier-candelabra',
+])
+
+function addCategoriesAndReclampHang(raw: unknown): unknown {
+  const file = raw as {
+    project?: {
+      scene?: {
+        venue?: { venuePackId?: string | null; wallHeight?: number }
+        objects?: Record<string, { catalogId?: string; transform?: { elevation?: number }; size?: { height?: number } }>
+      }
+    }
+  }
+  const scene = file?.project?.scene
+  const venue = scene?.venue
+  if (venue?.venuePackId && typeof venue.wallHeight === 'number' && scene?.objects) {
+    const pack = getVenuePack(venue.venuePackId)
+    for (const obj of Object.values(scene.objects)) {
+      if (!obj.catalogId || !CEILING_CATALOG_IDS_V9.has(obj.catalogId)) continue
+      if (typeof obj.transform?.elevation !== 'number' || typeof obj.size?.height !== 'number') continue
+      obj.transform.elevation = clampHang(pack, venue.wallHeight, obj.size.height, obj.transform.elevation)
+    }
+  }
+  return { ...(raw as object), schemaVersion: 9, project: { ...file.project, schemaVersion: 9 } }
+}
+
+/**
  * Keyed by the SOURCE version each function upgrades FROM. `migrations[0]`
  * turns a v0 file into a v1 file (and must set `schemaVersion` to 1).
  */
@@ -257,6 +352,7 @@ export const migrations: Record<number, (raw: unknown) => unknown> = {
   5: renameCategoryLayers,
   6: widenResortVenue,
   7: splitLayoutTags,
+  8: addCategoriesAndReclampHang,
 }
 
 function schemaVersionOf(raw: unknown): number {
@@ -316,7 +412,17 @@ const attachment = z.discriminatedUnion('kind', [
     seatIndex: z.number(),
     manual: z.boolean(),
   }),
-  z.object({ kind: z.literal('surface'), inHole: z.boolean().optional() }),
+  // `surface` carries TWO modifiers (model/types.ts:40-64), and a zod object is
+  // non-strict: an undeclared key is STRIPPED, not rejected. `stackedOn` was
+  // missing here until v9, so every napkin came back from every load without its
+  // host — orphaned on the bare cloth, and invisible to `deleteWithStack`
+  // (actions.ts:661-669), which finds riders by that very field. Both modifiers
+  // must be listed or the schema silently rewrites the scene it validates.
+  z.object({
+    kind: z.literal('surface'),
+    inHole: z.boolean().optional(),
+    stackedOn: z.string().optional(),
+  }),
 ])
 
 const appearance = z.record(z.object({ color: z.string().optional() }))

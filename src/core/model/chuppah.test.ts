@@ -68,6 +68,8 @@ const MODEL_SIZES = [
   ['chuppah.round-white', 338, 338, 255],
   ['chuppah.round-beige', 269, 269, 265],
   ['chuppah.arch-lattice', 296, 212, 290],
+  // the ninth, schema v9
+  ['chuppah.round-floral', 256, 234, 270],
 ] as const
 
 /**
@@ -90,6 +92,8 @@ const CATALOG_SIZES = [
   ['chuppah.round-white', 405.6, 405.6, 306],
   ['chuppah.round-beige', 322.8, 322.8, 318],
   ['chuppah.arch-lattice', 355.2, 254.4, 348],
+  // the ninth, schema v9 — the shallowest of the group at 280.8
+  ['chuppah.round-floral', 307.2, 280.8, 324],
 ] as const
 
 // The four corners of the resort floor, plus one point deep inside the pool.
@@ -130,6 +134,26 @@ describe('the chuppah group', () => {
 
   it.each(ids)('%s stands on the floor, not the ceiling', (id) => {
     expect(getCatalogEntry(id).placement ?? 'floor').toBe('floor')
+  })
+
+  /**
+   * `unique` is a CROSS-ENTITY tag: every canopy carries the same value, which is
+   * what makes any one of them block all the others (one ceremony, one canopy —
+   * source doc §43). A new entry that simply forgot the tag would be placeable
+   * alongside another chuppah, and nothing else in the suite would notice, so the
+   * check is on the whole group sharing ONE value rather than on each entry
+   * having some value.
+   */
+  it('every canopy carries the same unique tag, so any one blocks the rest', () => {
+    const tags = new Set(ids.map((id) => getCatalogEntry(id).unique))
+    expect(tags).toEqual(new Set(['chuppah']))
+  })
+
+  // The size tables above are literals, so an entry added without a row in them
+  // would silently go unchecked — this is what makes them keep up.
+  it('every entry has a row in both size tables', () => {
+    expect(MODEL_SIZES.map((r) => r[0]).sort()).toEqual([...ids].sort())
+    expect(CATALOG_SIZES.map((r) => r[0]).sort()).toEqual([...ids].sort())
   })
 })
 

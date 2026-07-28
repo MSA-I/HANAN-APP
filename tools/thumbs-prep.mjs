@@ -56,10 +56,23 @@ const MAPPING = [
   { id: 'table.serpentine', src: 'שולחן נחש.png' },
   // the DOUBLE (two butted banquets) knights table with its cloth — matches table-knights-480.glb
   { id: 'table.knights-480', src: 'שולחן אבירים.png' },
-  // the double-counter station WITH its display wall (user-confirmed).
+  // ⛔ SUSPENDED — see Plans/R2/handoff/BLOCKED-02-A3.md. Its source,
+  // 'hf_20260716_135125_47b47fe3-7f8f-4c59-9400-3df6bda50128.png', was DELETED from
+  // HANAN-APP-DOCS (searched the whole tree, 2026-07-28) when the user swapped the
+  // bar references the way they swapped the DJ's. The replacements — בר1..בר4.png and
+  // קיר מאחורי הבר.png — are DIFFERENT PRODUCTS: the old shot is the double-counter
+  // station with a slat display wall, בר1 is a marble-top mobile bar, בר3 an L-shaped
+  // stainless service bar, and קיר מאחורי הבר is the ANKO back-wall shelving. Those
+  // four belong to PLAN-01's new bar entities, not to bar.straight.
+  // The row is commented out rather than repointed because guessing would silently
+  // change a shipped thumbnail. public/thumbs/bar-straight.webp is UNTOUCHED on disk
+  // (this script only writes), so nothing regresses meanwhile.
   // NOT "…05_36_28 PM.png" — that green-marble bar is the HALL's built-in bar.
-  { id: 'bar.straight', src: 'hf_20260716_135125_47b47fe3-7f8f-4c59-9400-3df6bda50128.png' },
-  { id: 'dj.booth', src: 'ChatGPT Image Jul 15, 2026, 06_13_32 PM.png' },
+  // { id: 'bar.straight', src: 'hf_20260716_135125_47b47fe3-7f8f-4c59-9400-3df6bda50128.png' },
+  // §36 of the corrections document: the user replaced the DJ reference. DJ2.png of
+  // the four DJ*.png at the GPT root is the one they named. Only the SOURCE moves —
+  // the output is still dj-booth.webp, so entries/bars.ts:70 needs no edit.
+  { id: 'dj.booth', src: 'DJ2.png' },
   { id: 'plant.potted', src: 'צמחייה 1.png' },
   { id: 'plant.potted-2', src: 'צמחייה 2.png' },
   // table decor — product shots from עיצובי בסיס ריזורט, matched by rendering
@@ -135,6 +148,54 @@ const MAPPING = [
   { id: 'chuppah.round-beige', src: 'חופות/ChatGPT Image Jul 15, 2026, 06_09_40 PM.png' },
   // the lattice ARCH, not a canopy — see entries/chuppah.ts
   { id: 'chuppah.arch-lattice', src: 'חופות/ChatGPT Image Jul 15, 2026, 06_08_49 PM.png' },
+
+  // ── round 2 additions ──────────────────────────────────────────────────────
+  // Source paths are spelled out in full because the user asked for them to be on
+  // record. Note two folder names the planning documents get wrong: the decor lives
+  // under 'חופות/קישוטי חופה' (singular), and the ring-centre shots under
+  // 'עיצוב בתוך שולחן עגול גדול' — not 'עיצובי שולחן עיגול גדול', which is the
+  // name of the GLB folder and does not exist here.
+
+  // chuppah decoration that stands on the floor beside the chuppah (§31/§35).
+  // One shot, one GLB, nothing to disambiguate.
+  { id: 'chuppah.decor-1', src: 'חופות/קישוטי חופה/hf_20260728_092620_03f5e9f4-0462-4924-a3fb-2ae53e8723b9.png' },
+
+  // The ninth canopy (§10). Sheer white drapes under a round rim carried entirely by
+  // a crown of ivory roses and hydrangeas — that crown is the only thing separating it
+  // from chuppah.round-white, and it is plainly in this shot. Keyed by catalog id from
+  // 02-catalog-contract.md, so it does NOT wait on the GLB slug: both this and
+  // entries/chuppah.ts:138 derive the filename as id.replaceAll('.', '-').
+  { id: 'chuppah.round-floral', src: 'חופות/hf_20260728_092436_f3651f63-3c38-4c3e-b6aa-cd68b9e8a9d6.png' },
+
+  // עיצובי שולחן — FOUR shots, THREE models. Every pairing below was decided by
+  // reading A1's renders of the GLBs (handoff/renders-02-a1/) against the shots,
+  // not by filename:
+  //  · candelabrum: two of the four shots are candelabra and only one is the model.
+  //    The GLB has curved arms in two tiers off a central shaft, cone-shaped
+  //    bobeches each sitting on a ball, and a stepped FACETED POLYGONAL foot —
+  //    all four features are in …112931 and none of them in …113310.
+  //  · glass rod lamp: …113042 is the only shot with rods on a SQUARE plate.
+  //  · orchids: …113010 has the model's four brass rods on a ROUND brass disc.
+  { id: 'design.candelabrum-crystal', src: 'עיצובי שולחן/hf_20260728_112931_47cfbdbd-e81d-4899-881f-6ad8f09e7957.png' },
+  { id: 'design.lamp-glass-rod', src: 'עיצובי שולחן/hf_20260728_113042_5fc051fc-fe19-44d0-af78-69bac8da134c.png' },
+  { id: 'design.orchid-sculpture', src: 'עיצובי שולחן/hf_20260728_113010_fd8e5a67-e942-442d-afcf-741574706aa8.png' },
+  // ⛔ NOT MAPPED, on purpose (gate 1 of PLAN-02):
+  // 'עיצובי שולחן/hf_20260728_113310_8a388231-066b-4561-959b-d9d550f14e9f.png'
+  // — a glass candelabra with tall hurricane chimneys over its candles on a round
+  // glass foot. No GLB reproduces it. Real-inventory says a shot without a model
+  // gets neither an entry nor a thumbnail. Do not "fix" this by pointing it at
+  // design.candelabrum-crystal; that is the other candelabrum.
+
+  // עיצוב בתוך שולחן עגול גדול — 2 shots, 2 models, and the pair is decided by
+  // whether the urn is in frame: …113541 is the bare draped table, …113245 has the
+  // white rose urn standing on it, which is what A1's ring-center-floral render shows.
+  // The render shows a table under the urn, but the PREPPED GLB has none: the source
+  // model included one and A1 cut the urn free before prepping (15,657 of 45,921
+  // triangles kept). Confirmed independently here — the prepped file measures
+  // 73×65 cm, and its top-down plan image is flowers on transparency. So ring.floral
+  // genuinely needs `requiresHost: 'ring.table'` to have something to stand on.
+  { id: 'ring.table', src: 'עיצוב בתוך שולחן עגול גדול/hf_20260728_113541_6c49c128-48a9-47b0-9bd4-aa51cb15f4fd.png' },
+  { id: 'ring.floral', src: 'עיצוב בתוך שולחן עגול גדול/hf_20260728_113245_69655076-0d9a-4eae-a8a2-8d342e730361.png' },
 ]
 
 const outName = (id) => `${id.replaceAll('.', '-')}.webp`

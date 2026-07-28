@@ -11,11 +11,24 @@
  * two napkins, which are laid FOR a guest rather than arranged on the table, and
  * which the user picks per event. They stay here because they are built by the
  * same `surfaceProp` recipe; splitting the file would duplicate it.
+ *
+ * v9 added two MORE surface categories — 'tableDesigns' and 'ringCenter' — and
+ * they got their own files rather than a third and fourth group in here, which
+ * would have made this one unreadable. `surfaceProp` is exported instead, so the
+ * recipe is shared without the entries being crowded together.
  */
 import type { Size3D } from '../../model/types'
 import type { CatalogEntry } from '../types'
 
-function surfaceProp(
+/**
+ * Exported for the two v9 table-top groups (entries/tableDesigns.ts,
+ * entries/ringCenter.ts), which are the same recipe under a different category —
+ * they spread the result and override `category`, exactly as `napkin()` and
+ * `decor.place-setting` below do for 'tableware'. One `export` keyword beats
+ * copying fifty lines of footprint/mesh into two more files, and it leaves this
+ * file's own structure untouched.
+ */
+export function surfaceProp(
   id: string,
   labelKey: string,
   /** what the item looks like, for the image prompt — see CatalogEntry.promptFragment */

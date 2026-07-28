@@ -33,9 +33,14 @@ const SECTIONS: Record<Category, string> = {
   bars: 'STATIONS',
   tableware: 'PLACE SETTINGS',
   tableDecor: 'CENTREPIECES',
+  // v9 categories (PLAN-02). Merged onto existing headings, not given new ones: a
+  // heading absent from SECTION_ORDER is silently dropped by sectionLines.
+  tableDesigns: 'CENTREPIECES',
+  ringCenter: 'CENTREPIECES',
   lighting: 'LIGHTING',
   decor: 'DECOR',
   chuppah: 'CHUPPAH',
+  chuppahDecor: 'CHUPPAH', // v9
 }
 
 /** Heading order in the prompt — the order the eye reads a dressed room in. */

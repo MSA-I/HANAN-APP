@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { CATEGORY_ORDER, getCatalogEntry } from '../core/catalog/registry'
+import type { Category } from '../core/catalog/types'
+import { hangRange } from '../core/layout/beams'
 import { createProject } from '../core/model/factory'
 import { SCHEMA_VERSION, migrateAndValidate, runMigrations } from '../core/migrations'
 import { getVenuePack } from '../core/venuePacks'
+import { isLayerHidden, isLayerLocked } from '../state/selectors'
 import type { ProjectFile } from './types'
 
 function validFile(): ProjectFile {
@@ -466,6 +469,240 @@ describe('v7 → v8 layout tag split', () => {
     project.scene.objectOrder = ['f1']
     const revived = migrateAndValidate(JSON.parse(JSON.stringify(file)))
     expect(revived.project.scene.objects.f1.flags.frozen).toBe(true)
+  })
+})
+
+describe('v8 → v9 new categories, stacked napkins, hang re-clamp', () => {
+  /** The three categories v9 adds. Asserted against the catalog below, not assumed. */
+  const NEW_V9_CATEGORIES: Category[] = ['tableDesigns', 'ringCenter', 'chuppahDecor']
+
+  const base = {
+    name: '',
+    parentId: null as string | null,
+    appearance: {},
+    flags: { locked: false, visible: true },
+    meta: {},
+  }
+
+  function v8File(): Record<string, unknown> {
+    const file = validFile() as unknown as Record<string, unknown>
+    const project = file.project as { schemaVersion: number }
+    file.schemaVersion = 8
+    project.schemaVersion = 8
+    return file
+  }
+
+  /**
+   * A v8 scene as the app itself writes one: a round table, a place setting on it,
+   * and a napkin standing ON that setting. The napkin's `stackedOn` is the field
+   * the zod schema used to strip on every load.
+   */
+  function v8FileWithStackedNapkin() {
+    const file = v8File()
+    const project = file.project as {
+      scene: { objects: Record<string, unknown>; objectOrder: string[] }
+    }
+    const table = getCatalogEntry('table.round')
+    const setting = getCatalogEntry('decor.place-setting')
+    const napkin = getCatalogEntry('decor.napkin-white')
+    project.scene.objects = {
+      t1: {
+        ...base,
+        id: 't1',
+        catalogId: table.id,
+        size: { ...table.defaultSize },
+        transform: { position: { x: 500, y: 500 }, rotation: 0, elevation: 0 },
+      },
+      p1: {
+        ...base,
+        id: 'p1',
+        catalogId: setting.id,
+        size: { ...setting.defaultSize },
+        parentId: 't1',
+        attachment: { kind: 'surface' },
+        transform: { position: { x: 0, y: -60 }, rotation: 0, elevation: table.defaultSize.height },
+      },
+      n1: {
+        ...base,
+        id: 'n1',
+        catalogId: napkin.id,
+        size: { ...napkin.defaultSize },
+        parentId: 't1',
+        // the whole point of this fixture
+        attachment: { kind: 'surface', stackedOn: 'p1' },
+        transform: {
+          position: { x: 0, y: -60 },
+          rotation: 0,
+          elevation: table.defaultSize.height + setting.defaultSize.height,
+        },
+      },
+      h1: {
+        ...base,
+        id: 'h1',
+        catalogId: 'decor.vase-pampas',
+        size: { ...getCatalogEntry('decor.vase-pampas').defaultSize },
+        parentId: 't1',
+        // the OTHER surface modifier, so the fix cannot have traded one for the other
+        attachment: { kind: 'surface', inHole: true },
+        transform: { position: { x: 0, y: 0 }, rotation: 0, elevation: 0 },
+      },
+    }
+    project.scene.objectOrder = ['t1']
+    return JSON.parse(JSON.stringify(file))
+  }
+
+  it('keeps a napkin pinned to the place setting it stands on', () => {
+    // Regression: the zod `surface` member declared only `inHole`, and a zod object
+    // STRIPS undeclared keys rather than rejecting them — so every napkin came back
+    // orphaned and deleteWithStack found no riders. This fails without the fix.
+    const revived = migrateAndValidate(v8FileWithStackedNapkin())
+    expect(revived.project.scene.objects.n1.attachment).toEqual({ kind: 'surface', stackedOn: 'p1' })
+    // and the host it names still exists, which is what makes the pin meaningful
+    expect(revived.project.scene.objects.p1).toBeDefined()
+  })
+
+  it('keeps the other surface modifier too', () => {
+    const revived = migrateAndValidate(v8FileWithStackedNapkin())
+    expect(revived.project.scene.objects.h1.attachment).toEqual({ kind: 'surface', inHole: true })
+  })
+
+  it('advances a v8 file to the current version', () => {
+    const revived = migrateAndValidate(v8FileWithStackedNapkin())
+    expect(revived.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(revived.project.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(SCHEMA_VERSION).toBe(9)
+  })
+
+  it('adds the three new categories to the catalog order', () => {
+    for (const category of NEW_V9_CATEGORIES) expect(CATEGORY_ORDER).toContain(category)
+  })
+
+  it('writes NO layer entry for the new categories — absent already means visible and unlocked', () => {
+    // This is the migration's documented no-op, asserted as BEHAVIOUR rather than as
+    // a missing key: setLayerFlag deletes an entry once both flags are off, so a
+    // seeded {} would be a state the app erases on the first toggle.
+    const file = v8File()
+    const project = file.project as { scene: { settings: Record<string, unknown> } }
+    project.scene.settings.layers = { tableDecor: { hidden: true } }
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(file)))
+    const layers = revived.project.scene.settings.layers!
+    for (const category of NEW_V9_CATEGORIES) {
+      expect(layers[category]).toBeUndefined()
+      expect(isLayerHidden(revived.project.scene, category)).toBe(false)
+      expect(isLayerLocked(revived.project.scene, category)).toBe(false)
+    }
+    // and the layer nothing was carved out of keeps exactly its own state
+    expect(layers.tableDecor).toEqual({ hidden: true })
+  })
+
+  it('moves no stored object between categories while gate 2 is open', () => {
+    // Gate 2: source doc line 75 says some tableDecor items moved into tableDesigns,
+    // but not which. Until the user marks the list, every stored id must keep the
+    // category it had — a move here would orphan its layer flags.
+    const revived = migrateAndValidate(v8FileWithStackedNapkin())
+    expect(getCatalogEntry(revived.project.scene.objects.h1.catalogId).category).toBe('tableDecor')
+    expect(getCatalogEntry(revived.project.scene.objects.n1.catalogId).category).toBe('tableware')
+  })
+
+  /** A v8 resort project with one chandelier hung at `elevation`. */
+  function v8ResortHang(elevation: number) {
+    const pack = getVenuePack('resort')!
+    const entry = getCatalogEntry('lamp.chandelier-diamond')
+    const file = v8File()
+    const project = file.project as {
+      scene: {
+        venue: { venuePackId?: string; size: { width: number; depth: number }; wallHeight: number }
+        objects: Record<string, unknown>
+        objectOrder: string[]
+      }
+    }
+    project.scene.venue.venuePackId = pack.id
+    project.scene.venue.size = { ...pack.size }
+    project.scene.venue.wallHeight = pack.wallHeight
+    project.scene.objects = {
+      c1: {
+        ...base,
+        id: 'c1',
+        catalogId: entry.id,
+        size: { ...entry.defaultSize },
+        transform: { position: { x: 578, y: 190 }, rotation: 0, elevation },
+      },
+    }
+    project.scene.objectOrder = ['c1']
+    return JSON.parse(JSON.stringify(file))
+  }
+
+  /** The legal band for that fixture, from the live pack and the live constant. */
+  function resortHangRange() {
+    const pack = getVenuePack('resort')!
+    return hangRange(pack, pack.wallHeight, getCatalogEntry('lamp.chandelier-diamond').defaultSize.height)
+  }
+
+  it('leaves a legally hung fixture exactly where it was', () => {
+    const range = resortHangRange()
+    const revived = migrateAndValidate(v8ResortHang(range.max))
+    expect(revived.project.scene.objects.c1.transform.elevation).toBe(range.max)
+  })
+
+  it('pulls a fixture stored below the legal floor back into range', () => {
+    const range = resortHangRange()
+    const revived = migrateAndValidate(v8ResortHang(range.min - 100))
+    expect(revived.project.scene.objects.c1.transform.elevation).toBe(range.min)
+  })
+
+  it('every hung item ends the migration inside the venue s legal band', () => {
+    // the property the migration exists to guarantee, stated without any literal
+    const range = resortHangRange()
+    for (const stored of [range.min - 500, range.min, range.max, range.max + 500]) {
+      const revived = migrateAndValidate(v8ResortHang(stored))
+      const { elevation } = revived.project.scene.objects.c1.transform
+      expect(elevation).toBeGreaterThanOrEqual(range.min)
+      expect(elevation).toBeLessThanOrEqual(range.max)
+    }
+  })
+
+  it('leaves a procedural-room fixture alone — it has no pack input that can move', () => {
+    // hangRange's other inputs (the object's height, venue.wallHeight) are stored IN
+    // the file and no migration rewrites them, and MAX_DROP_FROM_CEILING only ever
+    // lowers the floor of the band. Only pack.hangHeight can move under a stored
+    // file, and a procedural room has no pack — so clamping there could only rewrite
+    // values the app never wrote.
+    const entry = getCatalogEntry('lamp.chandelier-diamond')
+    const file = v8File()
+    const project = file.project as {
+      scene: { objects: Record<string, unknown>; objectOrder: string[] }
+    }
+    project.scene.objects = {
+      c1: {
+        ...base,
+        id: 'c1',
+        catalogId: entry.id,
+        size: { ...entry.defaultSize },
+        transform: { position: { x: 500, y: 500 }, rotation: 0, elevation: 1070 },
+      },
+    }
+    project.scene.objectOrder = ['c1']
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(file)))
+    expect(revived.project.scene.objects.c1.transform.elevation).toBe(1070)
+  })
+
+  it('does not touch objects that are not ceiling fixtures', () => {
+    const range = resortHangRange()
+    const file = v8ResortHang(range.max) as {
+      project: { scene: { objects: Record<string, Record<string, unknown>>; objectOrder: string[] } }
+    }
+    const table = getCatalogEntry('table.round')
+    file.project.scene.objects.t1 = {
+      ...base,
+      id: 't1',
+      catalogId: table.id,
+      size: { ...table.defaultSize },
+      // a table parked on the raised reception deck keeps its elevation
+      transform: { position: { x: 5000, y: 1200 }, rotation: 0, elevation: 470 },
+    }
+    file.project.scene.objectOrder.push('t1')
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(file)))
+    expect(revived.project.scene.objects.t1.transform.elevation).toBe(470)
   })
 })
 
