@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import type { AABB } from '../core/layout/bounds'
 import type { Violation } from '../core/layout/collision'
 
@@ -48,6 +49,28 @@ interface OverlayState {
    */
   violation: Violation | null
   helpOpen: boolean
+  /**
+   * Lighting-planning mode, held BY HAND (source doc §33). It is a mode and not a
+   * view: `ViewMode` is persisted and drives the whole app layout, so the flag
+   * lives here instead.
+   *
+   * Arming a `lighting` catalog item switches the mode on as well, but that is
+   * DERIVED — see `isLightingPlanOn`. Storing the automatic half would mean two
+   * fields to keep in step and the classic "turned itself on and stayed on" bug;
+   * with one field there is nothing to synchronise.
+   */
+  lightingPlan: boolean
+}
+
+/**
+ * Whether the beam grid is showing: pinned by the toolbar, or on for as long as a
+ * ceiling fixture is armed for placement — the user asked for it to appear "when
+ * I pick lighting in 2D".
+ */
+export function isLightingPlanOn(s: Pick<OverlayState, 'lightingPlan' | 'placing'>): boolean {
+  if (s.lightingPlan) return true
+  if (!s.placing || !hasCatalogEntry(s.placing)) return false
+  return getCatalogEntry(s.placing).category === 'lighting'
 }
 
 export const useOverlayStore = create<OverlayState>()(() => ({
@@ -64,6 +87,7 @@ export const useOverlayStore = create<OverlayState>()(() => ({
   cursorWorld: null,
   violation: null,
   helpOpen: false,
+  lightingPlan: false,
 }))
 
 export const overlay = {
@@ -124,6 +148,17 @@ export const overlay = {
     if (previous === violation) return
     if (previous && violation && JSON.stringify(previous) === JSON.stringify(violation)) return
     useOverlayStore.setState({ violation })
+  },
+  /**
+   * Pin/unpin lighting-planning mode. Toggles the MANUAL flag only: pressing the
+   * button while the mode is on because a fixture is armed pins it, so it survives
+   * the drop instead of vanishing with the ghost.
+   */
+  toggleLightingPlan() {
+    useOverlayStore.setState((s) => ({ lightingPlan: !s.lightingPlan }))
+  },
+  setLightingPlan(lightingPlan: boolean) {
+    useOverlayStore.setState({ lightingPlan })
   },
   toggleHelp() {
     useOverlayStore.setState((s) => ({ helpOpen: !s.helpOpen }))

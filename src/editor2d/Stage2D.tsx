@@ -26,6 +26,7 @@ import { useEditorStore } from '../state/store'
 import { useElementSize } from '../lib/useElementSize'
 import { ContextMenu, type MenuEntry } from '../ui/ContextMenu'
 import { strings } from '../ui/strings'
+import { BeamLayer } from './BeamLayer'
 import { clipboardHasContent, copySelection, cutSelection, pasteClipboard } from './clipboard'
 import { GridLayer } from './GridLayer'
 import { displayName } from './ObjectNode'
@@ -206,8 +207,10 @@ export function Stage2D() {
       const prevScale = stage.scaleX()
       const prevPos = stage.position()
       const layers = stage.getLayers()
-      // [0]=venue [1]=grid [2]=objects [3]=overlay [4]=transformer
-      const hidden = clean ? [layers[1], layers[3], layers[4]].filter(Boolean) : []
+      // [0]=venue [1]=grid [2]=objects [3]=overlay [4]=transformer [5]=beams.
+      // BeamLayer goes LAST and always renders a Layer (even when off) so these
+      // indices keep meaning what they say — add new layers at the end too.
+      const hidden = clean ? [layers[1], layers[3], layers[4], layers[5]].filter(Boolean) : []
       const prevVisible = hidden.map((l) => l.visible())
       // selection highlights are dedicated Konva nodes — hide them imperatively
       // (React flushing doesn't reach the react-konva reconciler synchronously)
@@ -540,6 +543,8 @@ export function Stage2D() {
           <ObjectsLayer />
           <OverlayLayer />
           <SelectionTransformer stageRef={stageRef} />
+          {/* last on purpose — its veil dims everything above the floor plan */}
+          <BeamLayer />
         </Stage>
       )}
       <DrillBreadcrumb />

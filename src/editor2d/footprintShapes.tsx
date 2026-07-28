@@ -5,11 +5,30 @@
  * switch with different fill/stroke; a third part kind would have meant writing
  * the same arc case twice and letting them drift. They differ only in styling,
  * so styling is what they pass in.
+ *
+ * Being that one place is also why the architectural-plan look lives here: the
+ * callers pass the catalog colour, and turning that colour into a plan tint once
+ * keeps the placed object and the ghost from drifting apart again.
  */
 import { Circle, Rect, Ring, Shape } from 'react-konva'
 import type { FootprintPart } from '../core/catalog/types'
+import { planFill } from '../core/planColor'
+
+/**
+ * Furniture outline weight, screen px (Plans/R2/handoff/04-plan-style.md §2).
+ * Thinner than the 1 px it was: on a plan the wall is the heavy line and the
+ * furniture is the light one, and that only reads as a hierarchy if the
+ * furniture line is visibly the finer of the two.
+ */
+const PLAN_STROKE_WIDTH = 0.8
 
 export interface FootprintPartStyle {
+  /**
+   * The slot's catalog colour. Washed toward white here rather than by the
+   * callers: both of them hand over `slotColor(...)`, which is the colour the
+   * 3D viewer paints, and ObjectNode belongs to PLAN-07. A colour that is
+   * already translucent passes through untouched — see `planFill`.
+   */
   fill: string
   stroke: string
   strokeWidth?: number
@@ -39,9 +58,9 @@ export function FootprintPartShape({
   style: FootprintPartStyle
 }) {
   const common = {
-    fill: style.fill,
+    fill: planFill(style.fill),
     stroke: style.stroke,
-    strokeWidth: style.strokeWidth ?? 1,
+    strokeWidth: style.strokeWidth ?? PLAN_STROKE_WIDTH,
     dash: style.dash,
     opacity: style.opacity ?? 1,
     // screen-space stroke, so the hairline stays a hairline at every zoom
