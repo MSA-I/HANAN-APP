@@ -1,4 +1,4 @@
-/**
+﻿/**
  * What the bake button writes. The endpoint itself (a dev-only vite middleware)
  * is exercised by hand; the part worth pinning is the generated source, because
  * a re-bake that produces different ids turns every save into a diff.
@@ -13,14 +13,14 @@ const NOW = '2026-07-28T00:00:00.000Z'
 describe('bake output', () => {
   it('numbers ids deterministically and freezes every object', () => {
     const objects = [
-      createObject('bar.straight', { x: 100, y: 200 }),
+      createObject('bar.resort-left', { x: 100, y: 200 }),
       createObject('table.round', { x: 300, y: 400 }),
     ]
     const first = bakeSource('resort', objects, NOW)
     // same input, fresh nanoid identities — the file must not change
     const second = bakeSource(
       'resort',
-      [createObject('bar.straight', { x: 100, y: 200 }), createObject('table.round', { x: 300, y: 400 })],
+      [createObject('bar.resort-left', { x: 100, y: 200 }), createObject('table.round', { x: 300, y: 400 })],
       NOW,
     )
 

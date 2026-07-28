@@ -1,58 +1,27 @@
 /**
  * Bars, the DJ stand and the buffet table.
  *
- * ⛔ REAL-INVENTORY conflict, open — see handoff/BLOCKED-1B.md.
- * `bar.straight` below calls itself "a 5.8m double bar counter with a full-height
- * bottle display wall behind it", and its shipped thumbnail shows exactly that:
- * two butted counters with a slatted display wall behind them. The three resort
- * entries added under it — two counter halves and the back wall — are that same
- * physical bar, re-modelled as separately placeable pieces so the venue fixtures
- * can be baked from them. Four catalog entries, one real bar.
+ * ‼ `bar.straight` WAS HERE AND IS RETIRED (2026-07-28, user-approved — see
+ * handoff/BLOCKED-1B.md). It described itself as "a 5.8m double bar counter with a
+ * full-height bottle display wall behind it", and its thumbnail showed exactly
+ * that: two butted counters with a slatted display wall. In other words it was
+ * this same physical bar before it was re-modelled as the three separate pieces
+ * below, and keeping both would have meant four catalog entries for one real bar.
  *
- * `bar.straight` is NOT retired here. Saved projects contain it, and retiring it
- * would silently drop the object from every one of them. Documented and asked.
+ * Retiring an id is not free: `getCatalogEntry` throws on an unknown one, so a
+ * stored object that outlived its entry is a project that will not open. The
+ * v9→v10 migration converts every stored `bar.straight` and is written to be
+ * exhaustive for that reason. Do NOT re-add the id, and do not delete the
+ * migration.
+ *
+ * `public/props/bar-straight.glb` stays on disk. It is what the migration's own
+ * comment describes and the only record of the pre-split model; nothing references
+ * it, so it costs a file and no load time.
  */
 import type { CatalogEntry } from '../types'
 import { leggedTable } from '../builders'
 
 const P = (file: string) => `/props/${file}`
-
-export const barCounter: CatalogEntry = {
-  id: 'bar.straight',
-  category: 'bars',
-  labelKey: 'bar',
-  promptFragment: 'a 5.8m double bar counter with a full-height bottle display wall behind it',
-  // THE resort bar station, sized from the user's real-bar photo (2026-07-19):
-  // two joined counter units (~290 each → 580 total) PLUS the display wall
-  // behind them — the wall is part of the bar (user-confirmed), so `height` is
-  // the WALL top (237); the counter top lands at ~112 (fp-height was computed
-  // counter-first: 112 / (counterRaw 0.204 / totalRaw 0.431) ≈ 237). Fits the
-  // 800×300 bar zone. Photo-derived — tape measurements welcome.
-  defaultSize: { width: 580, depth: 80, height: 237 },
-  resizable: [],
-  minSize: {},
-  maxSize: {},
-  materialSlots: [
-    { name: 'body', labelKey: 'body', defaultColor: '#5c5148' },
-    { name: 'counter', labelKey: 'counter', defaultColor: '#d9d2c7' },
-  ],
-  footprint: (s) => ({
-    parts: [{ kind: 'rect', w: s.width, h: s.depth, cornerRadius: 4, slot: 'counter' }],
-    outline: { kind: 'rect', w: s.width, h: s.depth },
-  }),
-  buildMesh: (s) => [
-    // loading fallback mirrors the GLB: counter at the front, display wall behind
-    { shape: 'box', dims: [s.width, 108, 62], offset: [0, 54, s.depth / 2 - 31], slot: 'body' },
-    { shape: 'box', dims: [s.width + 10, 4, 68], offset: [0, 110, s.depth / 2 - 31], slot: 'counter' },
-    { shape: 'box', dims: [s.width, s.height, 8], offset: [0, s.height / 2, -s.depth / 2 + 4], slot: 'body' },
-  ],
-  // real resort bar: "בר+ריזורט" (Tripo), re-prepped to the station size above.
-  model: '/props/bar-straight.glb',
-  thumbnail: '/thumbs/bar-straight.webp',
-  // fixed station — lives only inside the venue's bar zone
-  zoneKind: 'bar',
-  labelByDefault: true,
-}
 
 /**
  * The resort's own bar, as three separately placeable pieces. Sizes are the EXACT
@@ -212,11 +181,4 @@ export const buffetTable: CatalogEntry = {
   labelByDefault: true,
 }
 
-export const barEntries = [
-  barCounter,
-  barResortLeft,
-  barResortRight,
-  barBackWall,
-  djBooth,
-  buffetTable,
-]
+export const barEntries = [barResortLeft, barResortRight, barBackWall, djBooth, buffetTable]

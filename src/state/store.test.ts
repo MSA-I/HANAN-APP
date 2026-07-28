@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+﻿import { beforeEach, describe, expect, it } from 'vitest'
 import { getCatalogEntry, listCatalog } from '../core/catalog/registry'
 import { HALL_LAYOUTS } from '../core/hallLayouts'
 import { hangRange, MAX_DROP_FROM_CEILING } from '../core/layout/beams'
@@ -188,7 +188,7 @@ describe('replace object', () => {
       // a DJ booth is clamped INTO the DJ zone; a plain floor item is not
       expect(getCatalogEntry('dj.booth').zoneKind).toBe('dj')
       expect(canReplaceObject(scene(), dj, 'table.round')).toBe(false)
-      expect(canReplaceObject(scene(), dj, 'bar.straight')).toBe(false)
+      expect(canReplaceObject(scene(), dj, 'bar.resort-left')).toBe(false)
     })
   })
 
@@ -657,7 +657,7 @@ describe('fixed stations (zone lock)', () => {
 
   it('a bar unit lives only inside the bar zone', () => {
     newProject({ name: 'resort', venuePackId: 'resort' })
-    const id = addObject('bar.straight', { x: 4000, y: 2400 })
+    const id = addObject('bar.resort-left', { x: 4000, y: 2400 })
     const b = objectAABB(scene(), id)!
     const z = zoneBounds('bar')
     expect(b.minX).toBeGreaterThanOrEqual(z.minX)

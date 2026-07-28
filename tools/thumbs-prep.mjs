@@ -56,17 +56,14 @@ const MAPPING = [
   { id: 'table.serpentine', src: 'שולחן נחש.png' },
   // the DOUBLE (two butted banquets) knights table with its cloth — matches table-knights-480.glb
   { id: 'table.knights-480', src: 'שולחן אבירים.png' },
-  // ✅ BACK IN SERVICE. It was suspended in BLOCKED-02-A3 because its source,
-  // 'hf_20260716_135125_47b47fe3-7f8f-4c59-9400-3df6bda50128.png', had been deleted
-  // and it was not safe to guess which of בר1..בר4 replaced it. The user answered
-  // (ANSWERS-WAVE-1 §2): בר2.png is the bar's photo.
+  // `bar.straight` is GONE — retired 2026-07-28 (BLOCKED-1B, answered). Its row
+  // was briefly restored onto בר2.png when that question was still open; it is
+  // deleted rather than commented out this time, because the entry it named no
+  // longer exists and a row for a dead id is not a decision anyone can revisit.
+  // The two halves below are the same bar it used to be, which is why they take
+  // the photo it was pointed at.
   // NOT "…05_36_28 PM.png" — that green-marble bar is the HALL's built-in bar.
   //
-  // ⚠ The same photo feeds the two resort halves below, because the user's answer
-  // says they are the same product — which is precisely the REAL-INVENTORY problem
-  // written up in Plans/R2/handoff/BLOCKED-1B.md. Pointing all three at one shot
-  // does not create that duplication, it makes it visible.
-  { id: 'bar.straight', src: 'בר2.png' },
   // One product, two hands: both halves take the same shot. Nothing in this script
   // mirrors an image, and a mirrored photo of a bar is not more truthful than the
   // photo itself.

@@ -97,7 +97,7 @@ describe('the whitelist — what may stand on the deck', () => {
   })
 
   it('pushes a bar unit off the deck — a fixed station belongs to its own zone', () => {
-    const id = addObject('bar.straight', centre)
+    const id = addObject('bar.resort-left', centre)
     expect(overlapsDeck(id)).toBe(false)
   })
 

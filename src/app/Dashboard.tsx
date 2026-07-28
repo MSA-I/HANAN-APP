@@ -68,8 +68,14 @@ function buildSampleScene(project: Project): void {
     scene.objectOrder.push(obj.id)
     return obj
   }
-  // bar tucked against a side
-  place('bar.straight', vw * 0.16, vd * 0.5)
+  // A buffet tucked against a side, where the demo used to place `bar.straight`.
+  // That id retired at v10 and `createObject` would now THROW here, taking the
+  // whole "sample layout" option down with it. The bar was not swapped for one of
+  // the three pieces that replaced it on purpose: on the resort those are already
+  // in the scene as frozen fittings, so placing one again would stand a second,
+  // movable half-bar in the middle of the room. A buffet is event furniture, which
+  // is what this demo is made of.
+  place('buffet.table', vw * 0.16, vd * 0.5)
   // greenery framing the top wall
   place('plant.potted', vw * 0.08, vd * 0.09)
   place('plant.potted', vw * 0.92, vd * 0.09)

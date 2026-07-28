@@ -1,4 +1,4 @@
-/**
+﻿/**
  * `flags.frozen` — the bake button's other half (source doc §16: "לא יהיה
  * אפשרות להסיר או להזיז את האלמנטים הללו").
  *
@@ -41,7 +41,7 @@ let ordinary: Id
 
 beforeEach(() => {
   newProject({ name: 'frozen-test', venuePackId: 'resort' })
-  fixture = addObject('bar.straight', { x: 600, y: 600 })
+  fixture = addObject('bar.resort-left', { x: 600, y: 600 })
   freeze(fixture)
   ordinary = addObject('table.round', { x: 1200, y: 900 })
 })
@@ -126,10 +126,10 @@ describe('seeding fixtures into a new project', () => {
   })
 
   it('re-freezes every seeded object and drops one whose catalog id is gone', () => {
-    const baked = createObject('bar.straight', { x: 100, y: 100 })
+    const baked = createObject('bar.resort-left', { x: 100, y: 100 })
     baked.id = 'fixture-resort-001'
     baked.flags = { locked: false, visible: true }
-    const retired = createObject('bar.straight', { x: 200, y: 200 })
+    const retired = createObject('bar.resort-left', { x: 200, y: 200 })
     retired.catalogId = 'bar.no-longer-real'
 
     const seeded = venueFixtures('resort', { resort: [baked, retired] })
