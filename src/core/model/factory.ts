@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
-import { getCatalogEntry } from '../catalog/registry'
+import { getCatalogEntry, hasCatalogEntry } from '../catalog/registry'
 import { beamGrid, snapToBeam } from '../layout/beams'
+import { VENUE_FIXTURES } from '../venueFixtures'
 import { getVenuePack } from '../venuePacks'
 import type { Id, Project, SceneObject, SceneState, Vec2, Venue } from './types'
 import { SCHEMA_VERSION } from './types'
@@ -34,12 +35,41 @@ export function createDefaultScene(
         floor: { color: floorColor },
         elements: [] as never[],
       }
+  const objects: Record<Id, SceneObject> = {}
+  const objectOrder: Id[] = []
+  for (const fixture of venueFixtures(venue.venuePackId)) {
+    objects[fixture.id] = fixture
+    objectOrder.push(fixture.id)
+  }
   return {
     venue,
-    objects: {},
-    objectOrder: [],
+    objects,
+    objectOrder,
     settings: { gridSize: 10, snapEnabled: true, showGrid: true, showLabels: true, layers: {} },
   }
+}
+
+/**
+ * The baked fixtures of a venue, cloned and re-frozen (source doc §16). A stale
+ * catalogId is dropped rather than thrown on: a bake written before a catalog
+ * change must not make every NEW project unopenable.
+ *
+ * `registry` is injectable for the same reason `runMigrations` takes one — the
+ * shipped table is empty until the user bakes, so a test needs its own.
+ */
+export function venueFixtures(
+  venuePackId?: string | null,
+  registry: Record<string, SceneObject[]> = VENUE_FIXTURES,
+): SceneObject[] {
+  const baked = venuePackId ? registry[venuePackId] : undefined
+  if (!baked) return []
+  return baked
+    .filter((object) => hasCatalogEntry(object.catalogId))
+    .map((object) => ({
+      ...structuredClone(object),
+      parentId: null,
+      flags: { locked: true, visible: true, frozen: true },
+    }))
 }
 
 export interface NewProjectOptions {

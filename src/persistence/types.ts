@@ -30,6 +30,8 @@ export interface ProjectRepository {
   savePreview(id: string, png: Blob): Promise<void>
   loadPreviewUrl(id: string): Promise<string | null>
   listLayouts(venue: VenueSignature): Promise<SavedLayout[]>
+  listTableDesigns(): Promise<SavedLayout[]>
   saveLayout(layout: SavedLayout): Promise<void>
+  renameLayout(id: string, name: string): Promise<void>
   removeLayout(id: string): Promise<void>
 }

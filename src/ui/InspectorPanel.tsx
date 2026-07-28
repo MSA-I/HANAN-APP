@@ -11,7 +11,8 @@ import {
   RefreshCw,
   Trash2,
 } from 'lucide-react'
-import { getCatalogEntry, hasCatalogEntry, listByCategory } from '../core/catalog/registry'
+import { useState } from 'react'
+import { getCatalogEntry, hasCatalogEntry, listByCategory, listCatalog } from '../core/catalog/registry'
 import { slotColor } from '../core/catalog/types'
 import { maxGapForSeats, maxSeatsForEntry } from '../core/layout/seatLayout'
 import type { LightingMode, SceneObject } from '../core/model/types'
@@ -21,6 +22,7 @@ import { overlay, useOverlayStore } from '../editor2d/overlayStore'
 import { getVenuePack } from '../core/venuePacks'
 import { hangRange } from '../core/layout/beams'
 import {
+  addSeatItemsToTable,
   alignObjects,
   distributeObjects,
   removeObjects,
@@ -38,7 +40,7 @@ import {
   setSeatingConfig,
   setSize,
 } from '../state/actions'
-import { isEffectivelyLocked, lightingOf, sceneCounts } from '../state/selectors'
+import { isEffectivelyLocked, isFrozen, lightingOf, sceneCounts } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { useShallow } from 'zustand/react/shallow'
 import { LIGHTING_MODES } from '../viewer3d/lightingModes'
@@ -48,6 +50,7 @@ import {
   HallLayoutsSection,
   SaveSelectionSection,
   ScenePresetsSection,
+  TableDesignHintSection,
   TableDesignSection,
 } from './PresetsSection'
 import { strings } from './strings'
@@ -138,14 +141,13 @@ function ProjectInspector() {
       <LightingSection />
       <HallLayoutsSection />
       <ScenePresetsSection />
+      <TableDesignHintSection />
       <LayersSection />
     </>
   )
 }
 
 function SeatingSection({ obj }: { obj: SceneObject }) {
-  // adding place settings is the drop gesture itself; only removal needs a button
-  const settingCount = useEditorStore((s) => seatItems(s.scene, obj.id).length)
   if (!obj.seating) return null
   const entry = getCatalogEntry(obj.catalogId)
   const cap = entry.seating
@@ -198,14 +200,71 @@ function SeatingSection({ obj }: { obj: SceneObject }) {
           ))}
         </select>
       </FieldRow>
-      {settingCount > 0 && (
-        <button
-          className="min-h-9 rounded-md border border-line px-3 py-1.5 text-[14px] text-ink-soft hover:border-danger hover:text-danger"
-          onClick={() => removeSeatItems(obj.id)}
-        >
-          {T.removeSettings}
-        </button>
+    </Section>
+  )
+}
+
+/** Catalog items laid one-per-seat — today only the resort's place setting. */
+const seatItemEntries = () => listCatalog().filter((entry) => entry.placement === 'seat')
+
+/**
+ * Source doc §17 — direct control over the place settings on a table. Until now
+ * the only way to lay them was to drop the item from the library onto the table
+ * and the only way to see how many were laid was to count them.
+ */
+function PlaceSettingsSection({ obj }: { obj: SceneObject }) {
+  // .length, not the array: seatItems() builds a new array every call, and a
+  // selector whose snapshot changes identity on every render loops forever
+  const laid = useEditorStore((s) => seatItems(s.scene, obj.id).length)
+  const locked = useEditorStore((s) => {
+    const o = s.scene.objects[obj.id]
+    return !!o && isEffectivelyLocked(s.scene, o)
+  })
+  const entries = seatItemEntries()
+  const [catalogId, setCatalogId] = useState(entries[0]?.id ?? '')
+  const P = strings.presets
+  if (!obj.seating || !entries.length) return null
+  const seats = obj.seating.count
+  const active = laid > 0
+
+  return (
+    <Section title={P.placeSettings}>
+      <p className="text-[14px] text-ink-soft">
+        {active ? <span className="ltr-nums">{P.placeSettingsCount(laid, seats)}</span> : P.placeSettingsOff}
+      </p>
+      {entries.length > 1 && (
+        <FieldRow label={P.placeSettingsType}>
+          <select
+            className="min-h-9 w-36 rounded-md border border-line bg-panel px-2 py-1.5 text-[14px] focus:border-accent focus:outline-none"
+            value={catalogId}
+            onChange={(e) => setCatalogId(e.target.value)}
+          >
+            {entries.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {strings.catalog.items[entry.labelKey as keyof typeof strings.catalog.items]}
+              </option>
+            ))}
+          </select>
+        </FieldRow>
       )}
+      <div className="flex gap-1.5">
+        <button
+          className="min-h-9 flex-1 rounded-md border border-line px-3 py-1.5 text-[14px] font-medium text-ink hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:text-ink-soft/40"
+          disabled={locked}
+          title={locked ? P.designLocked : undefined}
+          onClick={() => addSeatItemsToTable(catalogId, obj.id)}
+        >
+          {P.placeSettingsAdd}
+        </button>
+        {active && (
+          <button
+            className="min-h-9 flex-1 rounded-md border border-line px-3 py-1.5 text-[14px] text-ink-soft hover:border-danger hover:text-danger"
+            onClick={() => removeSeatItems(obj.id)}
+          >
+            {P.placeSettingsRemove}
+          </button>
+        )}
+      </div>
     </Section>
   )
 }
@@ -312,12 +371,30 @@ function HangingSection({ obj }: { obj: SceneObject }) {
   )
 }
 
+/**
+ * A baked venue fixture (source doc §16): read-only by construction. No name
+ * field, no transform fields and above all no unlock button — `frozen` is the
+ * flag the user cannot clear, which is what "לא יהיה אפשרות להסיר או להזיז"
+ * actually requires.
+ */
+function FrozenInspector({ obj }: { obj: SceneObject }) {
+  return (
+    <Section title={displayName(obj.name, obj.catalogId, obj.meta.number)}>
+      <div className="flex items-start gap-1.5 rounded-md bg-warning/10 px-2 py-1.5 text-[14px] text-warning">
+        <Lock size={12} className="mt-1 shrink-0" />
+        <span>{strings.presets.frozenNotice}</span>
+      </div>
+    </Section>
+  )
+}
+
 function SingleInspector({ obj }: { obj: SceneObject }) {
   // layer lock has no per-object unlock button — reachable via 3D click or lock-while-selected
   const layerLocked = useEditorStore((s) => {
     const o = s.scene.objects[obj.id]
-    return !!o && !o.flags.locked && isEffectivelyLocked(s.scene, o)
+    return !!o && !o.flags.locked && !isFrozen(o) && isEffectivelyLocked(s.scene, o)
   })
+  if (isFrozen(obj)) return <FrozenInspector obj={obj} />
   if (obj.parentId) return <ChairInspector obj={obj} />
   const entry = hasCatalogEntry(obj.catalogId) ? getCatalogEntry(obj.catalogId) : null
   if (!entry) return null
@@ -376,6 +453,7 @@ function SingleInspector({ obj }: { obj: SceneObject }) {
       </Section>
       {entry.placement === 'ceiling' && <HangingSection obj={obj} />}
       <SeatingSection obj={obj} />
+      <PlaceSettingsSection obj={obj} />
       <TableDesignSection obj={obj} />
       {editableSlot && (
         <Section title={T.appearance}>
@@ -454,10 +532,14 @@ function MultiInspector({ ids }: { ids: string[] }) {
 export function InspectorPanel() {
   const selection = useEditorStore((s) => s.selection)
   const first = useEditorStore((s) => (s.selection.length === 1 ? s.scene.objects[s.selection[0]] : null))
+  // a fixture is venue, not event — saving it as a personal layout is meaningless
+  const savable = useEditorStore((s) =>
+    s.selection.some((id) => s.scene.objects[id] && !isFrozen(s.scene.objects[id])),
+  )
 
   return (
     <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-e border-line bg-panel 2xl:w-96">
-      {selection.length > 0 && <SaveSelectionSection />}
+      {savable && <SaveSelectionSection />}
       {selection.length === 0 && <ProjectInspector />}
       {selection.length === 1 && first && <SingleInspector obj={first} />}
       {selection.length > 1 && <MultiInspector ids={selection} />}

@@ -7,11 +7,38 @@
  */
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
 import { migrateAndValidate } from '../core/migrations'
-import { sameVenueSignature, type SavedLayout, type VenueSignature } from '../core/savedLayouts'
+import {
+  migrateSavedLayout,
+  sameVenueSignature,
+  type SavedLayout,
+  type VenueSignature,
+} from '../core/savedLayouts'
 import type { ProjectFile, ProjectRepository, ProjectSummary } from './types'
 
 const DB_NAME = 'hanan-app'
 const DB_VERSION = 2
+
+/**
+ * Layout writes happen in one component (the save dialog) and are read in
+ * another (the picker), so the picker needs to know the store changed. A
+ * revision counter + subscription is the whole mechanism — see PresetsSection.
+ */
+let layoutsRevisionCounter = 0
+const layoutListeners = new Set<() => void>()
+
+export function subscribeLayouts(listener: () => void): () => void {
+  layoutListeners.add(listener)
+  return () => layoutListeners.delete(listener)
+}
+
+export function layoutsRevision(): number {
+  return layoutsRevisionCounter
+}
+
+function bumpLayouts(): void {
+  layoutsRevisionCounter++
+  for (const listener of layoutListeners) listener()
+}
 
 interface HananDB extends DBSchema {
   projects: { key: string; value: ProjectFile }
@@ -79,22 +106,53 @@ export class IndexedDbRepository implements ProjectRepository {
     return blob ? URL.createObjectURL(blob) : null
   }
 
-  async listLayouts(venue: VenueSignature): Promise<SavedLayout[]> {
+  /**
+   * Unlike `load`, this never went through a migration — a layout written by an
+   * older build reached the picker as-is. It does now: every record is upgraded
+   * on read, and an unreadable one is dropped instead of crashing the panel.
+   */
+  private async allLayouts(): Promise<SavedLayout[]> {
     const db = await this.getDb()
-    const layouts = await db.getAll('layouts')
-    return layouts
-      .filter((layout) => sameVenueSignature(layout.venue, venue))
+    const raw = await db.getAll('layouts')
+    return raw
+      .map((layout) => migrateSavedLayout(layout))
+      .filter((layout): layout is SavedLayout => !!layout)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   }
 
+  /** Hall/lighting layouts are venue-shaped, so only matching venues see them. */
+  async listLayouts(venue: VenueSignature): Promise<SavedLayout[]> {
+    return (await this.allLayouts()).filter(
+      (layout) => layout.kind !== 'tableDesign' && sameVenueSignature(layout.venue, venue),
+    )
+  }
+
+  /** Table designs are venue-independent — a dressed table travels between halls. */
+  async listTableDesigns(): Promise<SavedLayout[]> {
+    return (await this.allLayouts()).filter((layout) => layout.kind === 'tableDesign')
+  }
+
+  /** Also the overwrite path: `put` on an existing id replaces that record. */
   async saveLayout(layout: SavedLayout): Promise<void> {
     const db = await this.getDb()
     await db.put('layouts', layout, layout.id)
+    bumpLayouts()
+  }
+
+  async renameLayout(id: string, name: string): Promise<void> {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    const db = await this.getDb()
+    const existing = migrateSavedLayout(await db.get('layouts', id))
+    if (!existing) return
+    await db.put('layouts', { ...existing, name: trimmed }, id)
+    bumpLayouts()
   }
 
   async removeLayout(id: string): Promise<void> {
     const db = await this.getDb()
     await db.delete('layouts', id)
+    bumpLayouts()
   }
 }
 

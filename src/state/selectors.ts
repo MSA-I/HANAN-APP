@@ -61,9 +61,17 @@ export function isLayerLocked(scene: SceneState, category: Category): boolean {
   return !!scene.settings.layers?.[category]?.locked
 }
 
-/** Own lock flag OR the object's category layer is locked. */
+/**
+ * A baked venue fixture. Unlike `locked` this has no UI that can clear it — it
+ * is the "cannot be moved or removed" half of the bake button (source doc §16).
+ */
+export function isFrozen(obj: SceneObject): boolean {
+  return obj.flags.frozen === true
+}
+
+/** Frozen, own lock flag, OR the object's category layer is locked. */
 export function isEffectivelyLocked(scene: SceneState, obj: SceneObject): boolean {
-  if (obj.flags.locked) return true
+  if (isFrozen(obj) || obj.flags.locked) return true
   const cat = categoryOf(obj)
   return cat ? isLayerLocked(scene, cat) : false
 }

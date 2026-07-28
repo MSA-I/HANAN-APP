@@ -4,7 +4,7 @@
  * layout placements), so it can never drift from what clicking will produce.
  * Plan space is y-down like SVG, so coordinates map through directly.
  */
-import { getCatalogEntry } from '../core/catalog/registry'
+import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import { slotColor } from '../core/catalog/types'
 import type { HallLayout } from '../core/hallLayouts'
 import { getTablePreset } from '../core/presets'
@@ -109,6 +109,9 @@ export function SavedLayoutThumbnail({ layout }: { layout: SavedLayout }) {
       {(hairline) => (
         <>
           {layout.subtrees.map(({ root }, i) => {
+            // a snapshot may name an item the catalog no longer has — skip it
+            // rather than let getCatalogEntry throw through the whole panel
+            if (!hasCatalogEntry(root.catalogId)) return null
             const entry = getCatalogEntry(root.catalogId)
             const outline = entry.footprint(root.size).outline
             const firstSlot = entry.materialSlots[0]?.name

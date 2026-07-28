@@ -2,7 +2,7 @@
  * Every mutation of the editor state goes through these actions — the single
  * write path is what keeps undo, seat reconciliation and 2D/3D sync coherent.
  */
-import { getCatalogEntry } from '../core/catalog/registry'
+import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import type { Category } from '../core/catalog/types'
 import { createObject, createProject, newId, type NewProjectOptions } from '../core/model/factory'
 import { attachedChairs, reconcileSeats } from '../core/model/seatingReconciler'
@@ -41,9 +41,12 @@ import { seatItemTransforms } from '../core/layout/seatItemLayout'
 import { seatsForEntry } from '../core/layout/seatLayout'
 import { getHallLayout } from '../core/hallLayouts'
 import {
+  createTableDesignLayout,
   instantiateSavedLayout,
+  missingCatalogIds,
   sameVenueSignature,
   venueSignature,
+  LAYOUT_TAG,
   type SavedLayout,
 } from '../core/savedLayouts'
 import {
@@ -58,11 +61,14 @@ import { overlay } from '../editor2d/overlayStore'
 import {
   childrenOf,
   isEffectivelyLocked,
+  isFrozen,
   isObjectVisible,
   lightingOf,
   objectAABB as objectAABBOf,
   surfaceChildren,
 } from './selectors'
+import { notify } from './notice'
+import { strings } from '../ui/strings'
 import { temporalStore, useEditorStore, type ActiveZone, type EditorState, type ViewMode } from './store'
 
 const set = useEditorStore.setState
@@ -109,7 +115,7 @@ function clampSize(catalogId: string, size: Size3D): Size3D {
   return out
 }
 
-/** ids expanded so that locked objects (own flag or locked category layer) are filtered out */
+/** ids expanded so that locked objects (frozen, own flag, or locked layer) are filtered out */
 function editable(scene: SceneState, ids: Id[]): SceneObject[] {
   return ids
     .map((id) => scene.objects[id])
@@ -683,6 +689,11 @@ function deleteWithStack(scene: SceneState, item: SceneObject): void {
  * dropping napkins must not sweep away the settings they stand on.
  */
 export function addSeatItemsToTable(catalogId: string, tableId: Id): Id[] {
+  const table0 = get().scene.objects[tableId]
+  if (!table0?.seating || table0.parentId || isEffectivelyLocked(get().scene, table0)) {
+    notify(strings.presets.designLocked)
+    return []
+  }
   let ids: Id[] = []
   mutateScene((scene) => {
     ids = laySeatItems(scene, catalogId, tableId)
@@ -737,9 +748,15 @@ function laySeatItems(scene: SceneState, catalogId: string, tableId: Id): Id[] {
   return ids
 }
 
+/**
+ * Source doc §27: a napkin is laid ON the place setting, so taking the settings
+ * away takes their napkins with them. `deleteWithStack` follows the `stackedOn`
+ * link PLAN-03 introduced — before it existed this removed the settings alone and
+ * left the napkins floating.
+ */
 export function removeSeatItems(tableId: Id): void {
   mutateScene((scene) => {
-    for (const item of seatItems(scene, tableId)) delete scene.objects[item.id]
+    for (const item of seatItems(scene, tableId)) deleteWithStack(scene, item)
   })
   pruneSelection()
 }
@@ -870,9 +887,79 @@ function layTableDesign(scene: SceneState, design: TableDesign, tableId: Id): Id
   return ids
 }
 
+/**
+ * Why a design cannot be laid on this table, or null when it can. The three
+ * reasons `layTableDesign` bails on used to be invisible: the click did nothing
+ * and the user was left to guess (source doc §23).
+ */
+export type TableDesignBlock = 'missing' | 'locked' | 'notATable'
+
+export function tableDesignBlock(scene: SceneState, tableId: Id): TableDesignBlock | null {
+  const table = scene.objects[tableId]
+  if (!table?.seating || table.parentId) return 'missing'
+  if (isEffectivelyLocked(scene, table)) return 'locked'
+  if (getCatalogEntry(table.catalogId).category !== 'tables') return 'notATable'
+  return null
+}
+
+const DESIGN_BLOCK_MESSAGE: Record<TableDesignBlock, string> = {
+  missing: strings.presets.designNoTable,
+  locked: strings.presets.designLocked,
+  notATable: strings.presets.designNoTable,
+}
+
+/**
+ * A saved table design re-expressed as a TableDesign so one code path lays both.
+ * Offsets are stored absolute but RESCALED by the size ratio of the captured
+ * table to the target: a centrepiece 38cm off centre on a ⌀180 round belongs
+ * ~80cm off centre on the ⌀380 one, not huddled by the middle.
+ * A 'seat'-placement child becomes the design's `seatItem`, so the target's OWN
+ * seat count and geometry decide how many are laid and where.
+ */
+function designFromSavedLayout(saved: SavedLayout, target: SceneObject): TableDesign | null {
+  const subtree = saved.subtrees[0]
+  if (!subtree) return null
+  const sx = target.size.width / (subtree.root.size.width || target.size.width)
+  const sy = target.size.depth / (subtree.root.size.depth || target.size.depth)
+  const items: TableDesign['items'] = []
+  let seatItem: string | undefined
+  for (const child of subtree.children) {
+    if (!hasCatalogEntry(child.catalogId)) continue
+    if (getCatalogEntry(child.catalogId).placement === 'seat') {
+      seatItem ??= child.catalogId
+      continue
+    }
+    items.push({
+      catalogId: child.catalogId,
+      x: child.transform.position.x * sx,
+      y: child.transform.position.y * sy,
+      rotation: child.transform.rotation,
+    })
+  }
+  if (!items.length && !seatItem) return null
+  return { id: saved.id, labelKey: saved.name, items, seatItem }
+}
+
 export function applyTableDesign(designId: string, tableId: Id): Id[] {
   const design = getTableDesign(designId)
   if (!design) return []
+  return layOne(design, tableId)
+}
+
+/** Lay a user-captured design (source doc §23) on one table. */
+export function applySavedTableDesign(layout: SavedLayout, tableId: Id): Id[] {
+  const table = get().scene.objects[tableId]
+  const design = table ? designFromSavedLayout(layout, table) : null
+  if (!design) return []
+  return layOne(design, tableId)
+}
+
+function layOne(design: TableDesign, tableId: Id): Id[] {
+  const block = tableDesignBlock(get().scene, tableId)
+  if (block) {
+    notify(DESIGN_BLOCK_MESSAGE[block])
+    return []
+  }
   const ids: Id[] = []
   mutateScene((scene) => {
     ids.push(...layTableDesign(scene, design, tableId))
@@ -884,18 +971,35 @@ export function applyTableDesign(designId: string, tableId: Id): Id[] {
 /** Same design on every table in the hall — one gesture, one undo entry. */
 export function applyTableDesignToAll(designId: string): Id[] {
   const design = getTableDesign(designId)
-  if (!design) return []
+  return design ? layAll(() => design) : []
+}
+
+export function applySavedTableDesignToAll(layout: SavedLayout): Id[] {
+  return layAll((table) => designFromSavedLayout(layout, table))
+}
+
+function layAll(designFor: (table: SceneObject) => TableDesign | null): Id[] {
   const ids: Id[] = []
   mutateScene((scene) => {
     for (const id of [...scene.objectOrder]) {
       const obj = scene.objects[id]
-      if (obj?.seating && getCatalogEntry(obj.catalogId).category === 'tables') {
-        ids.push(...layTableDesign(scene, design, id))
-      }
+      if (!obj?.seating || getCatalogEntry(obj.catalogId).category !== 'tables') continue
+      const design = designFor(obj)
+      if (design) ids.push(...layTableDesign(scene, design, id))
     }
   })
   pruneSelection()
+  if (!ids.length) notify(strings.presets.designLocked)
   return ids
+}
+
+/**
+ * Source doc §23 — capture the decor the user arranged by hand on one table so
+ * it can be re-laid on the others. Pure snapshot; storing it is the caller's job
+ * (PresetsSection → indexedDbRepository).
+ */
+export function captureTableDesign(tableId: Id, name: string): SavedLayout | null {
+  return createTableDesignLayout(name, get().scene, tableId)
 }
 
 /** Remove a design's decor only — hand-placed decor on the same table survives. */
@@ -963,30 +1067,46 @@ export function removeHallDesign(): void {
 // named hall layouts (core/hallLayouts.ts)
 // ---------------------------------------------------------------------------
 
-/** Tables placed by a named hall layout. */
-function hallLayoutIds(scene: SceneState): Id[] {
-  return scene.objectOrder.filter((id) => scene.objects[id]?.meta.layout !== undefined)
+/**
+ * Objects placed by a layout of one kind. Table layouts and lighting layouts
+ * carry SEPARATE tags (schema v8) so that both can be applied at once — with one
+ * shared `meta.layout` key, applying a lighting layout deleted the tables.
+ */
+function layoutIds(scene: SceneState, tag: string): Id[] {
+  return scene.objectOrder.filter((id) => scene.objects[id]?.meta[tag] !== undefined)
 }
 
 export function hasHallLayout(scene: SceneState): boolean {
-  return hallLayoutIds(scene).length > 0
+  return layoutIds(scene, LAYOUT_TAG.tables).length > 0
 }
 
-/** The id of the currently applied layout, or null. */
+function appliedLayoutId(scene: SceneState, tag: string): string | null {
+  const first = layoutIds(scene, tag)[0]
+  const value = first ? scene.objects[first].meta[tag] : undefined
+  return typeof value === 'string' ? value : null
+}
+
+/** The id of the currently applied table layout, or null. */
 export function appliedHallLayoutId(scene: SceneState): string | null {
-  const first = hallLayoutIds(scene)[0]
-  const tag = first ? scene.objects[first].meta.layout : undefined
-  return typeof tag === 'string' ? tag : null
+  return appliedLayoutId(scene, LAYOUT_TAG.tables)
 }
 
-/** Delete every layout-tagged table plus its children (chairs, decor, settings). */
-function deleteHallLayout(scene: SceneState): void {
-  for (const id of hallLayoutIds(scene)) {
+/** The id of the currently applied saved lighting layout, or null. */
+export function appliedLightingLayoutId(scene: SceneState): string | null {
+  return appliedLayoutId(scene, LAYOUT_TAG.lighting)
+}
+
+/** Delete every object tagged by one layout kind, plus its children. */
+function deleteLayout(scene: SceneState, tag: string): void {
+  for (const id of layoutIds(scene, tag)) {
+    if (isFrozen(scene.objects[id])) continue
     for (const child of childrenOf(scene, id)) delete scene.objects[child.id]
     delete scene.objects[id]
   }
   scene.objectOrder = scene.objectOrder.filter((id) => !!scene.objects[id])
 }
+
+const deleteHallLayout = (scene: SceneState) => deleteLayout(scene, LAYOUT_TAG.tables)
 
 /**
  * Place a named layout's tables at their authored positions, replacing any
@@ -1020,7 +1140,7 @@ export function applyHallLayout(layoutId: string): Id[] {
         obj.seating.count = preset.seatCount
       }
       obj.meta.number = next++
-      obj.meta.layout = layout.id
+      obj.meta[LAYOUT_TAG.tables] = layout.id
       scene.objects[obj.id] = obj
       scene.objectOrder.push(obj.id)
       reconcileSeats(scene, obj.id)
@@ -1034,15 +1154,28 @@ export function applyHallLayout(layoutId: string): Id[] {
   return ids
 }
 
-/** Apply a user-saved selection at its authored coordinates, replacing only
- * the previous tagged layout. Hand-placed objects survive, matching the built-in
- * hall-layout behaviour. */
+/**
+ * Apply a user-saved selection at its authored coordinates, replacing only the
+ * previous layout OF THE SAME KIND. Hand-placed objects survive, matching the
+ * built-in hall-layout behaviour — and a saved lighting layout no longer wipes
+ * the tables, because each kind owns its own tag (schema v8).
+ *
+ * Both refusal paths used to return [] in silence, which reads as a dead button.
+ */
 export function applySavedLayout(layout: SavedLayout): Id[] {
   const current = get().scene
-  if (!sameVenueSignature(venueSignature(current.venue), layout.venue)) return []
+  if (!sameVenueSignature(venueSignature(current.venue), layout.venue)) {
+    notify(strings.presets.layoutVenueMismatch)
+    return []
+  }
+  const missing = missingCatalogIds(layout)
+  if (missing.length) {
+    notify(strings.presets.layoutUnavailable)
+    return []
+  }
   const ids: Id[] = []
   mutateScene((scene) => {
-    deleteHallLayout(scene)
+    deleteLayout(scene, LAYOUT_TAG[layout.kind])
     ids.push(...instantiateSavedLayout(scene, layout))
     for (const id of ids) {
       const root = scene.objects[id]
@@ -1061,13 +1194,18 @@ export function removeHallLayout(): void {
   pruneSelection()
 }
 
+export function removeLightingLayout(): void {
+  mutateScene((scene) => deleteLayout(scene, LAYOUT_TAG.lighting))
+  pruneSelection()
+}
+
 export function removeObjects(ids: Id[]): void {
   mutateScene((scene) => {
     const toReconcile = new Set<Id>()
     for (const id of ids) {
       const obj = scene.objects[id]
       if (!obj) continue
-      // locked (own flag or layer) protects from deletion too — unlock first
+      // locked (frozen, own flag or layer) protects from deletion too — unlock first
       if (isEffectivelyLocked(scene, obj)) continue
       if (obj.parentId && obj.attachment) {
         if (obj.attachment.kind === 'seat') {
@@ -1094,11 +1232,16 @@ export function removeObjects(ids: Id[]): void {
   pruneSelection()
 }
 
-/** Remove the complete object graph in one undo step, regardless of locks. */
+/**
+ * Remove the complete object graph in one undo step, regardless of locks — with
+ * the single exception of baked fixtures, which are part of the venue and not of
+ * the event (source doc §16).
+ */
 export function clearAllObjects(): void {
   mutateScene((scene) => {
-    scene.objects = {}
-    scene.objectOrder = []
+    const kept = Object.values(scene.objects).filter((obj) => isFrozen(obj))
+    scene.objects = Object.fromEntries(kept.map((obj) => [obj.id, obj]))
+    scene.objectOrder = scene.objectOrder.filter((id) => !!scene.objects[id])
   })
   pruneSelection()
   overlay.setPlacing(null)
@@ -1113,6 +1256,8 @@ export function duplicateObjects(ids: Id[], offset: Vec2 = { x: 50, y: 50 }): Id
       if (!src || src.parentId) continue // attached chairs are not duplicated alone
       const copy: SceneObject = JSON.parse(JSON.stringify(src))
       copy.id = newId()
+      // a copy of a fixture is ordinary furniture: the venue has one bar, not two
+      copy.flags = { locked: false, visible: copy.flags.visible }
       copy.transform = {
         ...copy.transform,
         position: { x: copy.transform.position.x + offset.x, y: copy.transform.position.y + offset.y },
@@ -1295,6 +1440,7 @@ export function pasteSubtrees(subtrees: Subtree[], target?: Vec2): Id[] {
       const root: SceneObject = JSON.parse(JSON.stringify(st.root))
       root.id = newId()
       root.parentId = null
+      root.flags = { locked: false, visible: root.flags.visible } // never paste a fixture as a fixture
       delete root.attachment
       root.transform.position.x += delta.x
       root.transform.position.y += delta.y
@@ -1514,11 +1660,12 @@ export function setName(id: Id, name: string): void {
   })
 }
 
+/** A frozen fixture's lock cannot be opened — that is what makes it permanent. */
 export function setLocked(ids: Id[], locked: boolean): void {
   mutateScene((scene) => {
     for (const id of ids) {
       const obj = scene.objects[id]
-      if (obj) obj.flags.locked = locked
+      if (obj && !isFrozen(obj)) obj.flags.locked = locked
     }
   })
 }
