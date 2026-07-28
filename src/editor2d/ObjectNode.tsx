@@ -2,9 +2,14 @@ import { useMemo } from 'react'
 import { Circle, Group, Image as KonvaImage, Rect, Text } from 'react-konva'
 import { useShallow } from 'zustand/react/shallow'
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
-import { slotColor } from '../core/catalog/types'
+import { slotColor, type Outline } from '../core/catalog/types'
 import { childSortKey, type Id } from '../core/model/types'
-import { isEffectivelyLocked, isObjectVisible } from '../state/selectors'
+import {
+  designEditTable,
+  isDesignEditMuted,
+  isEffectivelyLocked,
+  isObjectVisible,
+} from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { strings } from '../ui/strings'
 import {
@@ -14,18 +19,58 @@ import {
   onChildDragStart,
   onChildMouseDown,
   onObjectClick,
+  onObjectDblClick,
   onObjectDragEnd,
   onObjectDragMove,
   onObjectDragStart,
   onObjectMouseDown,
 } from './dragController'
 import { FootprintPartShape } from './footprintShapes'
+import { useOverlayStore } from './overlayStore'
 import { usePlanImage } from './planImage'
 
 const STROKE = '#57534e'
 const SELECTED_STROKE = '#3056d3'
+/** the refusal colour the rest of the app already uses (OverlayLayer's GUIDE) */
+const REFUSED_STROKE = '#d64545'
+/**
+ * How far back the plan falls while one table is being edited (source doc §52).
+ * Low enough to read as "not this", high enough to keep the neighbours as
+ * context — the same intent as the lighting veil, one layer up.
+ */
+const DESIGN_EDIT_DIM = 0.22
 /** screen-space (strokeScaleEnabled=false), so the pattern holds at every zoom */
 const HANGING_DASH = [6, 4]
+
+/**
+ * The thin ring around an object: blue while it is selected, red on the sibling
+ * a refused drag just ran into.
+ *
+ * Both answer to the `selection-visual` name because that is what the PNG
+ * capture hides (Stage2D) — neither is part of the plan being exported.
+ */
+function OutlineRing({ outline, stroke }: { outline: Outline; stroke: string }) {
+  const common = {
+    name: 'selection-visual',
+    stroke,
+    strokeWidth: 1.75,
+    strokeScaleEnabled: false,
+    listening: false,
+    fillEnabled: false,
+    perfectDrawEnabled: false,
+  }
+  return outline.kind === 'circle' ? (
+    <Circle {...common} radius={outline.r} />
+  ) : (
+    <Rect
+      {...common}
+      offsetX={outline.w / 2}
+      offsetY={outline.h / 2}
+      width={outline.w}
+      height={outline.h}
+    />
+  )
+}
 
 function childIdsSelector(id: Id) {
   return (s: ReturnType<typeof useEditorStore.getState>) =>
@@ -57,6 +102,14 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
     return !!o && isEffectivelyLocked(s.scene, o)
   })
   const childIds = useEditorStore(useShallow(useMemo(() => childIdsSelector(id), [id])))
+  // Validated on read, never the raw field — see `designEditTable`. A primitive,
+  // so a node only re-renders when the isolated table actually changes.
+  const editTableId = useEditorStore((s) => designEditTable(s.scene, s.designEditTableId))
+  // Live refusal naming THIS object as the piece that is in the way. A boolean
+  // selector, so the other 350 nodes do not re-render when one of them is hit.
+  const refused = useOverlayStore(
+    (s) => s.violation?.kind === 'overlapsSibling' && s.violation.id === id,
+  )
 
   const entry = obj && hasCatalogEntry(obj.catalogId) ? getCatalogEntry(obj.catalogId) : null
   const footprint = useMemo(
@@ -93,6 +146,18 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
   // An attached chair listens (for dbl-click drill-in) but is only draggable
   // once it is the drilled-in selection; otherwise events fall through to the table.
   const childSelected = isChild && isSelected
+  // Design-edit isolation (source doc §52). Asked only of top-level nodes:
+  // children live inside the parent's Konva group and inherit both its opacity
+  // and its `listening`, so muting the group mutes the whole table at once.
+  const muted = !isChild && isDesignEditMuted(editTableId, id)
+  // Inside the edited table the decor IS the subject, so it is grabbable without
+  // drilling in first. Restricted to 'surface': the chairs stay on their drill-in
+  // path, or a stray press while arranging a centrepiece would drag a chair off
+  // its seat. `surface` is also what the place settings and napkins carry
+  // (actions.ts `laySeatItems`), which is exactly what §11 asks to be editable.
+  const editableDecor =
+    isChild && editTableId !== null && obj.parentId === editTableId && obj.attachment?.kind === 'surface'
+  const childGrabbable = childSelected || editableDecor
 
   return (
     <Group
@@ -101,11 +166,12 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
       x={obj.transform.position.x}
       y={obj.transform.position.y}
       rotation={obj.transform.rotation}
-      listening={isChild ? true : !effectiveLocked}
-      draggable={isChild ? childSelected : !effectiveLocked}
-      onMouseDown={(e) => (isChild ? onChildMouseDown(id, childSelected, e) : onObjectMouseDown(id, e))}
+      opacity={muted ? DESIGN_EDIT_DIM : 1}
+      listening={isChild ? true : muted ? false : !effectiveLocked}
+      draggable={isChild ? childGrabbable : !muted && !effectiveLocked}
+      onMouseDown={(e) => (isChild ? onChildMouseDown(id, childGrabbable, e) : onObjectMouseDown(id, e))}
       onClick={isChild ? undefined : (e) => onObjectClick(id, e)}
-      onDblClick={isChild ? (e) => onChildDblClick(id, e) : undefined}
+      onDblClick={(e) => (isChild ? onChildDblClick(id, e) : onObjectDblClick(id, e))}
       onDragStart={(e) => (isChild ? onChildDragStart(id, e) : onObjectDragStart(id, e))}
       onDragMove={(e) => (isChild ? onChildDragMove(id, e) : onObjectDragMove(id, e))}
       onDragEnd={(e) => (isChild ? onChildDragEnd(id, e) : onObjectDragEnd(id, e))}
@@ -135,33 +201,11 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
           perfectDrawEnabled={false}
         />
       )}
-      {isSelected &&
-        (footprint.outline.kind === 'circle' ? (
-          <Circle
-            name="selection-visual"
-            radius={footprint.outline.r}
-            stroke={SELECTED_STROKE}
-            strokeWidth={1.75}
-            strokeScaleEnabled={false}
-            listening={false}
-            fillEnabled={false}
-            perfectDrawEnabled={false}
-          />
-        ) : (
-          <Rect
-            name="selection-visual"
-            offsetX={footprint.outline.w / 2}
-            offsetY={footprint.outline.h / 2}
-            width={footprint.outline.w}
-            height={footprint.outline.h}
-            stroke={SELECTED_STROKE}
-            strokeWidth={1.75}
-            strokeScaleEnabled={false}
-            listening={false}
-            fillEnabled={false}
-            perfectDrawEnabled={false}
-          />
-        ))}
+      {isSelected && <OutlineRing outline={footprint.outline} stroke={SELECTED_STROKE} />}
+      {/* Why the drag stopped, said on the canvas the user is looking at rather
+          than only in the status bar: the piece that refused it goes red for as
+          long as the refusal stands (cleared on drag end). */}
+      {refused && <OutlineRing outline={footprint.outline} stroke={REFUSED_STROKE} />}
       {childIds.map((cid) => (
         <ObjectNode key={cid} id={cid} isChild />
       ))}

@@ -19,7 +19,7 @@
  * Plan space throughout: x right, y down, angles in degrees measured as
  * atan2(y, x) — i.e. increasing θ turns clockwise on screen.
  */
-import type { SeatingConfig, Size3D, Transform2D } from '../model/types'
+import type { SeatingConfig, Size3D, Transform2D, Vec2 } from '../model/types'
 import { degToRad, radToDeg } from '../space'
 
 /**
@@ -219,6 +219,161 @@ export function serpentineBounds(): { width: number; depth: number } {
     width: 2 * Math.max(Math.abs(minX), Math.abs(maxX)),
     depth: 2 * Math.max(Math.abs(minY), Math.abs(maxY)),
   }
+}
+
+// ---------------------------------------------------------------------------
+// Where the band actually IS — source doc §53 and §54b.
+//
+// The outline this table hands the rest of the app is its bounding RECT, on
+// purpose (see the header). That box is conservative for hit-testing and venue
+// clamping, and wrong for exactly one question: "is this point on the table?"
+//
+// The answer matters because the box's own centre is not on the table. The S is
+// concave, and (0, 0) — where `clampToSurface` pins every `surfaceAnchor:'center'`
+// piece, and where all four of `presets.ts`'s table designs put their centrepiece —
+// sits 63.1 cm outside the nearest band edge, over the floor. Measured, not
+// argued: `serpentineBandDepth({x:0, y:0})` is asserted in serpentine.test.ts.
+//
+// These four are the pure geometry that answers it. They add no `Outline` variant
+// and no field to one (handoff/06-collision-api.md §7.3): a caller that has this
+// table asks these functions, and every other table keeps the box.
+// ---------------------------------------------------------------------------
+
+/** The band drawn as annular sectors, the form the queries below all work in. */
+type Sector = ReturnType<typeof serpentineArcs>[number]
+
+/** Smallest absolute angle between two headings, degrees. */
+function angleGap(a: number, b: number): number {
+  return Math.abs(((((a - b) % 360) + 540) % 360) - 180)
+}
+
+function withinSweep(s: Sector, deg: number): boolean {
+  return ((((deg - s.startAngle) % 360) + 360) % 360) <= s.sweep
+}
+
+/**
+ * Closest point of one annular sector to `p`, kept `inset` cm in from both of the
+ * sector's curved edges.
+ *
+ * Exact, not a projection: inside the swept range the nearest point is the radial
+ * clamp, and outside it the nearest point lies on an end cap — which is a RADIAL
+ * SEGMENT, so it is the projection onto that ray clamped to the segment, and not
+ * the same thing as clamping the angle and keeping the radius.
+ *
+ * `inset` wider than half the band collapses to the centre line: an item too wide
+ * for the table cannot be got fully on, and the middle is the least wrong place.
+ */
+function nearestInSector(p: Vec2, s: Sector, inset: number): Vec2 {
+  const dx = p.x - s.cx
+  const dy = p.y - s.cy
+  let lo = s.innerR + inset
+  let hi = s.outerR - inset
+  if (lo > hi) lo = hi = (s.innerR + s.outerR) / 2
+  const deg = radToDeg(Math.atan2(dy, dx))
+  if (withinSweep(s, deg)) {
+    const rad = degToRad(deg)
+    const rho = Math.min(hi, Math.max(lo, Math.hypot(dx, dy)))
+    return { x: s.cx + Math.cos(rad) * rho, y: s.cy + Math.sin(rad) * rho }
+  }
+  const caps = [s.startAngle, s.startAngle + s.sweep]
+  const cap = angleGap(deg, caps[0]) <= angleGap(deg, caps[1]) ? caps[0] : caps[1]
+  const rad = degToRad(cap)
+  const ux = Math.cos(rad)
+  const uy = Math.sin(rad)
+  const t = Math.min(hi, Math.max(lo, dx * ux + dy * uy))
+  return { x: s.cx + ux * t, y: s.cy + uy * t }
+}
+
+/**
+ * How deep into the band a point sits, cm: positive is the distance to the nearest
+ * edge from inside, negative the distance to the band from outside.
+ *
+ * One number rather than a boolean because both callers want the margin — a place
+ * setting has to be some way in, not merely not-out.
+ */
+export function serpentineBandDepth(p: Vec2): number {
+  let best = -Infinity
+  for (const s of serpentineArcs()) {
+    const rho = Math.hypot(p.x - s.cx, p.y - s.cy)
+    const deg = radToDeg(Math.atan2(p.y - s.cy, p.x - s.cx))
+    if (withinSweep(s, deg) && rho >= s.innerR && rho <= s.outerR) {
+      best = Math.max(best, Math.min(rho - s.innerR, s.outerR - rho))
+    } else {
+      const q = nearestInSector(p, s, 0)
+      best = Math.max(best, -Math.hypot(p.x - q.x, p.y - q.y))
+    }
+  }
+  return best
+}
+
+export function pointInSerpentineBand(p: Vec2): boolean {
+  return serpentineBandDepth(p) >= 0
+}
+
+/**
+ * The middle of the table: **the point on the centre line at half its length.**
+ *
+ * A curved band has three candidate middles and two of them are not on the table.
+ * Measured, all three (serpentine.test.ts pins every number):
+ *
+ * | candidate | point | band depth |
+ * |---|---|---|
+ * | bounding-box centre — what the outline implies | (0, 0) | **−63.13** |
+ * | area centroid of the three sectors | (−29.63, 43.06) | **−15.42** |
+ * | arc-length midpoint of the centre line | (−71.24, 79.81) | **+40.00** |
+ *
+ * Both rejected candidates are AVERAGES of a shape that is concave, and an average
+ * of an S lands in the hollow between its two lobes. That is not a near miss to be
+ * nudged: the centroid is 15 cm clear of the drape over open floor, and it is 55 cm
+ * from the answer below. The third is the only one that is on the table by
+ * construction — it is a point ON the centre line, so it is always exactly half a
+ * band from both edges, whatever the arcs do.
+ *
+ * It is also the definition with no numbers of its own: bisecting by arc length is
+ * the same rule for any chain of arcs, so a re-fit of `CHAIN` moves the answer
+ * without anyone having to re-choose it. And it is what "the middle of the table"
+ * means to someone laying it — the middle of the run you walk, not the middle of
+ * the rectangle it happens to fit inside.
+ */
+export function serpentineCentre(): Vec2 {
+  const arcLen = (a: SerpentineArc) => degToRad(Math.abs(a.turn)) * a.r
+  let s = SERPENTINE_ARCS.reduce((t, a) => t + arcLen(a), 0) / 2
+  for (let i = 0; i < SERPENTINE_ARCS.length; i++) {
+    const a = SERPENTINE_ARCS[i]
+    const len = arcLen(a)
+    if (s > len && i < SERPENTINE_ARCS.length - 1) {
+      s -= len
+      continue
+    }
+    const rad = degToRad(a.from + Math.sign(a.turn) * radToDeg(s / a.r))
+    return { x: a.cx + Math.cos(rad) * a.r, y: a.cy + Math.sin(rad) * a.r }
+  }
+  // unreachable while CHAIN is non-empty; the chain is a module constant
+  return { x: 0, y: 0 }
+}
+
+/**
+ * Pull a point onto the band, keeping `reach` cm of the caller's own footprint in
+ * with it. Returns `p` untouched when it is already that far in.
+ *
+ * `reach` is applied as a scalar inset on both curved edges, so it is the
+ * conservative reading of an item's extent rather than its exact rotated support.
+ * ponytail: exact support would take the item's rotation as well, which no caller
+ * has needed — a table-top piece is small against an 80 cm band.
+ */
+export function snapIntoSerpentineBand(p: Vec2, reach = 0): Vec2 {
+  if (serpentineBandDepth(p) >= reach) return p
+  let best = p
+  let bestD = Infinity
+  for (const s of serpentineArcs()) {
+    const q = nearestInSector(p, s, reach)
+    const d = Math.hypot(p.x - q.x, p.y - q.y)
+    if (d < bestD) {
+      bestD = d
+      best = q
+    }
+  }
+  return best
 }
 
 /** Distance from the centre line to the seat line: half the band, plus the chair. */

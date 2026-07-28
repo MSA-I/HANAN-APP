@@ -21,10 +21,17 @@ import {
   select,
   setLocked,
 } from '../state/actions'
-import { isEffectivelyLocked, isObjectVisible, objectAABB, visibleTopLevelIds } from '../state/selectors'
+import {
+  designEditTable,
+  isEffectivelyLocked,
+  isObjectVisible,
+  objectAABB,
+  visibleTopLevelIds,
+} from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { useElementSize } from '../lib/useElementSize'
 import { ContextMenu, type MenuEntry } from '../ui/ContextMenu'
+import { exitDesignEdit } from '../ui/DesignEditMode'
 import { strings } from '../ui/strings'
 import { BeamLayer } from './BeamLayer'
 import { clipboardHasContent, copySelection, cutSelection, pasteClipboard } from './clipboard'
@@ -64,7 +71,10 @@ function DrillBreadcrumb() {
       ? displayName(child.name, child.catalogId, undefined)
       : strings.drill.chair
   })
-  if (!tableName) return null
+  // Design-edit mode brings its own chip and its own Esc — two of each, one
+  // saying "back to the table" and one "leave the mode", contradict each other.
+  const inDesignEdit = useEditorStore((s) => designEditTable(s.scene, s.designEditTableId) !== null)
+  if (!tableName || inDesignEdit) return null
   return (
     <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
       <div className="flex items-center gap-2 rounded-full border border-line bg-panel px-3 py-1.5 text-[13px] shadow-sm">
@@ -407,6 +417,18 @@ export function Stage2D() {
     marqueeRef.current = null
     const world = worldPointer() ?? start
     overlay.setMarquee(null)
+
+    // Design-edit mode: the isolated table swallows its own presses, so a gesture
+    // that reached the stage started OUTSIDE it — the way out (source doc §52).
+    // It ends here whether it was a click or a marquee: with the rest of the plan
+    // dimmed and deaf, a rubber band could only have caught the objects the mode
+    // just put out of reach.
+    const editing = useEditorStore.getState()
+    if (designEditTable(editing.scene, editing.designEditTableId)) {
+      exitDesignEdit()
+      clearSelection()
+      return
+    }
 
     const zoom = useViewportStore.getState().zoom
     const isClick = Math.abs(world.x - start.x) * zoom < 3 && Math.abs(world.y - start.y) * zoom < 3

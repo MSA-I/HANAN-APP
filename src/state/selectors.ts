@@ -47,6 +47,67 @@ export function surfaceChildren(scene: SceneState, id: Id): SceneObject[] {
   )
 }
 
+// --- design-edit mode (source doc §11 + §52) --------------------------------
+
+/**
+ * A table — the thing a double-click may isolate. `seating` is the test rather
+ * than `category === 'tables'` because it is the capability the mode needs (a
+ * top with chairs around it), and the two are the same six entries today
+ * (`catalog/entries/tables.ts`).
+ */
+export function isTable(obj: SceneObject): boolean {
+  return hasCatalogEntry(obj.catalogId) && !!getCatalogEntry(obj.catalogId).seating
+}
+
+/**
+ * The table currently isolated for decor editing, or null.
+ *
+ * ⚠ EVERY reader goes through this, never through `state.designEditTableId`.
+ * The raw field is a view preference outside `scene`, and the two events that
+ * must close the mode — loading another project and deleting the table — both
+ * happen in `actions.ts`, which this plan does not own. Validating on read means
+ * a leftover id is simply not observable, instead of five writers each having to
+ * remember to clear it. The same reasoning `pruneSelection` applies to
+ * `selection`, minus the write.
+ *
+ * Hidden counts as gone: if the tables layer is switched off there is nothing on
+ * screen to isolate, and an invisible mode with a dimmed plan reads as a bug.
+ */
+export function designEditTable(scene: SceneState, id: Id | null): Id | null {
+  if (!id) return null
+  const obj = scene.objects[id]
+  if (!obj || obj.parentId) return null
+  if (!isTable(obj) || !isObjectVisible(scene, id)) return null
+  return id
+}
+
+/**
+ * The isolated group: the edited table followed by its children (chairs and
+ * decor), in render order. Empty when no session is open — so `length > 0` is
+ * "the mode is on" and the caller needs no second question.
+ */
+export function designEditIds(scene: SceneState, id: Id | null): Id[] {
+  const tableId = designEditTable(scene, id)
+  if (!tableId) return []
+  return [tableId, ...childrenOf(scene, tableId).map((c) => c.id)]
+}
+
+/**
+ * Is this object outside the isolated group — one of the ones the mode dims and
+ * stops listening to? False whenever no session is open, so the ordinary plan is
+ * never muted by accident.
+ *
+ * ⚠ `editTableId` is the id ALREADY through `designEditTable`, not the raw store
+ * field. Taking the validated id (rather than validating again here) is what lets
+ * a renderer subscribe once and ask this per node.
+ *
+ * Only top-level objects need asking: a child renders inside its parent's Konva
+ * group and inherits both its opacity and its `listening`.
+ */
+export function isDesignEditMuted(editTableId: Id | null, objId: Id): boolean {
+  return editTableId !== null && editTableId !== objId
+}
+
 // --- category layers --------------------------------------------------------
 
 export function categoryOf(obj: SceneObject): Category | null {

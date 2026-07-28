@@ -16,7 +16,7 @@ import { getCatalogEntry, hasCatalogEntry, listByCategory, listCatalog } from '.
 import { slotColor } from '../core/catalog/types'
 import { maxGapForSeats, maxSeatsForEntry } from '../core/layout/seatLayout'
 import type { LightingMode, SceneObject } from '../core/model/types'
-import { composeTransform } from '../core/space'
+import { composeTransform, relativeTransform } from '../core/space'
 import { displayName } from '../editor2d/ObjectNode'
 import { overlay, useOverlayStore } from '../editor2d/overlayStore'
 import { getVenuePack } from '../core/venuePacks'
@@ -31,7 +31,6 @@ import {
   setAppearance,
   setElevation,
   setLocked,
-  setName,
   setLighting,
   setPosition,
   setProjectName,
@@ -269,40 +268,88 @@ function PlaceSettingsSection({ obj }: { obj: SceneObject }) {
   )
 }
 
-/** Inspector for a drilled-in attached chair (parentId set). */
+/**
+ * Inspector for a drilled-in child: an attached chair, or a decor item standing on
+ * a table top (`SingleInspector` routes everything with a `parentId` here).
+ *
+ * Source doc §49 asks for three things on a selected chair — no name field, a way
+ * to change the chair TYPE, and position + rotation. §51 generalises the first to
+ * every item, so the name is printed rather than edited (see `SingleInspector`).
+ *
+ * The type control differs by what the child IS, and both halves come from the same
+ * rule in `actions.ts`:
+ *
+ * - a CHAIR is owned by `reconcileSeats`, which rewrites `catalogId` back to the
+ *   table's `seating.chairCatalogId` on the next reconcile — so swapping one chair
+ *   alone cannot stick, and `canReplaceObject` refuses it (`attachment.kind` is
+ *   'seat', not 'surface'). The honest control is the table's own chair model,
+ *   which is what `strings.inspector.chairType` was seeded to say.
+ * - a DECOR child is swappable one at a time, so it gets the same `ReplaceButton`
+ *   the top-level inspector offers.
+ */
 function ChairInspector({ obj }: { obj: SceneObject }) {
   const entry = hasCatalogEntry(obj.catalogId) ? getCatalogEntry(obj.catalogId) : null
   const parent = useEditorStore((s) => (obj.parentId ? s.scene.objects[obj.parentId] : null))
+  const locked = useEditorStore((s) => {
+    const o = s.scene.objects[obj.id]
+    return !!o && isEffectivelyLocked(s.scene, o)
+  })
   if (!entry) return null
   const world = parent ? composeTransform(parent.transform, obj.transform) : obj.transform
   const parentName = parent ? displayName(parent.name, parent.catalogId, parent.meta.number) : ''
-  const fmt = (cm: number) => (Math.round(cm) / 100).toFixed(2)
   const editableSlot = entry.editableColorSlot
     ? entry.materialSlots.find((slot) => slot.name === entry.editableColorSlot)
     : undefined
+  const isChair = obj.attachment?.kind === 'seat'
+  // A child's transform is PARENT-RELATIVE while these fields read world cm, so a
+  // typed X has to be converted back. `relativeTransform` is `composeTransform`'s
+  // exact inverse — declared as such in space.ts, and space.test.ts round-trips it —
+  // so this is the conversion the file already owns, not a new one written here.
+  const setWorldPos = (position: { x: number; y: number }) =>
+    setPosition(obj.id, parent ? relativeTransform(parent.transform, { ...world, position }).position : position)
 
   return (
     <>
       <Section title={T.name}>
-        <input
-          className="min-h-9 w-full rounded-md border border-line bg-panel px-2 py-1.5 text-[15px] font-semibold focus:border-accent focus:outline-none"
-          value={obj.name || displayName(obj.name, obj.catalogId, obj.meta.number)}
-          onChange={(e) => setName(obj.id, e.target.value)}
-        />
+        <p className="text-[15px] font-semibold text-ink">
+          {displayName(obj.name, obj.catalogId, obj.meta.number)}
+        </p>
       </Section>
       <Section title={T.transform}>
-        <FieldRow label={T.posX}>
-          <span className="ltr-nums w-24 text-end text-[14px] text-ink-soft">{fmt(world.position.x)}</span>
-        </FieldRow>
-        <FieldRow label={T.posY}>
-          <span className="ltr-nums w-24 text-end text-[14px] text-ink-soft">{fmt(world.position.y)}</span>
-        </FieldRow>
+        <NumberField
+          label={T.posX}
+          value={world.position.x}
+          unit="m"
+          onCommit={(v) => setWorldPos({ x: v, y: world.position.y })}
+        />
+        <NumberField
+          label={T.posY}
+          value={world.position.y}
+          unit="m"
+          onCommit={(v) => setWorldPos({ x: world.position.x, y: v })}
+        />
         <NumberField
           label={T.rotation}
           value={obj.transform.rotation}
           unit="deg"
           onCommit={(v) => setRotation(obj.id, v)}
         />
+        {!locked && isChair && parent?.seating && (
+          <FieldRow label={T.chairType}>
+            <select
+              className="min-h-9 w-36 rounded-md border border-line bg-panel px-2 py-1.5 text-[14px] focus:border-accent focus:outline-none"
+              value={parent.seating.chairCatalogId}
+              onChange={(e) => setSeatingConfig(parent.id, { chairCatalogId: e.target.value })}
+            >
+              {listByCategory('seating').map((c) => (
+                <option key={c.id} value={c.id}>
+                  {strings.catalog.items[c.labelKey as keyof typeof strings.catalog.items]}
+                </option>
+              ))}
+            </select>
+          </FieldRow>
+        )}
+        {!locked && !isChair && <ReplaceButton id={obj.id} />}
       </Section>
       {editableSlot && (
         <Section title={T.appearance}>
@@ -408,11 +455,12 @@ function SingleInspector({ obj }: { obj: SceneObject }) {
   return (
     <>
       <Section title={T.name}>
-        <input
-          className="min-h-9 w-full rounded-md border border-line bg-panel px-2 py-1.5 text-[15px] font-semibold focus:border-accent focus:outline-none"
-          value={obj.name || displayName(obj.name, obj.catalogId, obj.meta.number)}
-          onChange={(e) => setName(obj.id, e.target.value)}
-        />
+        {/* Source doc §51: an item's name is the catalog entry it came from, and
+            that is all it will ever be — so it is printed, not typed. `setName`
+            stays in actions.ts: the project name and JSON import still use it. */}
+        <p className="text-[15px] font-semibold text-ink">
+          {displayName(obj.name, obj.catalogId, obj.meta.number)}
+        </p>
         {obj.flags.locked && (
           <div className="flex items-center justify-between rounded-md bg-warning/10 px-2 py-1.5 text-[14px] text-warning">
             <span className="flex items-center gap-1">

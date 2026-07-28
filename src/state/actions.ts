@@ -3,7 +3,7 @@
  * write path is what keeps undo, seat reconciliation and 2D/3D sync coherent.
  */
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
-import type { Category } from '../core/catalog/types'
+import type { CatalogEntry, Category } from '../core/catalog/types'
 import { createObject, createProject, newId, type NewProjectOptions } from '../core/model/factory'
 import { attachedChairs, reconcileSeats } from '../core/model/seatingReconciler'
 import type {
@@ -40,6 +40,7 @@ import {
 import { beamGrid, clampHang, snapToBeam } from '../core/layout/beams'
 import { seatItemTransforms } from '../core/layout/seatItemLayout'
 import { seatsForEntry } from '../core/layout/seatLayout'
+import { serpentineCentre, serpentineSeats } from '../core/layout/serpentine'
 import { getHallLayout } from '../core/hallLayouts'
 import {
   createTableDesignLayout,
@@ -445,6 +446,138 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>, mode: ClampMode = 's
 }
 
 /**
+ * Height at which another item may STAND on an item, when that is NOT the item's
+ * full height — keyed by catalog id, in catalogue centimetres at the entry's
+ * `defaultSize`. Absent means "the full height", which is right for everything
+ * flat: a table top, the ring table's cloth, a charger laid on its own.
+ *
+ * `decor.place-setting` is catalogued at 15 cm and that 15 cm is its WINE GLASS,
+ * the tallest geometry in the model. A napkin is laid on the CHARGER, so laying
+ * it at 15 cm is exactly the "napkins float in the air" report (source doc §12,
+ * §45b) — the napkin was sitting at glass-rim height.
+ *
+ * MEASURED, not guessed. public/props/decor-place-setting.glb arrives from
+ * glb-prep as ONE merged mesh, so the plate cannot be picked out by name; it was
+ * isolated as the cover's only surface of revolution (the rim ring fits an axis
+ * at x=1.5, z=-2.75) and read there:
+ *
+ *   plate top      2.2908 cm in FILE units — a FLAT annulus, 457 vertices within
+ *                  0.02 cm of it at radius 12.6-14.4 cm, so it is a real rim and
+ *                  not a spike
+ *   nothing else   reaches above 2.291 cm anywhere inside r = 15 cm; the wine
+ *                  glass (18.73) only starts at r = 15
+ *
+ * File units become catalogue centimetres through the loader's PER-AXIS fit
+ * (viewer3d/propModel.ts:71-76), which scales the file by `size / modelSize`:
+ *
+ *   2.2908 * (defaultSize.height / modelSize.height) = 2.2908 * 15 / 18.73 = 1.8346
+ *
+ * ⚠ That makes the number below a function of the entry's declared height. A
+ * RESIZED instance is handled (`stackHeight` scales by size/defaultSize), but if
+ * `decor.place-setting`'s `defaultSize.height` or `modelSize.height` is ever
+ * re-measured, recompute this from the 2.2908 file constant — do not scale 1.83.
+ *
+ * `ring.table` is deliberately NOT in this table: its cloth is flat at 75.00 file
+ * cm out to r = 60 with a 0.05 cm edge fold, against a declared height of 75.1 —
+ * so the fallback is already right to within the model's own Draco noise, and a
+ * row here would be false precision.
+ *
+ * ponytail: the right home for this is an optional `stackHeight` on CatalogEntry,
+ * beside `defaultSize`/`modelSize` — it is a property of the product, not of the
+ * editor, and the 2D view will want it the moment decor is drawn in section. It
+ * lives here because src/core/catalog is PLAN-02's and was merged before this
+ * plan started. Moving it is three steps: add the field, set 1.83 on
+ * `decor.place-setting`, and have `stackHeight()` read `entry.stackHeight` with
+ * this map deleted.
+ */
+const STACK_HEIGHTS: Record<string, number> = {
+  'decor.place-setting': 1.83,
+}
+
+/**
+ * The height, in the host's own frame, at which a rider stands on it.
+ *
+ * Scaled by the instance's size rather than taken flat from the table: the loader
+ * fits the whole model to `size`, so a host that was resized carries its stacking
+ * surface up or down with it and the rider follows.
+ */
+export function stackHeight(host: SceneObject): number {
+  const declared = STACK_HEIGHTS[host.catalogId]
+  if (declared === undefined) return host.size.height
+  if (!hasCatalogEntry(host.catalogId)) return declared
+  const base = getCatalogEntry(host.catalogId).defaultSize.height
+  return base > 0 ? declared * (host.size.height / base) : declared
+}
+
+/**
+ * The elevation a surface child stands at, in its PARENT's frame — derived from
+ * whatever it stands on rather than from the parent's height. Two riders need
+ * this and they are not the same case:
+ *
+ *   napkin      -> place setting, which stands on the table top   -> 75 + 1.83
+ *   ring.floral -> ring.table, which stands on the FLOOR through the ⌀380's hole
+ *                  (`inHole`), so its own elevation is 0          ->  0 + 75.1
+ *
+ * Reading the host's own base is one rule for both, and for any future host
+ * dropped into a hole; `parent.size.height + host.size.height` was right only for
+ * the first and put the urn 75 cm above the table it is meant to stand on.
+ *
+ * Recomputed rather than read off `host.transform.elevation` so it cannot depend
+ * on whether the host has already been clamped this pass — `clampSurfaceChildrenIn`
+ * iterates in map order. The depth guard is for `stackedOn`, which is a stored
+ * string a corrupt file could point round in a cycle.
+ */
+function surfaceBase(
+  scene: SceneState,
+  child: SceneObject,
+  parent: SceneObject,
+  depth = 0,
+): number {
+  if (child.attachment?.kind !== 'surface') return 0
+  const hostId = child.attachment.stackedOn
+  const host = hostId ? scene.objects[hostId] : undefined
+  if (host && host.id !== child.id && host.parentId === child.parentId && depth < 4) {
+    return surfaceBase(scene, host, parent, depth + 1) + stackHeight(host)
+  }
+  return child.attachment.inHole === true ? 0 : parent.size.height
+}
+
+/**
+ * The middle of a table's TOP, in parent-local cm — where a `surfaceAnchor:'center'`
+ * piece is pinned (source doc §28/§54b) and where a table design's authored origin
+ * lands (§53).
+ *
+ * `{x: 0, y: 0}` for every entry in the catalog but one, and that is not a
+ * coincidence to be tidied away later: a `footprint` outline is drawn symmetrically
+ * about the object's origin, so on a disc, on a ring and on every rectangle the
+ * origin IS the middle of the top. `state/tableCentre.test.ts` sweeps the whole
+ * catalog for it, so this can never quietly start moving furniture on a table that
+ * was fine.
+ *
+ * The serpentine is the exception, and its own file says why: its `outline` is a
+ * conservative bounding RECT around an S-shaped band, and the box's centre falls in
+ * the concave pocket of the S — `serpentineBandDepth({0,0})` is **−63.1 cm**, i.e.
+ * 63 cm clear of the nearest drape edge, over the floor. Every centrepiece and all
+ * four built-in designs were being laid there. It answers with the point on its
+ * centre line at half its length instead.
+ *
+ * Matched on the entry's own `seats` function rather than on its id: that identity
+ * is already the catalog's way of declaring "this table's geometry is not its
+ * outline" (asserted as `entry.seats === serpentineSeats` in serpentine.test.ts), so
+ * a second bounding-box table would have to make the same declaration to be caught
+ * by this — where an id string would silently miss it.
+ *
+ * ponytail: the right home is an optional `topCentre` on `CatalogEntry` beside
+ * `footprint`, so a table declares its own middle. It is here because
+ * `src/core/catalog` belongs to PLAN-02 and merged before this plan started. Moving
+ * it is one field, one line on `table.serpentine`, and deleting this function.
+ */
+export function surfaceCentre(entry: CatalogEntry): Vec2 {
+  if (entry.seats !== serpentineSeats) return { x: 0, y: 0 }
+  return serpentineCentre()
+}
+
+/**
  * Keep a surface-attached decor inside its parent's top outline, standing on the
  * parent's height. Positions are parent-local, so a circular table is a radial
  * clamp and a rect table a per-axis clamp.
@@ -465,7 +598,11 @@ function clampToSurface(scene: SceneState, child: SceneObject): void {
   if (host && host.parentId === child.parentId) {
     child.transform.position = { ...host.transform.position }
     child.transform.rotation = host.transform.rotation
-    child.transform.elevation = parent.size.height + host.size.height
+    // NOT `parent.size.height + host.size.height`: the host's own base can be the
+    // floor (ring.table sits in the ⌀380's hole) and its own STACKING surface can
+    // be far below its total height (the place setting's 15 cm is its wine glass).
+    // `surfaceBase` is both corrections in one rule — see its comment.
+    child.transform.elevation = surfaceBase(scene, child, parent)
     return
   }
 
@@ -477,7 +614,8 @@ function clampToSurface(scene: SceneState, child: SceneObject): void {
   // design into one point and quietly turn four designs into four single items.
   // Same rule the layouts already follow — authored content beats the placement
   // law, and the law governs what the user does by hand.
-  const pOutline = getCatalogEntry(parent.catalogId).footprint(parent.size).outline
+  const parentEntry = getCatalogEntry(parent.catalogId)
+  const pOutline = parentEntry.footprint(parent.size).outline
   const cOutline = entry.footprint(child.size).outline
   const rot = child.transform.rotation
   const pos = child.transform.position
@@ -489,8 +627,11 @@ function clampToSurface(scene: SceneState, child: SceneObject): void {
     // hole. On a solid top the hole radius is 0 and this reads as before.
     const throughHole = holeRadius(pOutline) > 0
     child.attachment.inHole = throughHole || undefined
-    child.transform.position.x = 0
-    child.transform.position.y = 0
+    // …and "the middle" is the middle of the TOP, which for every table but the
+    // serpentine is the origin. See `surfaceCentre` (source doc §53, §54b).
+    const mid = surfaceCentre(parentEntry)
+    child.transform.position.x = mid.x
+    child.transform.position.y = mid.y
     child.transform.elevation = throughHole ? 0 : parent.size.height
     return
   }
@@ -652,6 +793,21 @@ export function addObject(catalogId: string, position: Vec2, seating?: Partial<S
  * Drop a surface-placement catalog item onto a table top. `worldPos` is the drop
  * point in plan space; the object becomes an attached child (kind 'surface'),
  * standing on the parent's height and clamped to its outline.
+ *
+ * An entry with `requiresHost` is LINKED to its host here, the same way
+ * `laySeatItems` links a napkin to the setting it lays it on. Without the link
+ * nothing marks `ring.floral` as standing on `ring.table`: both are
+ * `surfaceAnchor: 'center'`, so both would be pinned to the middle of the ⌀380
+ * table and dropped into its hole at elevation 0, and the urn would stand on the
+ * FLOOR inside the small table rather than on top of it (source doc §46b).
+ * `checkPlacement` already refuses the drop outright when no host is on the table
+ * (collision.ts:576-580, `missingHost`), so the unlinked branch below is only
+ * reachable from a direct call, which is not gated at all (06-collision-api §7.2).
+ *
+ * In practice that makes `ring.floral` the only entry the link touches: both
+ * views send a `placement: 'seat'` entry (the cover and the three napkins) to
+ * `addSeatItemsToTable` instead, which does its own linking
+ * (Stage2D.tsx:393-397, Placement3D.tsx:119-129).
  */
 export function addObjectToSurface(
   catalogId: string,
@@ -672,9 +828,16 @@ export function addObjectToSurface(
     })
     obj.parentId = parentId
     obj.attachment = inHole ? { kind: 'surface', inHole: true } : { kind: 'surface' }
+    const requires = getCatalogEntry(catalogId).requiresHost
+    const host = requires
+      ? surfaceChildren(scene, parentId).find((c) => c.catalogId === requires)
+      : undefined
+    if (host) obj.attachment.stackedOn = host.id
     obj.transform = {
       position: local.position,
       rotation: 0,
+      // seeded only; `clampToSurface` below is the authority and re-derives it
+      // through `surfaceBase` — including the stacked case just linked
       elevation: inHole ? 0 : parent.size.height,
     }
     scene.objects[obj.id] = obj
@@ -755,7 +918,11 @@ function laySeatItems(scene: SceneState, catalogId: string, tableId: Id): Id[] {
     const obj = createObject(catalogId, { x: 0, y: 0 })
     obj.parentId = tableId
     obj.attachment = host ? { kind: 'surface', stackedOn: host.id } : { kind: 'surface' }
-    obj.transform = { ...t, elevation: table.size.height + (host?.size.height ?? 0) }
+    // the host's STACKING surface, not its total height: a napkin is laid on the
+    // place setting's charger (1.83 cm), not on the rim of its wine glass (15 cm).
+    // Same rule `clampToSurface` re-applies on every later clamp, so the two
+    // cannot drift — that is what `stackHeight` being one function is for.
+    obj.transform = { ...t, elevation: table.size.height + (host ? stackHeight(host) : 0) }
     scene.objects[obj.id] = obj
     ids.push(obj.id)
   }
@@ -775,10 +942,14 @@ function laySeatItems(scene: SceneState, catalogId: string, tableId: Id): Id[] {
   }
 
   const chair = getCatalogEntry(table.seating.chairCatalogId).defaultSize
+  const tableEntry = getCatalogEntry(table.catalogId)
   // seatsForEntry, not the outline math: on the serpentine the seats follow the
   // curve, and settings laid on rect positions would float beside the table
-  const seats = seatsForEntry(getCatalogEntry(table.catalogId), table.size, table.seating, chair)
-  for (const t of seatItemTransforms(seats, chair, entry.defaultSize, table.seating.offset)) {
+  const seats = seatsForEntry(tableEntry, table.size, table.seating, chair)
+  // the top goes with them (source doc §43): a seat knows the rim it sits outside
+  // but not the RING's opening on the far side of it
+  const top = tableEntry.footprint(table.size).outline
+  for (const t of seatItemTransforms(seats, chair, entry.defaultSize, table.seating.offset, top)) {
     lay(t)
   }
   unhideCategoryOf(scene, catalogId)
@@ -906,9 +1077,21 @@ function layTableDesign(scene: SceneState, design: TableDesign, tableId: Id): Id
     ids.push(obj.id)
   }
 
+  // A design is authored around the table's ORIGIN — a centrepiece at (0,0) with a
+  // pair of pieces either side of it. On the serpentine the origin is not on the
+  // table at all, so the whole arrangement is carried to the middle of the band
+  // rather than laid over the floor (source doc §53). `surfaceCentre` is (0,0) on
+  // every other table, so every other design lays byte-for-byte as before.
+  //
+  // The offsets themselves are NOT rewritten: a design is an arrangement, and
+  // re-spacing its flankers along a curve would make four authored designs into
+  // four different ones. Measured after the shift, all twelve built-in pieces land
+  // inside the band; three overhang the drape edge by 0.9-3.7 cm, which is inside
+  // the model's own ±5 cm width wander — the numbers are in handoff/FOUND-07.md.
+  const mid = surfaceCentre(entry)
   for (const item of design.items) {
     lay(item.catalogId, {
-      position: { x: item.x ?? 0, y: item.y ?? 0 },
+      position: { x: mid.x + (item.x ?? 0), y: mid.y + (item.y ?? 0) },
       rotation: item.rotation ?? 0,
       elevation: 0,
     })
@@ -917,7 +1100,9 @@ function layTableDesign(scene: SceneState, design: TableDesign, tableId: Id): Id
     const chair = getCatalogEntry(table.seating.chairCatalogId).defaultSize
     const item = getCatalogEntry(design.seatItem).defaultSize
     const seats = seatsForEntry(entry, table.size, table.seating, chair)
-    for (const t of seatItemTransforms(seats, chair, item, table.seating.offset)) {
+    // same top as the hand-laid path — a design's settings obey §43 too
+    const top = entry.footprint(table.size).outline
+    for (const t of seatItemTransforms(seats, chair, item, table.seating.offset, top)) {
       lay(design.seatItem, t)
     }
   }
@@ -1519,9 +1704,11 @@ export function moveObjectsBy(ids: Id[], delta: Vec2): void {
     for (const obj of objs) {
       if (obj.parentId) {
         const parent = scene.objects[obj.parentId]
-        // a table-top item is bounded by clampToSurface, not by the venue rules,
-        // so it keeps the full delta the pointer asked for
-        const local = parent ? rotateVec(delta, -parent.transform.rotation) : delta
+        // `step`, not `delta`: since PLAN-06 a child IS ruled — it collides with its
+        // siblings on the table — and `allowedDelta` already probed it in the parent's
+        // frame. Applying the full delta here would let decor slide through decor on
+        // the commonest drag path in the app while every other path stayed gated.
+        const local = parent ? rotateVec(step, -parent.transform.rotation) : step
         obj.transform.position.x += local.x
         obj.transform.position.y += local.y
         if (obj.attachment?.kind === 'seat') obj.attachment.manual = true
