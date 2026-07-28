@@ -154,7 +154,9 @@ describe('one chuppah per event (§43)', () => {
     expect(uniqueBlocker(scene(), 'chuppah.round-beige')?.id).toBe(onDeck)
     expect(addObject('chuppah.round-beige', centre)).toBe(onDeck)
     expect(addObject('chuppah.round-beige', { x: 300, y: 300 })).toBe(onDeck)
-    expect(Object.keys(scene().objects)).toHaveLength(1)
+    // `placed()`, not Object.keys: the resort seeds three frozen bar fittings into
+    // every scene, so the raw object count is 4 here and says nothing about canopies
+    expect(placed()).toHaveLength(1)
   })
 
   it('still allows swapping the chuppah for another model in place', () => {

@@ -809,7 +809,10 @@ describe('zones an entry is allowed into (PLAN-06)', () => {
     // A bar unit carries `zoneKind`, so it leaves check() at the fixed-station line
     // and the deck never judges it — the whitelist is the only thing to assert here,
     // and the eviction itself is state/kabalatPanim.test.ts's job.
-    expect(allowedOnDeck(getCatalogEntry('bar.straight'))).toBe(false)
+    // was `bar.straight` when this was written; that id retired at v10 and
+    // getCatalogEntry now throws on it. Any of the three pieces that replaced it
+    // makes the same point — a bar unit is not welcome on the deck.
+    expect(allowedOnDeck(getCatalogEntry('bar.resort-left'))).toBe(false)
     expect(allowedOnDeck(getCatalogEntry('divider.screen'))).toBe(false)
     const v = checkPlacement(scene(), ghost('divider.screen', deckCentre))
     expect(kinds(v)).toEqual(['forbiddenZone'])
