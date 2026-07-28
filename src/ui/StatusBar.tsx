@@ -41,6 +41,8 @@ function violationText(violation: Violation, venuePackId: string | null | undefi
       return V.nearWall.replace('{within}', String(violation.within))
     case 'missingHost':
       return V.missingHost
+    case 'overlapsSibling':
+      return V.overlapsSibling
     case 'duplicate':
       return V.duplicate
   }

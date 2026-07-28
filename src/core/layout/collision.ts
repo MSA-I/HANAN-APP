@@ -22,9 +22,9 @@
 import { getCatalogEntry } from '../catalog/registry'
 import type { CatalogEntry, Outline } from '../catalog/types'
 import type { Id, SceneObject, SceneState, Size3D, Transform2D, Vec2 } from '../model/types'
-import { composeTransform, rotateVec } from '../space'
+import { composeTransform, relativeTransform, rotateVec } from '../space'
 import { getVenuePack, type RestrictedZone } from '../venuePacks'
-import { aabbIntersects, type AABB } from './bounds'
+import { aabbIntersects, holeRadius, pointInHole, type AABB } from './bounds'
 
 /** Why a placement is refused — one per reason, in no particular order. */
 export type Violation =
@@ -40,6 +40,12 @@ export type Violation =
    */
   | { kind: 'nearWall'; within: number }
   | { kind: 'missingHost'; requires: string }
+  /**
+   * Two items on the SAME table top standing in one another. Not `collision`,
+   * whose `withId` names a top-level obstacle on the venue floor: a table top is
+   * a different space with different rules, and the status bar says so.
+   */
+  | { kind: 'overlapsSibling'; id: Id }
   | { kind: 'duplicate'; unique: string }
 
 export interface PlacementCandidate {
@@ -65,6 +71,24 @@ export interface PlacementCandidate {
   subtreeOf?: Id
   /** For a surface/seat item: the table it is being placed on (host lookup). */
   parentId?: Id
+  /**
+   * surface/seat only: `transform.position` is in the PARENT's local frame — an
+   * existing child being probed, whose stored transform already lives there.
+   * Absent = world frame, which is what the ghost of a new drop hands over
+   * (editor2d/Stage2D.tsx, viewer3d/Placement3D.tsx). The sibling rule compares
+   * in the parent's frame and converts the world case itself.
+   */
+  parentLocal?: boolean
+  /**
+   * surface/seat only: this item stands on the FLOOR through the open centre of a
+   * ring table rather than on its top (`Attachment.surface.inHole`).
+   *
+   * Pass it for an existing child; it is decided once at drop (model/types.ts:40-56)
+   * and re-deriving it mid-drag is exactly what would drop a piece 75cm between two
+   * frames. Absent on a world-frame ghost means "work it out from the drop point",
+   * which is the same test the drop itself runs.
+   */
+  inHole?: boolean
 }
 
 /**
@@ -253,6 +277,12 @@ interface Occupant {
 interface Index {
   scene: SceneState
   occupants: Occupant[]
+  /**
+   * Attached children by parent id — the sibling rule's only lookup, and it runs
+   * on every bisection probe of a table-top drag. Built here because the pass
+   * below needs the same grouping anyway.
+   */
+  children: Map<Id, SceneObject[]>
   zones: RestrictedZone[]
   /** venue contour in plan cm — the pack outline, or the size rectangle */
   contour: Vec2[]
@@ -347,6 +377,7 @@ function buildIndex(scene: SceneState): Index {
   return {
     scene,
     occupants,
+    children: childrenByParent,
     zones: pack?.restricted ?? [],
     contour: (pack?.outline ?? [
       [0, 0],
@@ -374,11 +405,28 @@ function boxOverlapsZone(box: AABB, z: RestrictedZone): boolean {
 
 /**
  * The reception deck is an INVERTED zone: a whitelisted item is let in and
- * everything else is refused. Kept in step with `allowedInKabalatPanim` in
- * state/actions.ts, which does the clamping half of the same rule.
+ * everything else is refused (source doc §41).
+ *
+ * THE definition of that whitelist, and the reason it is exported: state/actions.ts
+ * imports it for the clamping half of the same rule. It used to keep a second copy
+ * and a comment asking for the two to be kept in step by hand, which is exactly how
+ * the deck came to refuse things this list allowed.
+ *
+ * `buffet.table` is named outright and is NOT covered by the `tables` line: it is
+ * `category: 'bars'` (entries/bars.ts:77), filed with the service furniture rather
+ * than the guest tables. Deleting the id as redundant would drop the buffet off the
+ * deck — the one piece §41 names explicitly.
  */
-function allowedOnDeck(entry: CatalogEntry): boolean {
-  return entry.zoneKind === 'chuppah' || entry.category === 'seating' || entry.id === 'buffet.table'
+export function allowedOnDeck(entry: CatalogEntry): boolean {
+  return (
+    entry.zoneKind === 'chuppah' ||
+    entry.category === 'seating' ||
+    // Guest tables belong up there with the chairs. Round-2 corrections §27, in the
+    // user's words: "when I try to place tables or a chuppah in the reception area,
+    // even when it is switched on, it will not let me."
+    entry.category === 'tables' ||
+    entry.id === 'buffet.table'
+  )
 }
 
 /** Distance from a point to the venue contour, ignoring which side it is on. */
@@ -408,7 +456,102 @@ function candidateParts(index: Index, candidate: PlacementCandidate, self: Shape
   return parts
 }
 
+/**
+ * Does a table-top item stand clear of the OTHER items on the same table?
+ *
+ * Everything is compared in the PARENT's local frame, which is where a child's
+ * stored transform already lives; a world-frame candidate is converted first, and
+ * `parentLocal` is what says which of the two arrived. Getting that backwards is
+ * silent — a ghost measured against the table's origin instead of its own reports
+ * overlaps three metres from where the pointer is.
+ *
+ * The question asked is always "may it stand where it will END UP", which for a
+ * centre-anchored ghost is not the pointer at all — see `centred` below.
+ *
+ * The four skips are the rule and not an optimisation. Each names a pair that
+ * shares a spot BY DESIGN, and dropping any one of them would refuse a placement
+ * the app performs itself.
+ */
+function siblingOverlaps(
+  index: Index,
+  candidate: PlacementCandidate,
+  entry: CatalogEntry,
+  excluded: Set<Id>,
+): Violation[] {
+  const parentId = candidate.parentId
+  if (!parentId) return []
+  const parent = index.scene.objects[parentId]
+  if (!parent) return []
+  const parentOutline = outlineOf(parent)
+
+  // Source doc §28/§54: a hand-placed centre-anchored piece does not land where the
+  // pointer is. `clampToSurface` pins it to the middle of the table and, on a ring
+  // table, into the well (state/actions.ts:448-458). Judging the ghost at the
+  // pointer therefore answers a question nobody asked — green over an empty stretch
+  // of rim while the piece drops onto an occupied centre, red over a rim decoration
+  // while the centre is free. Ask about the spot it will actually take.
+  //
+  // Ghosts only. An existing child arrives `parentLocal` and is already wherever the
+  // clamp left it, which for a DESIGN-laid piece is deliberately NOT the centre —
+  // that is the `meta.design` exemption the clamp itself carries, and a candidate
+  // carries no `meta` to re-test it by. Forcing those to the origin here would
+  // stack every arrangement into one point and call it a self-collision.
+  const centred = !candidate.parentLocal && entry.surfaceAnchor === 'center'
+
+  // rotation 0, not the converted one: a hand drop lands square to its table
+  // (`addObjectToSurface` writes `rotation: 0`), whatever the ghost was drawn at
+  const local = centred
+    ? { position: { x: 0, y: 0 }, rotation: 0, elevation: 0 }
+    : candidate.parentLocal
+      ? candidate.transform
+      : relativeTransform(parent.transform, candidate.transform)
+
+  const inHole = centred
+    ? holeRadius(parentOutline) > 0
+    : (candidate.inHole ??
+      (candidate.parentLocal
+        ? false
+        : pointInHole(candidate.transform.position, parent.transform, parentOutline)))
+
+  const self = shapeOf(local, entry.footprint(candidate.size).outline)
+  const out: Violation[] = []
+  for (const sibling of index.children.get(parentId) ?? []) {
+    if (excluded.has(sibling.id)) continue
+    const attachment = sibling.attachment
+    // a chair hangs off the table, it is not on the top
+    if (attachment?.kind === 'seat') continue
+    const other = getCatalogEntry(sibling.catalogId)
+    // both laid per cover by laySeatItems at equal pitch: where they touch, the
+    // table is over-set rather than misplaced (seatItemLayout.test.ts records it)
+    if (entry.placement === 'seat' && other.placement === 'seat') continue
+    // the napkin ON its place setting, the arrangement ON the ring table — these
+    // are MEANT to coincide, which is the whole meaning of `requiresHost`
+    if (entry.requiresHost === sibling.catalogId || other.requiresHost === entry.id) continue
+    // the open centre of a ring table is a different storey from its top (§48)
+    if ((attachment?.inHole === true) !== inHole) continue
+    if (shapesOverlap(self, shapeOf(sibling.transform, outlineOf(sibling)))) {
+      out.push({ kind: 'overlapsSibling', id: sibling.id })
+    }
+  }
+  return out
+}
+
 function check(index: Index, candidate: PlacementCandidate): Violation[] {
+  // NaN survives every comparison below — `box.minX < -0.01` and the SAT interval
+  // tests are all false for it — so a non-finite pose would pass bounds AND
+  // overlap and land in the scene. Nothing but an explicit gate stops it.
+  const { position } = candidate.transform
+  const { width, depth, height } = candidate.size
+  if (
+    !Number.isFinite(position.x) ||
+    !Number.isFinite(position.y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(depth) ||
+    !Number.isFinite(height)
+  ) {
+    return [{ kind: 'outOfBounds' }]
+  }
+
   const entry = getCatalogEntry(candidate.catalogId)
   const excluded = new Set(
     candidate.excludeId === undefined
@@ -427,13 +570,16 @@ function check(index: Index, candidate: PlacementCandidate): Violation[] {
   }
 
   // A table-top item lives in its parent's local space: the venue rules simply
-  // do not apply to it. Its own rule is that its host must already be there.
+  // do not apply to it. It answers to two rules of its own — its host must
+  // already be on the same table, and it may not stand in another item there.
   if (entry.placement === 'surface' || entry.placement === 'seat') {
-    if (!entry.requiresHost || !candidate.parentId) return []
-    const hasHost = Object.values(index.scene.objects).some(
-      (o) => o.parentId === candidate.parentId && o.catalogId === entry.requiresHost,
-    )
-    return hasHost ? [] : [{ kind: 'missingHost', requires: entry.requiresHost }]
+    if (entry.requiresHost && candidate.parentId) {
+      const hasHost = (index.children.get(candidate.parentId) ?? []).some(
+        (o) => o.catalogId === entry.requiresHost,
+      )
+      if (!hasHost) return [{ kind: 'missingHost', requires: entry.requiresHost }]
+    }
+    return siblingOverlaps(index, candidate, entry, excluded)
   }
 
   const outline = entry.footprint(candidate.size).outline
@@ -455,8 +601,21 @@ function check(index: Index, candidate: PlacementCandidate): Violation[] {
   // ends up and judging it here would paint the ghost red over the whole hall.
   if (entry.zoneKind && index.zones.some((z) => z.kind === entry.zoneKind)) return []
 
+  // Two INVERTED zones live in this loop, and they are the same shape of rule:
+  // "no-go for everyone EXCEPT ...". The deck names its exceptions here; a zone
+  // named in `entry.allowedZones` names them the other way round, from the entry.
+  // Either way the zone stops being a no-go for that one entry and stays a no-go
+  // for everyone else — which is why neither can be expressed by dropping the
+  // rectangle from the pack.
   for (const zone of index.zones) {
     if (!boxOverlapsZone(box, zone)) continue
+    // An entry that may stand ONLY in this zone obviously may stand IN it. Without
+    // this the two halves of `allowedZones` contradict each other: the band rule
+    // below demands the item be in its zone, and the line under it would refuse the
+    // item for being there. It exempts nothing else — `pool` in particular keeps
+    // refusing the vegetation ring's own overlap with the water, because the pool
+    // is not the zone the entry named.
+    if (zone.kind && entry.allowedZones?.some((rule) => rule.kind === zone.kind)) continue
     if (zone.kind === 'kabalatPanim') {
       if (!allowedOnDeck(entry)) out.push({ kind: 'forbiddenZone', zone: zone.kind })
       continue
@@ -464,12 +623,26 @@ function check(index: Index, candidate: PlacementCandidate): Violation[] {
     out.push({ kind: 'forbiddenZone', zone: zone.kind ?? zone.label ?? '' })
   }
 
-  // "around the pool", not "in the pool": a band `within` cm outside the zone
-  if (entry.allowedZones?.length) {
-    const inBand = entry.allowedZones.some((rule) =>
+  // "around the pool", not "in the pool": a band `within` cm outside the zone.
+  //
+  // Only the rules whose zone EXISTS in this venue are weighed. A rule naming a
+  // zone the pack does not have is not a rule the venue can fail — the same
+  // reading `zoneKind` states outright (catalog/types.ts:188-193: "Venues without
+  // a matching zone (procedural room) place it freely"), and the two mechanisms
+  // are the same idea seen from either end. Without it, `index.zones` being empty
+  // makes `inBand` false everywhere and vegetation 1 becomes unplaceable in every
+  // procedural room and in every future pack without a `saviv` rectangle.
+  //
+  // "There is no such zone here" and "the zone is here and the item is not in it"
+  // are different answers, and only the second is a `wrongZone`. One existing zone
+  // is enough to make the rule apply: `known` is what the item is then measured
+  // against, and what the refusal names — never a zone this hall does not have.
+  const known = entry.allowedZones?.filter((rule) => index.zones.some((z) => z.kind === rule.kind))
+  if (known?.length) {
+    const inBand = known.some((rule) =>
       index.zones.some((z) => z.kind === rule.kind && shapeGap(self, zoneShape(z)) <= rule.within),
     )
-    if (!inBand) out.push({ kind: 'wrongZone', allowed: entry.allowedZones.map((r) => r.kind) })
+    if (!inBand) out.push({ kind: 'wrongZone', allowed: known.map((r) => r.kind) })
   }
 
   if (entry.nearWall !== undefined) {

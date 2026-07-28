@@ -21,6 +21,7 @@ import type {
 import { relativeTransform, rotateVec } from '../core/space'
 import { aabbUnion, holeRadius, outlineAABB, type AABB } from '../core/layout/bounds'
 import {
+  allowedOnDeck,
   checkPlacement,
   slideToLegal,
   type PlacementCandidate,
@@ -144,6 +145,15 @@ function candidateFor(
   at?: { transform?: Transform2D; size?: Size3D },
   group?: Id[],
 ): PlacementCandidate {
+  // The two callers of `checkPlacement` speak different frames: the ghost of a new
+  // drop hands over a WORLD point, an existing child's stored transform is already
+  // parent-local. This is the side that declares which one it is holding.
+  //
+  // `inHole` is read from the attachment and never re-derived from the point — it
+  // was settled once at drop (model/types.ts:40-56), and working it out again
+  // mid-drag is what would drop a piece 75cm between two frames.
+  const child = !!obj.parentId
+  const inHole = obj.attachment?.kind === 'surface' && obj.attachment.inHole === true
   return {
     catalogId: obj.catalogId,
     transform: at?.transform ?? obj.transform,
@@ -151,11 +161,20 @@ function candidateFor(
     excludeId: group ?? obj.id,
     subtreeOf: obj.id,
     parentId: obj.parentId ?? undefined,
+    parentLocal: child ? true : undefined,
+    inHole: child ? inHole : undefined,
   }
 }
 
 /**
  * Do the rules apply to this object at all?
+ *
+ * A table-top child IS judged, which it was not before PLAN-06. It answers to one
+ * rule and only one — it may not stand in another item on the same table — and
+ * `clampToSurface` keeps it on the top as it always did; the venue rules never
+ * reach into a table top (collision.ts `check`). The blanket exemption that used
+ * to sit on the first line here is what let a second centrepiece land inside the
+ * first: every gate below it was reachable only by a top-level object.
  *
  * Two exemptions, both deliberate:
  *
@@ -166,10 +185,13 @@ function candidateFor(
  *    retroactive (plan decision, source doc §9): a project saved before these
  *    rules, or one a legacy path pushed into a zone, must stay editable. Gating
  *    it would freeze it in place forever, since every candidate pose inherits
- *    the same violation.
+ *    the same violation. This now covers CHILDREN too, and deliberately so: a
+ *    decoration already overlapping its neighbour — laid by an old design, or by
+ *    `addObjectToSurface`, which does not gate — stays free to be dragged,
+ *    turned and resized, including apart. Refusing is the one answer that could
+ *    never undo the overlap.
  */
 function ruled(scene: SceneState, obj: SceneObject): boolean {
-  if (obj.parentId) return false // table-top items answer to clampToSurface
   if (getCatalogEntry(obj.catalogId).zoneKind) return false
   return checkPlacement(scene, candidateFor(obj)).length === 0
 }
@@ -188,9 +210,18 @@ function allowedDelta(scene: SceneState, objs: SceneObject[], delta: Vec2): Vec2
   const gated = objs.filter((o) => ruled(scene, o))
   if (!gated.length || (!delta.x && !delta.y)) return delta
   const ids = gated.map((o) => o.id)
+  // Each object is probed in the frame its own transform lives in. `delta` is the
+  // world vector the pointer asked for, and a child's position is parent-local, so
+  // for a child it has to be turned into the parent's frame first — the same
+  // conversion `moveObjectsBy` makes when it APPLIES the move. Done once per
+  // object rather than inside the bisection, which runs it twelve more times.
+  const moves = gated.map((o) => {
+    const parent = o.parentId ? scene.objects[o.parentId] : undefined
+    return { obj: o, delta: parent ? rotateVec(delta, -parent.transform.rotation) : delta }
+  })
   const violationsAt = (factor: number): Violation[] =>
-    gated.flatMap((o) =>
-      checkPlacement(scene, candidateFor(o, { transform: shiftedBy(o.transform, delta, factor) }, ids)),
+    moves.flatMap(({ obj, delta: local }) =>
+      checkPlacement(scene, candidateFor(obj, { transform: shiftedBy(obj.transform, local, factor) }, ids)),
     )
 
   const blocking = violationsAt(1)
@@ -203,6 +234,8 @@ function allowedDelta(scene: SceneState, objs: SceneObject[], delta: Vec2): Vec2
     if (violationsAt(mid).length) hi = mid
     else lo = mid
   }
+  // one scalar for the whole selection, and the answer stays in WORLD units: the
+  // caller converts per object exactly as it applies the move
   return { x: delta.x * lo, y: delta.y * lo }
 }
 
@@ -252,27 +285,6 @@ function zonePush(box: AABB, z: RestrictedZone, width: number, depth: number): V
 /** Does a box touch a zone rectangle at all? */
 function overlapsZone(box: AABB, z: RestrictedZone): boolean {
   return box.minX < z.x + z.width && box.maxX > z.x && box.minY < z.y + z.depth && box.maxY > z.y
-}
-
-/**
- * The reception deck (`kind: 'kabalatPanim'`) is an INVERTED restricted zone: a
- * whitelisted item dropped on it stays and is clamped in, everything else is
- * pushed out like any other no-go rectangle. Only the ceremony itself belongs up
- * there — a canopy, chairs for the guests, and buffet tables (source doc §41).
- *
- * TODO(PLAN-03): PLAN-03/A2 adds `allowedZones` to CatalogEntry and A3 turns the
- * push into a hard block. This is the minimal form on purpose — fold it into
- * that mechanism rather than keeping two.
- */
-const ALLOWED_IN_KABALAT_PANIM_IDS = new Set(['buffet.table'])
-
-function allowedInKabalatPanim(catalogId: string): boolean {
-  const entry = getCatalogEntry(catalogId)
-  return (
-    entry.zoneKind === 'chuppah' ||
-    entry.category === 'seating' ||
-    ALLOWED_IN_KABALAT_PANIM_IDS.has(entry.id)
-  )
 }
 
 /** Shift to keep a box INSIDE a zone rectangle (a fixed station in its home zone). */
@@ -332,14 +344,31 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>, mode: ClampMode = 's
     done.add(id)
     let box = subtreeAABB(scene, id)
     if (!box) continue
+    // A comparison cannot REJECT a non-finite box: `box.minX < 0` and
+    // `box.maxX > width` are both false for NaN, so it neither trips a rule nor is
+    // turned away by one. Every branch below happens to compare before it computes,
+    // so as things stand a broken box yields no shift rather than a NaN one — the
+    // leak is closed by luck. Any shift computed from it WOULD be written straight
+    // into `transform.position`, where nothing can recover it. Asking whether the
+    // numbers are finite is what closes it on purpose.
+    if (![box.minX, box.minY, box.maxX, box.maxY].every(Number.isFinite)) continue
     let d = mode === 'legacy' ? floorShift(box, width, depth) : { x: 0, y: 0 }
     if (d.x || d.y) box = shift(obj, box, d)
 
-    // The reception deck wins over the home zone: a chuppah dropped up there is
-    // meant to stay there, and its `zoneKind` would otherwise teleport it back
-    // down to the hall's ceremony rectangle (source doc §43).
+    // The reception deck is an INVERTED zone: a whitelisted item dropped on it is
+    // clamped IN, everything else is pushed out like any other no-go rectangle. It
+    // also wins over the home zone — a chuppah dropped up there is meant to stay
+    // there, and its `zoneKind` would otherwise teleport it back down to the hall's
+    // ceremony rectangle (source doc §43).
+    //
+    // The whitelist is `allowedOnDeck`, and there is exactly one of it. This file
+    // used to keep a second copy, with a comment asking for the two to be kept in
+    // step by hand — and they drifted, which is round-2 correction §27 in one
+    // sentence: collision.ts admitted a guest table onto the deck while the clamp
+    // here went on shoving it off. One list is what stops "may it be here" and
+    // "does it stay here" from disagreeing again.
     const reception = zones.find((z) => z.kind === 'kabalatPanim')
-    if (reception && overlapsZone(box, reception) && allowedInKabalatPanim(obj.catalogId)) {
+    if (reception && overlapsZone(box, reception) && allowedOnDeck(getCatalogEntry(obj.catalogId))) {
       d = zoneShift(box, reception)
       if (d.x || d.y) shift(obj, box, d)
       continue
@@ -397,7 +426,15 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>, mode: ClampMode = 's
     }
 
     if (mode === 'strict') continue
+    // The other half of the rule collision.ts applies when it JUDGES a drop: a zone
+    // an entry may stand ONLY in must not be the zone that ejects it. Vegetation 1
+    // is allowed nowhere but the pool surround, so without this `addObject` would
+    // shove it out of the one place it is legal the instant it landed — a green
+    // ghost, then an object somewhere else. Every OTHER zone still pushes it, the
+    // pool included: only the zone the entry names stops being a no-go for it.
+    const allowed = getCatalogEntry(obj.catalogId).allowedZones
     for (const z of zones) {
+      if (z.kind && allowed?.some((rule) => rule.kind === z.kind)) continue
       const p = zonePush(box, z, width, depth)
       if (!p.x && !p.y) continue
       box = shift(obj, box, p)
