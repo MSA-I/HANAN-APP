@@ -90,6 +90,16 @@ export interface VenuePack {
   /** hex of the roof-truss metal, read off venue.glb materials — the hang cord matches it
    *  (source doc §16). Absent → the viewer keeps its own default. */
   beamColor?: string
+  /**
+   * URL of the plan-section asset: the building cut through at eye height, so the
+   * 2D view can draw real walls with real openings instead of a fabricated band
+   * around `outline`. Produced by tools/glb-prep/extract-section.mjs from THIS
+   * pack's model, so the two views describe one building. See core/venueSection.ts.
+   *
+   * Absent → the plan falls back to stroking `outline`, which is what every pack
+   * did before this existed.
+   */
+  section?: string
 }
 
 export const VENUE_PACKS: VenuePack[] = [
@@ -225,6 +235,15 @@ export const VENUE_PACKS: VenuePack[] = [
     // and it renders the beam far too light. Re-read off the 19:47 build: same
     // factor, still no texture.
     beamColor: '#ddd1c1',
+    // Cut from THIS venue.glb by tools/glb-prep/extract-section.mjs, two planes:
+    // 1.00 m over the hall and 5.70 m over the reception deck, because the deck
+    // floor is 4.70 m up and one plane cannot catch both. 170 polylines, 114 of
+    // them closed — those are the wall cross-sections the plan fills as poché.
+    // `--clip` throws away the 126 that lay wholly outside this pack's rectangle:
+    // the model carries the rest of the building and a desert backdrop.
+    // ⚠ Re-run it whenever venue.glb changes, or the plan draws the old building:
+    //   node tools/glb-prep/extract-section.mjs public/venue-packs/resort/venue.glb --offset 0,24.861 --clip 0,0,6051,2544
+    section: '/venue-packs/resort/section.json',
     // SketchUp Scenes → app three-metres via (x, z, 24.861 − y). Extracted from
     // SimLab Scene nodes (tools flow: SimLab session on the SKP → read Scene N).
     // Cameras do NOT survive the GLB export, so inspect-cameras.mjs reports 0 —

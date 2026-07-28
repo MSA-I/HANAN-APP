@@ -13,7 +13,7 @@
  * a soft tint again, not a hatch. The reasoning is with `ZONE_TINT` below. The
  * handoff document still describes the hatch version — read the code, not it.
  */
-import { Fragment } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { Group, Layer, Line, Rect, Text } from 'react-konva'
 import { useShallow } from 'zustand/react/shallow'
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
@@ -22,6 +22,7 @@ import { formatElevation, LABEL_ELEVATION_HEIGHT, zoneLabelBoxes, type ZoneLabel
 import type { Vec2 } from '../core/model/types'
 import { venueOutline } from '../core/venueOutline'
 import { getVenuePack, type RestrictedZone } from '../core/venuePacks'
+import { cachedVenueSection, loadVenueSection, type VenueSection } from '../core/venueSection'
 import { isObjectVisible } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { strings } from '../ui/strings'
@@ -34,17 +35,18 @@ const LABEL_BG = 'rgba(255,255,255,0.82)'
 const LEVEL_TEXT = '#6b635a'
 
 /**
- * cm. The wall is stroked ON the floor contour, so it straddles it: 10 cm of it
- * eats into the room and 10 cm stands outside. At 6051 cm across that is not
- * visible, and offsetting the polygon outward is a lot of machinery for it.
+ * cm. Only for a pack with NO `section` asset: the contour is stroked as if it
+ * were a wall, straddling the floor edge.
  *
- * ponytail: invented number. `VenuePack` carries no wall thickness — the venue
- * GLB has the walls as baked geometry and extract-zones.mjs only reads the
- * ZONE_* floor markers. The right home is a `wallThickness` field on VenuePack
- * (PLAN-01) once someone measures it in the SketchUp model; until then every
- * pack draws a 20 cm wall.
+ * ponytail: invented number, and it is exactly the fake the section replaces —
+ * one thickness for every wall and no openings anywhere, because the contour is
+ * a floor polygon and knows nothing about a door. A pack that ships a section
+ * never reaches this.
  */
-const WALL_THICKNESS = 20
+const FALLBACK_WALL_THICKNESS = 20
+
+/** the floor's edge once the real walls are drawn: the placement limit, not a wall */
+const OUTLINE_HAIRLINE = '#b6afa7'
 
 const LABEL_FONT_SIZE = 44
 const LEVEL_FONT_SIZE = 30
@@ -94,6 +96,38 @@ const ZONE_TINT: Record<string, ZoneTint> = {
   kabalatPanim: { fill: '#edf2e9', stroke: '#b4c6a8' },
 }
 const FALLBACK_TINT: ZoneTint = { fill: '#f0eff4', stroke: '#c0bcc8' }
+
+/**
+ * The building, cut. `closed` runs are wall cross-sections and are FILLED — that
+ * is the poché, and it is why an opening reads as an opening: there is simply no
+ * loop across it. Open runs are surfaces the plane clipped without going around,
+ * mostly glazing, and are hairlines.
+ *
+ * Hairline, i.e. `strokeScaleEnabled={false}`, on the open runs only. The filled
+ * loops need no stroke at all — their width IS the wall's width in world cm, so
+ * they thin out as you zoom out exactly as a drawing does. Giving them a world
+ * stroke as well would fatten every wall by the stroke.
+ */
+function SectionLines({ section }: { section: VenueSection }) {
+  return (
+    <Fragment>
+      {section.lines.map((line, i) =>
+        line.closed ? (
+          <Line key={`sc${i}`} points={line.pts.flat()} closed fill={WALL} listening={false} />
+        ) : (
+          <Line
+            key={`so${i}`}
+            points={line.pts.flat()}
+            stroke={WALL}
+            strokeWidth={1}
+            strokeScaleEnabled={false}
+            listening={false}
+          />
+        ),
+      )}
+    </Fragment>
+  )
+}
 
 const zoneKey = (z: RestrictedZone) => `${z.kind}-${z.x}-${z.y}`
 
@@ -167,6 +201,19 @@ export function VenueLayer() {
   const zones = pack?.restricted ?? []
   const floorAreas = pack?.floorAreas ?? []
   const outline = venueOutline(pack)
+  // The section is a static asset of a static pack, so it is fetched once and
+  // held. Seeded from the cache so a venue already loaded paints its walls on the
+  // first frame instead of flashing a wall-less plan.
+  const [section, setSection] = useState<VenueSection | null>(() => cachedVenueSection(pack?.section))
+  useEffect(() => {
+    let live = true
+    void loadVenueSection(pack?.section).then((s) => {
+      if (live) setSection(s)
+    })
+    return () => {
+      live = false
+    }
+  }, [pack?.section])
   // index-aligned with `zones`: solved geometry, not a style choice — see
   // core/layout/zoneLabels.ts for why centring cannot work here (source doc §17).
   const labelBoxes = zoneLabelBoxes(zones)
@@ -221,20 +268,19 @@ export function VenueLayer() {
   return (
     <Layer listening={false}>
       <Group opacity={hallOpacity}>
-        {/* poché: the wall is a BAND of real thickness, not a hairline. That means
-            strokeScaleEnabled TRUE — the one place in the project that wants it —
-            so 20 stays 20 cm of world and shrinks on screen as you zoom out, the
-            way a wall on a drawing does. `false` would pin it to 20 screen px and
-            give a cartoon outline. No drop shadow: a cut wall is not an object
-            floating over paper, it IS the paper. */}
+        {/* The paper. Where the section exists this is only the sheet the drawing
+            sits on; the walls come from the cut below, at their real thickness and
+            with their real openings. Where it does not, the contour doubles as a
+            wall band, which is the pre-section behaviour and all a pack without a
+            model can offer. */}
         {outline ? (
           <Line
             points={outline.flat()}
             closed
             fill={PAPER}
-            stroke={WALL}
-            strokeWidth={WALL_THICKNESS}
-            strokeScaleEnabled={true}
+            stroke={section ? OUTLINE_HAIRLINE : WALL}
+            strokeWidth={section ? 1 : FALLBACK_WALL_THICKNESS}
+            strokeScaleEnabled={!section}
             lineJoin="miter"
           />
         ) : (
@@ -244,9 +290,9 @@ export function VenueLayer() {
             width={venueSize.width}
             height={venueSize.depth}
             fill={PAPER}
-            stroke={WALL}
-            strokeWidth={WALL_THICKNESS}
-            strokeScaleEnabled={true}
+            stroke={section ? OUTLINE_HAIRLINE : WALL}
+            strokeWidth={section ? 1 : FALLBACK_WALL_THICKNESS}
+            strokeScaleEnabled={!section}
             lineJoin="miter"
           />
         )}
@@ -265,6 +311,11 @@ export function VenueLayer() {
         {zoneNodes(hallZones)}
       </Group>
       <Group opacity={receptionOpacity}>{zoneNodes(receptionZones)}</Group>
+      {/* The building itself, last: a cut wall sits OVER the floor it encloses,
+          and over the zone tints, which are markings on that floor. Not inside
+          either opacity group — the hall/reception toggle dims what stands in a
+          zone, and the building is not standing in one. */}
+      {section ? <SectionLines section={section} /> : null}
     </Layer>
   )
 }
