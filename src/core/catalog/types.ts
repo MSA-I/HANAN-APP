@@ -12,6 +12,14 @@ import type { SeatingConfig, Size3D, Transform2D, Vec2 } from '../model/types'
  * what the library and the layers panel read. They are also the layer keys
  * (`settings.layers`), so renaming one needs a migration; see migrations/index.ts
  * for the v5→v6 rename that split this list out of the original six.
+ *
+ * v8→v9 ADDED three (nine → twelve): 'tableDesigns' and 'ringCenter' for the two
+ * new families of table-top arrangement, 'chuppahDecor' for the pieces that stand
+ * on the floor beside the canopy. Adding a key needs no layer migration the way
+ * renaming one does — a missing `settings.layers` entry already means visible and
+ * unlocked (model/types.ts:115) — but MOVING an existing entry between categories
+ * would orphan its stored flags, which is why none was moved; see the v9
+ * migration's comment.
  */
 export type Category =
   | 'tables'
@@ -20,9 +28,12 @@ export type Category =
   | 'bars'
   | 'tableware'
   | 'tableDecor'
+  | 'tableDesigns'
+  | 'ringCenter'
   | 'lighting'
   | 'decor'
   | 'chuppah'
+  | 'chuppahDecor'
 
 export interface MaterialSlotDef {
   name: string
@@ -232,6 +243,12 @@ export interface CatalogEntry {
   seats?: (seating: SeatingConfig, chair: Size3D) => Transform2D[]
   /** show the name label on canvas by default (tables) */
   labelByDefault?: boolean
+  /**
+   * How the library tile labels this item. 'size' (default) prints the footprint in
+   * metres; 'seats' prints the chair count from `seating.defaultCount`; 'none' prints
+   * nothing — most decor is bought by look, not by dimension (source doc §20).
+   */
+  librarySubtitle?: 'size' | 'seats' | 'none'
   /**
    * A short English noun phrase describing what this item LOOKS LIKE, for the
    * image-generation prompt (core/prompts). Singular and article-first ("a

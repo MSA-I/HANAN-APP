@@ -3,9 +3,12 @@ import { tableEntries } from './entries/tables'
 import { bridalChairEntries, seatingEntries } from './entries/seating'
 import { barEntries } from './entries/bars'
 import { tableDecorEntries } from './entries/tableDecor'
+import { tableDesignEntries } from './entries/tableDesigns'
+import { ringCenterEntries } from './entries/ringCenter'
 import { decorEntries } from './entries/decor'
 import { hangingEntries } from './entries/hanging'
 import { chuppahEntries } from './entries/chuppah'
+import { chuppahDecorEntries } from './entries/chuppahDecor'
 
 const all: CatalogEntry[] = [
   ...tableEntries,
@@ -13,9 +16,12 @@ const all: CatalogEntry[] = [
   ...bridalChairEntries,
   ...barEntries,
   ...tableDecorEntries,
+  ...tableDesignEntries,
+  ...ringCenterEntries,
   ...decorEntries,
   ...hangingEntries,
   ...chuppahEntries,
+  ...chuppahDecorEntries,
 ]
 
 const byId = new Map(all.map((e) => [e.id, e]))
@@ -46,7 +52,14 @@ export const CATEGORY_ORDER: Category[] = [
   'bars',
   'tableware',
   'tableDecor',
+  // the two v9 table-top families sit with the other table groups: a design is
+  // arranged on a top like the decor above it, and ringCenter is the pair that
+  // fills the ⌀380 table's hole
+  'tableDesigns',
+  'ringCenter',
   'lighting',
   'decor',
   'chuppah',
+  // beside the canopy, so it follows it
+  'chuppahDecor',
 ]

@@ -7,14 +7,15 @@
  * `kind` exactly — a typo does NOT degrade to "places freely", it makes the
  * object get pushed OUT of every restricted zone instead.
  *
- * These eight are the whole of `category: 'chuppah'` — the category exists for
+ * These nine are the whole of `category: 'chuppah'` — the category exists for
  * them and nothing else. It replaced the old catch-all 'structure' group, which
  * never held anything but these; the v5→v6 migration carries the stored layer
- * flags across the rename.
+ * flags across the rename. The ninth arrived with schema v9; the FLOOR-standing
+ * decorations that go beside them are a separate category, entries/chuppahDecor.ts.
  *
  * Sizing. Each entry declares the size glb-prep left in its GLB and the catalog
  * derives `defaultSize` from it, so the two can never drift apart — see
- * CATALOG_SCALE. All eight fit inside the 425 cm ceremony marker, so none is
+ * CATALOG_SCALE. All nine fit inside the 425 cm ceremony marker, so none is
  * force-centred or quarter-turned by the zone clamp.
  *
  * ⚠ The Tripo filenames lie harder here than usual, so every mapping below came
@@ -42,7 +43,7 @@ const TOP = 8
  * so the instruction drops it and leaves 1.2 over the GLB's own size. Confirmed
  * by the user 2026-07-28 (BLOCKED-01-A3.md §4).
  *
- * At 1.2 all eight fit inside the 760×425 ceremony marker the user drew — the
+ * At 1.2 all nine fit inside the 760×425 ceremony marker the user drew — the
  * deepest is 417.6 cm — so none is centred-and-quarter-turned by the zone clamp,
  * and all keep free rotation. It is one constant because nothing else states
  * these sizes: `defaultSize` is derived from `modelSize × CATALOG_SCALE`.
@@ -215,4 +216,26 @@ export const chuppahEntries: CatalogEntry[] = [
   chuppah('chuppah.arch-lattice', 'chuppahArchLattice',
     'a white lattice wedding arch on panelled piers under a dentil cornice',
     P('chuppah-arch-lattice.glb'), { width: 296, depth: 212, height: 290 }, '#bfbfbe'),
+  // The ninth, added in schema v9. src "wedding arch 3d model.glb" — SPACES, not
+  // '+': a different file from the three "wedding+arch+3d+model*.glb" already
+  // above. ↔ shot hf_20260728_092436. Identification is certain for once: model
+  // and shot agree feature for feature, and the floral crown is a feature no
+  // other entry has.
+  //
+  // Round, though its bbox is 256×234 rather than square. The 8% is the four
+  // drape trains puddling on the floor, which is real and was NOT forced away the
+  // way `chuppah.round-white`'s 0.98×0.90 oval was — the canopy itself measures
+  // 91.6×89.6 in model units, i.e. already circular. So 'round' is right for what
+  // reads in plan (a continuous curtain, no uprights), and the circle it draws at
+  // r = width/2 over-claims 13 cm of depth per side, which is the safe direction:
+  // snapping and the zone clamp keep more clearance than the real canopy needs.
+  //
+  // Height stretched 9.8% over the uniform footprint scale to undo Tripo's squash
+  // — the shot's crown-width ÷ total-height is 0.876 against the model's own
+  // 0.962. That correction sits inside the 0–30% range its eight sisters carry.
+  // At CATALOG_SCALE it becomes 307.2 × 280.8 × 324, so it still fits the 760×425
+  // ceremony marker and keeps free rotation.
+  chuppah('chuppah.round-floral', 'chuppahRoundFloral',
+    'a round wedding chuppah crowned with a dense wreath of ivory roses and white hydrangea, its four sheer white drapes caught back over rose balls',
+    P('chuppah-round-floral.glb'), { width: 256, depth: 234, height: 270 }, '#cdcdc6', 'round'),
 ]
