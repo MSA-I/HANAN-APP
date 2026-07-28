@@ -74,7 +74,9 @@ export const strings = {
       spacing: 'מרחק {actual} ס״מ — נדרש {required} ס״מ',
       outOfBounds: 'מחוץ לגבולות האולם',
       forbiddenZone: 'לא ניתן להניח באזור {zone}',
-      wrongZone: 'פריט זה מותר רק סביב {zone}',
+      // "באזור", not "סביב": StatusBar substitutes the zone's own label, and one of
+      // them is already "סביב הבריכה" — the old wording produced "רק סביב סביב הבריכה".
+      wrongZone: 'פריט זה מותר רק באזור {zone}',
       nearWall: 'יש להניח צמוד לקיר (עד {within} ס״מ)',
       missingHost: 'יש להניח ערכת סכו״ם קודם',
       duplicate: 'כבר קיימת חופה בסצנה',
@@ -381,7 +383,11 @@ export const strings = {
     replaceItemActive: 'בחרו פריט חלופי מהספרייה',
     hanging: 'תלייה',
     hangHeight: 'גובה תלייה (מ׳)',
-    hangHint: 'הנברשת נתלית על הצטלבות קורות התקרה',
+    // A fixture pins to the nearest BEAM and slides along it (core/layout/beams.ts
+    // snapToBeam). It used to pin to a CROSSING, which on the resort truss is 36
+    // points in the whole hall and is what made a chandelier feel locked — this
+    // hint outlived that behaviour by one wave.
+    hangHint: 'הנברשת נתלית על קורת התקרה ומחליקה לאורכה',
   },
   statusBar: {
     tables: 'שולחנות',
@@ -429,8 +435,13 @@ export const strings = {
       // The snap is 5° and it is ALWAYS on; Shift releases it, the way Alt releases
       // the grid snap on a move. Two call sites, one behaviour:
       // editor2d/SelectionTransformer.tsx:85-86 · viewer3d/ObjectGroup.tsx:134.
-      ['סיבוב בגיזמו', 'צעדים של 5°'],
-      ['Shift בסיבוב', 'ביטול ההצמדה — זווית חופשית'],
+      // ⚠ These two have now been wrong in BOTH directions. Round 2 wave 1 fixed a
+      // line claiming 15° steps, and wave 3 then INVERTED the behaviour it had just
+      // been corrected to describe: rotation is free by default and Shift applies
+      // the snap, not the other way round. Two call sites, one behaviour:
+      // editor2d/SelectionTransformer.tsx:85 · viewer3d/ObjectGroup.tsx:138.
+      ['סיבוב בגיזמו', 'זווית חופשית'],
+      ['Shift בסיבוב', 'הצמדה לצעדים של 5°'],
       ['G / Shift+G', 'הצגת רשת / הצמדה'],
       ['Alt בזמן גרירה', 'עקיפת הצמדה'],
       ['Shift+1 / Shift+2', 'התאמה לאולם / לבחירה'],
