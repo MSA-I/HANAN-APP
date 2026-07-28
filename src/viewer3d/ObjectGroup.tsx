@@ -31,6 +31,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { shallow } from 'zustand/shallow'
 import { getCatalogEntry } from '../core/catalog/registry'
 import { slotColor, type Outline } from '../core/catalog/types'
+import { beamGrid, cordLength, snapToBeam } from '../core/layout/beams'
 import { snapValue } from '../core/layout/snapping'
 import { attachedChairs } from '../core/model/seatingReconciler'
 import type { Id, Size3D } from '../core/model/types'
@@ -68,20 +69,59 @@ type MoveDrag = {
   end: (event: PointerEvent) => void
 }
 
+type GizmoControls = React.ComponentRef<typeof TransformControls>
+/** `dragging` and `axis` are public on three's TransformControls but typed private by three-stdlib. */
+type GizmoState = { dragging: boolean; axis: string | null }
+const gizmoState = (c: GizmoControls | null): GizmoState | null => c as unknown as GizmoState | null
+
+/**
+ * The one mounted rotation gizmo, or null.
+ *
+ * The gizmo's picker meshes are INVISIBLE but still raycastable (three only
+ * tests layers, not `visible`), and they live inside the selected object's
+ * group — so a click on the rotation ring also lands on the object and used to
+ * start a move drag on top of the rotation. Every pointer-down therefore has to
+ * be able to ask "did this hit the gizmo?", including surface children, whose
+ * own gizmo sits inside their parent's group.
+ *
+ * `axis` is the reliable signal: TransformControls sets it during pointer HOVER,
+ * so it is already non-null by the time our pointer-down handler runs, whereas
+ * `dragging` is set from the controls' own pointerdown listener, which races
+ * with R3F's.
+ *
+ * ponytail: a module-level singleton, because `canRotate` requires a single
+ * selection so at most one handle can be mounted. If multi-select ever grows
+ * per-object gizmos, make this a set keyed by object id.
+ */
+let activeGizmo: GizmoControls | null = null
+
+function gizmoBusy(): boolean {
+  const g = gizmoState(activeGizmo)
+  return !!g && (g.dragging || g.axis !== null)
+}
+
 /** A single-axis editor handle; every drag is one history entry. */
 function RotationHandle({ id, object }: { id: Id; object: THREE.Object3D }) {
   const shiftHeld = useOverlayStore((s) => s.shiftHeld)
   const dragging = useRef(false)
+  const controlsRef = useRef<GizmoControls | null>(null)
+
+  const bindControls = useCallback((controls: GizmoControls | null) => {
+    controlsRef.current = controls
+    activeGizmo = controls
+  }, [])
 
   useEffect(
     () => () => {
       if (dragging.current) endGesture()
+      if (activeGizmo === controlsRef.current) activeGizmo = null
     },
     [],
   )
 
   return (
     <TransformControls
+      ref={bindControls}
       object={object}
       mode="rotate"
       space="world"
@@ -89,7 +129,9 @@ function RotationHandle({ id, object }: { id: Id; object: THREE.Object3D }) {
       showX={false}
       showY
       showZ={false}
-      rotationSnap={shiftHeld ? degToRad(15) : null}
+      // 5° detents always; Shift releases them for a free angle, mirroring Alt
+      // releasing the grid snap on a move drag.
+      rotationSnap={shiftHeld ? null : degToRad(5)}
       onMouseDown={() => {
         dragging.current = true
         beginGesture()
@@ -135,6 +177,18 @@ export function ObjectGroup({ id }: { id: Id }) {
   const baseElevation = useEditorStore((s) => {
     const zoneKind = catalogId ? getCatalogEntry(catalogId).zoneKind : undefined
     return getVenuePack(s.scene.venue.venuePackId)?.restricted?.find((zone) => zone.kind === zoneKind)?.elevation ?? 0
+  })
+  // a NUMBER selector, so it stays stable through the transient position writes
+  // of a drag and only re-renders when the hang slider actually moves
+  const drop = useEditorStore((s) => {
+    const obj = s.scene.objects[id]
+    if (!obj || getCatalogEntry(obj.catalogId).placement !== 'ceiling') return 0
+    return cordLength(
+      getVenuePack(s.scene.venue.venuePackId),
+      s.scene.venue.wallHeight,
+      obj.size.height,
+      obj.transform.elevation,
+    )
   })
 
   // Transient transform sync — the hot path. fireImmediately seeds the initial
@@ -193,7 +247,7 @@ export function ObjectGroup({ id }: { id: Id }) {
 
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
     suppressClick.current = false
-    if (placing || e.button !== 0 || e.nativeEvent.shiftKey) return
+    if (placing || e.button !== 0 || e.nativeEvent.shiftKey || gizmoBusy()) return
     const state = useEditorStore.getState()
     const obj = state.scene.objects[id]
     if (!obj || obj.parentId || isEffectivelyLocked(state.scene, obj)) return
@@ -238,12 +292,18 @@ export function ObjectGroup({ id }: { id: Id }) {
       const scene = useEditorStore.getState().scene
       const x = drag.hit.x * 100 + drag.offsetX
       const y = drag.hit.z * 100 + drag.offsetY
-      setPosition(
-        id,
-        scene.settings.snapEnabled && !event.altKey
-          ? { x: snapValue(x, scene.settings.gridSize), y: snapValue(y, scene.settings.gridSize) }
-          : { x, y },
-      )
+      // a hung fixture rides the beam crossings, never the floor grid (§12)
+      if (getCatalogEntry(scene.objects[id].catalogId).placement === 'ceiling') {
+        const pack = getVenuePack(scene.venue.venuePackId)
+        setPosition(id, snapToBeam({ x, y }, beamGrid(pack, scene.venue.size)))
+      } else {
+        setPosition(
+          id,
+          scene.settings.snapEnabled && !event.altKey
+            ? { x: snapValue(x, scene.settings.gridSize), y: snapValue(y, scene.settings.gridSize) }
+            : { x, y },
+        )
+      }
       event.preventDefault()
     }
     drag.end = (event) => {
@@ -307,6 +367,7 @@ export function ObjectGroup({ id }: { id: Id }) {
           procedural
         )}
         {isSelected && <SelectionOutline outline={entry.footprint(size).outline} />}
+        {drop > 0 && <HangingCord from={size.height} length={drop} />}
         {hasSeating && !seatingHidden && <ChairInstances tableId={id} />}
         <SurfaceChildren parentId={id} />
       </group>
@@ -503,6 +564,25 @@ function ModelFallback({ children, fallback }: { children: ReactNode; fallback: 
     <PropErrorBoundary fallback={fallback}>
       <Suspense fallback={fallback}>{children}</Suspense>
     </PropErrorBoundary>
+  )
+}
+
+/**
+ * Suspension cord for a fixture pulled below its seeded height (source doc §13:
+ * "some of the chandeliers need a cord added so it does not look disconnected").
+ * Only the EXTRA drop is drawn — each GLB already models its own cord down to the
+ * catalogued height — so at the top of the range nothing is added at all.
+ *
+ * 3 cm across and 6-sided: a cord reads as a line at any sane camera distance, so
+ * a rounder or thicker one only costs triangles. `raycast` off, or the cord would
+ * shield the fixture from clicks along its whole length.
+ */
+function HangingCord({ from, length }: { from: number; length: number }) {
+  return (
+    <mesh position={[0, cmToM(from + length / 2), 0]} raycast={() => null} castShadow>
+      <cylinderGeometry args={[cmToM(1.5), cmToM(1.5), cmToM(length), 6]} />
+      <meshStandardMaterial color="#2a2a2a" roughness={0.8} />
+    </mesh>
   )
 }
 

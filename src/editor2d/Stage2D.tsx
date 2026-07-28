@@ -453,12 +453,19 @@ export function Stage2D() {
       }
       const sel = state.selection
       const anyLocked = sel.some((id) => state.scene.objects[id]?.flags.locked)
+      const replaceId = menu.targetId
       return [
         { label: strings.menu.duplicate, shortcut: 'Ctrl+D', onClick: () => duplicateObjects(sel) },
         { label: strings.menu.copy, shortcut: 'Ctrl+C', onClick: () => copySelection() },
         { label: strings.menu.cut, shortcut: 'Ctrl+X', onClick: () => cutSelection() },
         'separator',
         { label: strings.menu.rotate90, shortcut: 'R', onClick: () => rotateObjectsBy(sel, 90) },
+        {
+          // arms the library's replace mode — the actual pick happens there
+          label: strings.menu.replace,
+          disabled: sel.length !== 1 || !target || isEffectivelyLocked(state.scene, target),
+          onClick: () => overlay.setReplaceTarget(replaceId),
+        },
         'separator',
         { label: strings.menu.bringForward, onClick: () => sel.forEach((id) => reorder(id, 'forward')) },
         { label: strings.menu.sendBackward, onClick: () => sel.forEach((id) => reorder(id, 'backward')) },

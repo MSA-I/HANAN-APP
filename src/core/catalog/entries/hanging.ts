@@ -3,7 +3,16 @@
  * different from every other entry: they are still TOP-LEVEL objects (not
  * attached children like table decor), but factory.createObject seeds their
  * elevation to `venue.wallHeight − height` so the model's top meets the ceiling
- * and it hangs down — the drop length IS the entry height.
+ * and it hangs down — the drop length IS the entry height. It also snaps them to
+ * a crossing of the venue's ceiling beam grid; nothing hangs between beams.
+ *
+ * `height` stays the FULL modelled drop — body plus whatever cord the GLB itself
+ * contains — because the file is normalised to exactly this box. The hang-height
+ * slider (source doc §13) moves the whole fixture down from that seeded top and
+ * the viewer draws a procedural cord across the gap it opens (`HangingCord` in
+ * viewer3d/ObjectGroup.tsx). So `height` is NOT "body only": redefining it that
+ * way would shrink every GLB. `bodyFraction` below stays the fraction of that
+ * drop the body occupies, and is still only used by the procedural fallback.
  *
  * These five ARE the 'lighting' category: it holds exactly the ceiling-hung
  * fixtures, so `placement: 'ceiling'` and `category: 'lighting'` say the same

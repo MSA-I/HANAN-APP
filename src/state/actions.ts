@@ -30,6 +30,7 @@ import {
   rectRing,
   tableCellSize,
 } from '../core/layout/fillHall'
+import { clampHang } from '../core/layout/beams'
 import { seatItemTransforms } from '../core/layout/seatItemLayout'
 import { seatsForEntry } from '../core/layout/seatLayout'
 import { getHallLayout } from '../core/hallLayouts'
@@ -485,32 +486,34 @@ export function seatItems(scene: SceneState, tableId: Id): SceneObject[] {
  * that is the case re-dropping recovers.
  */
 export function addSeatItemsToTable(catalogId: string, tableId: Id): Id[] {
-  const ids: Id[] = []
+  let ids: Id[] = []
   mutateScene((scene) => {
-    const table = scene.objects[tableId]
-    if (!table?.seating || table.parentId || isEffectivelyLocked(scene, table)) return
-    for (const stale of seatItems(scene, tableId)) delete scene.objects[stale.id]
-    const chair = getCatalogEntry(table.seating.chairCatalogId).defaultSize
-    const item = getCatalogEntry(catalogId).defaultSize
-    // seatsForEntry, not the outline math: on the serpentine the seats follow the
-    // curve, and settings laid on rect positions would float beside the table
-    const seats = seatsForEntry(
-      getCatalogEntry(table.catalogId),
-      table.size,
-      table.seating,
-      chair,
-    )
-    for (const t of seatItemTransforms(seats, chair, item, table.seating.offset)) {
-      const obj = createObject(catalogId, { x: 0, y: 0 })
-      obj.parentId = tableId
-      obj.attachment = { kind: 'surface' }
-      obj.transform = { ...t, elevation: table.size.height }
-      scene.objects[obj.id] = obj
-      ids.push(obj.id)
-    }
-    unhideCategoryOf(scene, catalogId)
+    ids = laySeatItems(scene, catalogId, tableId)
   })
   pruneSelection() // the replaced set may have been selected
+  return ids
+}
+
+/** The draft-level half of addSeatItemsToTable, so a replacement can re-lay in the same mutation. */
+function laySeatItems(scene: SceneState, catalogId: string, tableId: Id): Id[] {
+  const table = scene.objects[tableId]
+  if (!table?.seating || table.parentId || isEffectivelyLocked(scene, table)) return []
+  const ids: Id[] = []
+  for (const stale of seatItems(scene, tableId)) delete scene.objects[stale.id]
+  const chair = getCatalogEntry(table.seating.chairCatalogId).defaultSize
+  const item = getCatalogEntry(catalogId).defaultSize
+  // seatsForEntry, not the outline math: on the serpentine the seats follow the
+  // curve, and settings laid on rect positions would float beside the table
+  const seats = seatsForEntry(getCatalogEntry(table.catalogId), table.size, table.seating, chair)
+  for (const t of seatItemTransforms(seats, chair, item, table.seating.offset)) {
+    const obj = createObject(catalogId, { x: 0, y: 0 })
+    obj.parentId = tableId
+    obj.attachment = { kind: 'surface' }
+    obj.transform = { ...t, elevation: table.size.height }
+    scene.objects[obj.id] = obj
+    ids.push(obj.id)
+  }
+  unhideCategoryOf(scene, catalogId)
   return ids
 }
 
@@ -915,6 +918,16 @@ export function duplicateObjects(ids: Id[], offset: Vec2 = { x: 50, y: 50 }): Id
   return newIds
 }
 
+/**
+ * Replacement is allowed only WITHIN a placement class (source doc §24: "an item
+ * standing on a table cannot be swapped for one that belongs to the ceiling").
+ * `placement` already names the four classes — floor / surface / seat / ceiling —
+ * so the rule is one comparison, not a table of special cases.
+ *
+ * `zoneKind` is the second half of the same idea: a bar unit or a DJ booth is
+ * clamped INTO its zone and can never leave it, so swapping it for a plain floor
+ * item (or the reverse) would teleport the result. Same zone, or neither.
+ */
 export function canReplaceObject(scene: SceneState, id: Id, catalogId: string): boolean {
   const source = scene.objects[id]
   if (!source || source.catalogId === catalogId || isEffectivelyLocked(scene, source)) return false
@@ -922,10 +935,75 @@ export function canReplaceObject(scene: SceneState, id: Id, catalogId: string): 
   // a SECOND one is not (source doc §43)
   const blocker = uniqueBlocker(scene, catalogId)
   if (blocker && blocker.id !== id) return false
-  const nextPlacement = getCatalogEntry(catalogId).placement ?? 'floor'
-  if (!source.parentId) return nextPlacement === 'floor' || nextPlacement === 'ceiling'
-  if (source.attachment?.kind !== 'surface') return false
-  return nextPlacement === (getCatalogEntry(source.catalogId).placement ?? 'floor')
+  const from = getCatalogEntry(source.catalogId)
+  const to = getCatalogEntry(catalogId)
+  if ((from.placement ?? 'floor') !== (to.placement ?? 'floor')) return false
+  if ((from.zoneKind ?? null) !== (to.zoneKind ?? null)) return false
+  if (!source.parentId) return true
+  // attached: only table-top decor is swappable — a chair belongs to the reconciler
+  return source.attachment?.kind === 'surface'
+}
+
+/** What a table was wearing before it was replaced, so it can be dressed again. */
+interface TableDressing {
+  /** the design tag, if the decor came from a table design */
+  designId?: string
+  /** hand-dropped place settings (a design's own settings ride along with designId) */
+  seatItemCatalogId?: string
+  /** hand-placed decor, positioned as a FRACTION of the old table's half-extents */
+  decor: { catalogId: string; nx: number; ny: number; rotation: number }[]
+}
+
+function readDressing(scene: SceneState, tableId: Id): TableDressing {
+  const table = scene.objects[tableId]
+  const design = designItems(scene, tableId)[0]?.meta.design
+  const settings = seatItems(scene, tableId)
+  const halfW = Math.max(1, table.size.width / 2)
+  const halfD = Math.max(1, table.size.depth / 2)
+  return {
+    designId: typeof design === 'string' ? design : undefined,
+    seatItemCatalogId: design === undefined ? settings[0]?.catalogId : undefined,
+    decor: surfaceChildren(scene, tableId)
+      .filter(
+        (child) =>
+          child.meta.design === undefined &&
+          getCatalogEntry(child.catalogId).placement !== 'seat',
+      )
+      .map((child) => ({
+        catalogId: child.catalogId,
+        nx: child.transform.position.x / halfW,
+        ny: child.transform.position.y / halfD,
+        rotation: child.transform.rotation,
+      })),
+  }
+}
+
+/**
+ * Put the decor back on the replacement. A design is RE-RUN rather than copied:
+ * `layTableDesign` lays it out against the new geometry, so a 12-seat square that
+ * became a 13-seat round gets a correct ring instead of twelve stale offsets.
+ * Hand-placed decor has no such recipe, so it keeps its normalised position and
+ * is clamped back onto the new top.
+ */
+function applyDressing(scene: SceneState, tableId: Id, dressing: TableDressing): void {
+  const table = scene.objects[tableId]
+  if (!table) return
+  const design = dressing.designId ? getTableDesign(dressing.designId) : null
+  if (design) layTableDesign(scene, design, tableId)
+  else if (dressing.seatItemCatalogId) laySeatItems(scene, dressing.seatItemCatalogId, tableId)
+
+  const halfW = table.size.width / 2
+  const halfD = table.size.depth / 2
+  for (const item of dressing.decor) {
+    const child = createObject(item.catalogId, { x: item.nx * halfW, y: item.ny * halfD })
+    child.parentId = tableId
+    child.attachment = { kind: 'surface' }
+    child.transform.rotation = item.rotation
+    child.transform.elevation = table.size.height
+    scene.objects[child.id] = child
+    unhideCategoryOf(scene, item.catalogId)
+    clampToSurface(scene, child)
+  }
 }
 
 /** Replace one object in place; identity and plan transform stay stable for both views. */
@@ -938,6 +1016,8 @@ export function replaceObject(id: Id, catalogId: string): boolean {
     const sourcePlacement = getCatalogEntry(source.catalogId).placement ?? 'floor'
     const replacement = createObject(catalogId, source.transform.position, scene.venue)
     const nextPlacement = getCatalogEntry(catalogId).placement ?? 'floor'
+    // read the old table's decor BEFORE its children are deleted (source doc §25)
+    const dressing = source.seating ? readDressing(scene, id) : null
 
     replacement.id = id
     replacement.name = source.name
@@ -966,11 +1046,13 @@ export function replaceObject(id: Id, catalogId: string): boolean {
     if (replacement.seating) {
       reconcileSeats(scene, id)
       unhideCategoryOf(scene, replacement.seating.chairCatalogId)
+      if (dressing) applyDressing(scene, id, dressing)
     }
     if (replacement.parentId) clampToSurface(scene, replacement)
     else clampToVenue(scene, [id])
     replaced = true
   })
+  if (replaced) pruneSelection() // the old decor may have been drilled into
   return replaced
 }
 
@@ -1059,6 +1141,25 @@ export function setRotation(id: Id, rotation: number): void {
     if (obj.attachment?.kind === 'seat') obj.attachment.manual = true
     clampToVenue(scene, [id])
     clampSurfaceChildrenIn(scene, [id])
+  })
+}
+
+/**
+ * Drop height of a ceiling fixture (source doc §13). Only `placement: 'ceiling'`
+ * has a free elevation — everything else derives it (floor 0, decor = the table's
+ * height), so this refuses rather than letting the inspector desync a child.
+ */
+export function setElevation(id: Id, elevation: number): void {
+  mutateScene((scene) => {
+    const obj = scene.objects[id]
+    if (!obj || obj.parentId || isEffectivelyLocked(scene, obj)) return
+    if (getCatalogEntry(obj.catalogId).placement !== 'ceiling') return
+    obj.transform.elevation = clampHang(
+      getVenuePack(scene.venue.venuePackId),
+      scene.venue.wallHeight,
+      obj.size.height,
+      elevation,
+    )
   })
 }
 
