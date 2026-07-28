@@ -431,11 +431,17 @@ describe('hard venue bounds', () => {
 
   it('pushes furniture out of a restricted zone (resort pool)', () => {
     newProject({ name: 'resort', venuePackId: 'resort' })
-    // pool zone x[766,3962] y[1408,2544] reaches the far wall (venue depth 2544),
-    // so a table dropped in it must exit upward where there is room.
-    const id = addObject('table.round', { x: 2500, y: 2000 })
+    // Read the rectangle from the pack (BRIEF §1.7). It used to be copied in as
+    // x[766,3962] y[1408,2544] and went stale the moment the 19:47 re-import
+    // narrowed `pool` to the water alone — the table was being pushed out of the
+    // real zone and still judged against the old one.
+    const pool = getVenuePack('resort')!.restricted!.find((z) => z.kind === 'pool')!
+    // the pool reaches the far wall (venue depth 2544), so a table dropped in it
+    // must exit upward, where there is room
+    const id = addObject('table.round', { x: pool.x + pool.width / 2, y: pool.y + pool.depth / 2 })
     const b = objectAABB(scene(), id)!
-    const overlapsPool = b.minX < 3962 && b.maxX > 766 && b.minY < 2544 && b.maxY > 1408
+    const overlapsPool =
+      b.minX < pool.x + pool.width && b.maxX > pool.x && b.minY < pool.y + pool.depth && b.maxY > pool.y
     expect(overlapsPool).toBe(false)
     // and it stays on the floor (venue 4423×2544)
     expect(b.minX).toBeGreaterThanOrEqual(-0.01)

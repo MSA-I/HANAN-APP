@@ -57,26 +57,28 @@ describe('zoneLabelBoxes on the resort pack', () => {
     expect(pool.h).toBe(LABEL_BASE_HEIGHT)
   })
 
-  it('moves the CONTAINING zone and lets the contained one keep the centre', () => {
+  it('still nests the chuppah inside the pool, and now both tags fit centred', () => {
     const pool = zones.findIndex((z) => z.kind === 'pool')
     const chuppah = zones.findIndex((z) => z.kind === 'chuppah')
-    // the chuppah is the smaller of the pair, so it keeps its centred slot…
-    expect(boxes[chuppah]).toEqual(centred(zones[chuppah], boxes[chuppah].w, boxes[chuppah].h))
-    // …and the pool, which contains it, is the one that gave way
-    expect(boxes[pool]).not.toEqual(centred(zones[pool], boxes[pool].w, boxes[pool].h))
-  })
+    // The nesting itself is load-bearing — venuePacks orders `restricted` around
+    // it — so assert it rather than assume it survived the re-import.
+    const p = zones[pool], c = zones[chuppah]
+    expect(
+      c.x >= p.x && c.y >= p.y && c.x + c.width <= p.x + p.width && c.y + c.depth <= p.y + p.depth,
+    ).toBe(true)
 
-  it('is what fixes source doc §17 — centring alone still collided', () => {
-    // the layer's old behaviour, at the new tag size: pool and chuppah still clash
+    // Source doc §17 was demonstrated on this pair: `pool` used to start at y 1408
+    // and its centred tag landed 29cm off the chuppah's, so the layout had to push
+    // the pool tag out of the way. The 19:47 re-import narrowed `pool` to the water
+    // alone (y 1611…2544), dropping its centre 101cm and opening ~131cm between the
+    // two — so neither tag has to move now, and both keep the centred slot.
+    // The displacement branch itself is covered, geometry-independently, by
+    // 'zoneLabelBoxes on full containment' below.
     const naive = zones.map((z, i) => centred(z, boxes[i].w, boxes[i].h))
-    const pool = naive[zones.findIndex((z) => z.kind === 'pool')]
-    const chuppah = naive[zones.findIndex((z) => z.kind === 'chuppah')]
-    // …they miss by 29 cm, which is why LABEL_GAP exists and why this is not
-    // asserted as a hard overlap: 29 cm at fit zoom is 3 px of "clear" air.
-    expect(labelBoxesOverlap(pool, chuppah)).toBe(false)
-    expect(pool.y - (chuppah.y + chuppah.h)).toBeLessThan(30)
-    // solved: the real boxes are a readable distance apart
-    expect(boxes[zones.findIndex((z) => z.kind === 'pool')].y).not.toBe(pool.y)
+    expect(labelBoxesOverlap(naive[pool], naive[chuppah])).toBe(false)
+    expect(naive[pool].y - (naive[chuppah].y + naive[chuppah].h)).toBeGreaterThan(100)
+    expect(boxes[chuppah]).toEqual(naive[chuppah])
+    expect(boxes[pool]).toEqual(naive[pool])
   })
 
   it('is deterministic', () => {
