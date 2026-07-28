@@ -598,13 +598,30 @@ describe('place settings (seat placement)', () => {
 })
 
 describe('fixed stations (zone lock)', () => {
+  /**
+   * The zone rectangle with 1cm of slack, read off the pack rather than written
+   * out. The measurements move on every SketchUp re-import — 2026-07-28 15:09
+   * deepened the bar by 50 and the DJ by 10 — and hardcoding them turned a real
+   * venue change into a test failure that looked like a clamp bug.
+   */
+  const zoneBounds = (kind: string) => {
+    const z = getVenuePack('resort')!.restricted!.find((r) => r.kind === kind)!
+    return {
+      minX: z.x - 0.01,
+      minY: z.y - 0.01,
+      maxX: z.x + z.width + 0.01,
+      maxY: z.y + z.depth + 0.01,
+    }
+  }
+
   it('a DJ booth dropped anywhere in the resort snaps into its zone and cannot leave', () => {
     newProject({ name: 'resort', venuePackId: 'resort' })
     const id = addObject('dj.booth', { x: 300, y: 300 }) // far from the DJ zone
     expect(scene().objects[id].transform.rotation).toBe(-180)
+    const z = zoneBounds('dj')
     const inZone = () => {
       const b = objectAABB(scene(), id)!
-      return b.minX >= 2268.99 && b.maxX <= 2579.01 && b.minY >= 1407.99 && b.maxY <= 1641.01
+      return b.minX >= z.minX && b.maxX <= z.maxX && b.minY >= z.minY && b.maxY <= z.maxY
     }
     expect(inZone()).toBe(true)
     moveObjectsBy([id], { x: -2000, y: -1000 })
@@ -617,10 +634,11 @@ describe('fixed stations (zone lock)', () => {
     newProject({ name: 'resort', venuePackId: 'resort' })
     const id = addObject('bar.straight', { x: 4000, y: 2400 })
     const b = objectAABB(scene(), id)!
-    expect(b.minX).toBeGreaterThanOrEqual(1788.99)
-    expect(b.maxX).toBeLessThanOrEqual(2589.01)
-    expect(b.minY).toBeGreaterThanOrEqual(-0.01)
-    expect(b.maxY).toBeLessThanOrEqual(300.01)
+    const z = zoneBounds('bar')
+    expect(b.minX).toBeGreaterThanOrEqual(z.minX)
+    expect(b.maxX).toBeLessThanOrEqual(z.maxX)
+    expect(b.minY).toBeGreaterThanOrEqual(z.minY)
+    expect(b.maxY).toBeLessThanOrEqual(z.maxY)
   })
 
   it('in a procedural room (no zones) the DJ booth places freely', () => {

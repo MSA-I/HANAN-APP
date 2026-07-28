@@ -41,6 +41,14 @@ const grid = (presetId: string, xs: number[], ys: number[], rotation?: number): 
  * these two exist only to exercise the pipeline (schema → apply → schematic).
  * Positions sit inside the resort floorAreas, clear of the restricted zones.
  * Replace the entries; keep the shape.
+ *
+ * The south-east block in each is the strip the 2026-07-28 15:09 re-import opened
+ * under the shortened passage (venuePacks floorAreas[2], x 3960…4420 × y
+ * 1410…2490 — source doc §29). At 460cm wide it is the width, not the depth, that
+ * dictates what goes in it. Cells measured with tableCellSize (table + its chair
+ * ring): the ⌀180 round is 282 across and clears 89cm either side; the ⌀380 is
+ * 482 and does not fit at all; the serpentine is 434, which clears 13cm and is
+ * not a layout; the 480 knights table is 582 and fits only turned onto its side.
  */
 export const HALL_LAYOUTS: HallLayout[] = [
   {
@@ -54,6 +62,9 @@ export const HALL_LAYOUTS: HallLayout[] = [
       ...grid('preset.round-12-gold-white', [250, 550], [1700, 2100]),
       // east wing, between dancefloor and corridor
       ...grid('preset.round-12-gold-white', [2840, 3240, 3640], [250, 650, 1050]),
+      // south-east strip: one centred column of three, 88cm between chair backs
+      // (the fill tool's own service aisle is 90) and 29cm off each end wall
+      ...grid('preset.round-12-gold-white', [4190], [1580, 1950, 2320]),
     ],
   },
   {
@@ -65,6 +76,10 @@ export const HALL_LAYOUTS: HallLayout[] = [
       ...grid('preset.knights-22-brown', [500, 1290], [250, 750, 1250]),
       // east wing mirrors it
       ...grid('preset.knights-22-brown', [2890, 3660], [250, 750, 1250]),
+      // south-east strip: exactly one table, and only turned 90° — a knights unit
+      // is 582×222 with its chairs, so it does not fit across a 460 strip, and a
+      // second one down the strip would need 1164 of the 1080 available.
+      ...grid('preset.knights-22-brown', [4190], [1950], 90),
     ],
   },
 ]

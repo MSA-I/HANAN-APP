@@ -6,45 +6,63 @@
   "model": "venue.glb",
   "units": "meters",
   "upAxis": "y",
-  "boundsMeters": { "min": [-8.546, -1.45, -32.392], "max": [75.65, 11.623, 1.139] },
+  "boundsMeters": { "min": [-8.546, -1.45, -32.391], "max": [75.65, 11.623, 1.139] },
   "floorPlan": {
     "note": "Aligned to user-marked ZONE_FLOOR (SketchUp face painted with ZONE_FLOOR material). Origin = its min corner. Zones extracted via tools/glb-prep/extract-zones.mjs.",
     "offset": [0, 0, 24.861],
+    "offsetNote": "Re-verified against the 15:09 re-import: ZONE_FLOOR's min corner is bit-identical to the previous import, so every saved project keeps its coordinates. This value must never move without a migration.",
     "planSizeCm": { "width": 6051, "depth": 2544 },
     "wallHeightCm": 1160,
     "hangHeightCm": 895,
-    "restrictedZones": ["בריכה (כולל מרחק ביטחון)", "בר", "רחבת ריקודים", "עמדת DJ", "חופה", "מעבר", "קבלת פנים"],
-    "placeableAreas": "2 polygons (green) from ZONE_FLOOR = size-rectangle minus restricted zones; furniture confined here",
-    "note2": "Real floor is non-rectangular & disconnected (left L + right rectangle). The hall outline is an L, 4420×2540 minus the shortened passage.",
+    "restrictedZones": ["בריכה", "סביב הבריכה", "בר", "רחבת ריקודים", "עמדת DJ", "חופה", "מעבר", "קבלת פנים"],
+    "placeableAreas": "3 polygons (green) from ZONE_FLOOR; furniture is confined to these",
+    "note2": "Real floor is non-rectangular & disconnected: left L + east rectangle + the new strip under the shortened passage.",
     "note3": "planSizeCm.width runs to 6051 because the raised reception deck (ZONE_KABALAT_PANIM, x 4432…6051, +470cm) shares this plan space. The hall alone is 4423 wide."
   },
   "ceilingBeams": {
-    "note": "Lighting-truss grid, read off the 72 HalfCoupler clamps in the SKP (72 = 36 crossings × 2 = 9 × 4 × 2). All clamp centres at z=9.097m.",
+    "note": "Lighting-truss grid, read off the 72 HalfCoupler clamps in the SKP (72 = 36 crossings × 2 = 9 × 4 × 2). Re-measured on this import: clamp centres land within 4cm of the committed positions, so the grid is unchanged.",
     "heightCm": 910,
     "alongYAtXCm": [578, 988, 1389, 1798, 2194, 2599, 3011, 3420, 3821],
-    "alongXAtYCm": [190, 550, 904, 1270]
+    "alongXAtYCm": [190, 550, 904, 1270],
+    "trussMaterial": "H08_Emerald_Abyss",
+    "trussColorSrgb": "#ddd1c1",
+    "trussColorLinear": "#b9a288",
+    "trussColorNote": "baseColorFactor [0.725,0.635,0.533] with NO baseColor texture, so the factor is the colour. Use the sRGB form in code (three converts sRGB→linear and lands back on the glTF value); the linear hex would render too light. Identified two ways: every slender member at truss height carries this material, and exactly 9 of them (matching the 9-beam grid) pass through clamp crossings."
   },
   "cameras": {
-    "note": "7 SketchUp Scenes. Cameras do NOT survive the GLB export (inspect-cameras.mjs reports 0) — they are read from the SimLab session's Scene nodes and converted via (x, z, 24.861 − y). Values live in src/core/venuePacks.ts.",
+    "note": "7 SketchUp Scenes. Cameras do NOT survive the GLB export (inspect-cameras.mjs reports 0, which is correct and not a bug) — they are read from the SimLab session's Scene nodes and converted via (x, z, 24.861 − y). Values live in src/core/venuePacks.ts.",
     "hall": ["s1", "s2", "s3", "s4", "s5"],
-    "kabalatPanim": ["k1", "k2"]
+    "kabalatPanim": ["k1", "k2"],
+    "reverified": "All 7 positions match the committed values to 4 decimals, and Scene 1's forward vector (0.8822,-0.4709,-0.0032) matches the committed position→target direction. Nothing to update."
   },
   "fixedElements": ["pool", "structure", "desert-backdrop"],
   "heroFacing": "desert",
   "source": {
     "skp": "D:/משה פרוייקטים/מגרש 510/SKP/ריזורט גאמוס - אפליקציה.skp",
-    "skpModified": "2026-07-27T20:55:33",
+    "skpModified": "2026-07-28T18:03:02",
+    "skpModifiedNote": "The user saved twice on 2026-07-28. The 15:09 save was imported first; the 18:03 save adds ZONE_SAVIV and nothing else. Every other figure here was re-measured on the 18:03 export and came out identical.",
     "pipeline": "SketchUp -> SimLab (scene.exportFile GLB) -> tools/glb-prep/glb-prep.mjs --mode venue",
     "preparedOn": "2026-07-28",
-    "originalSizeMB": 91.7,
+    "originalSizeMB": 93.1,
     "optimizedSizeMB": 5.1,
     "changesFromPreviousImport": [
-      "ZONE_CORRIDOR shortened: plan depth 2544 -> 1404 (renamed 'passage'/'מעבר' in the app)",
-      "ZONE_KABALAT_PANIM added: raised reception deck, plan x 4432 y 734, 1619×1810, elevation 470",
-      "Scenes 6 and 7 added: the two reception camera angles",
-      "All other zones and the plan origin are unchanged from the 2026-07-21 import"
+      "ZONE_SAVIV added (18:03 save): x 2579 y 1408, 1383×1136. The user SPLIT the old single pool marker rather than adding new area — ZONE_POOL shrank 3196 -> 3073, and pool ∪ saviv is exactly the previous pool rectangle. The no-go footprint is unchanged; the split exists so the surround can carry its own rules (vegetation, PLAN-06).",
+      "ZONE_BAR deepened 300 -> 350, at the dancefloor's expense (ZONE_DANCEFLOOR now y 350, depth 1058). Together they still span y 0…1408.",
+      "ZONE_DJ depth 233 -> 243.",
+      "ZONE_CORRIDOR depth 1404 -> 1408 (rounding).",
+      "floorAreas gained a THIRD piece: x 3960…4420, y 1410…2490 (460×1080) — the new table-placement area of source doc §29, opened up beneath the shortened passage.",
+      "outline right edge now runs down to y 2490 instead of y 1400.",
+      "Plan origin, size, wallHeight, hangHeight, ceilingBeams, all 7 cameras, pool, chuppah and kabalatPanim are UNCHANGED."
     ],
-    "notDone": "Source doc §3 (move the wall behind the bar back ≥2m) is NOT in this asset — the envelope cannot hold it without a design decision. See the report / Plans/handoff/07-venue-data.md §6."
+    "notImported": [
+      "A SECOND ZONE_DJ marker exists at x 1809 y 1408 (310×243), 460cm left of the committed one. Two rects cannot share a `kind`, so the committed position was kept. See BLOCKED-01-A1.md §2.",
+      "A SECOND ZONE_HUPA marker exists on the reception deck at x 4706 y 2009 (571×426, elevation 520 = deck 470 + the same 50cm riser as the hall chuppah). Not added, for the same reason. See BLOCKED-01-A1.md §3."
+    ],
+    "notDone": "Source doc §6 (move the wall behind the bar back ≥2m) is STILL not in this asset — the same finding as the previous import, and unchanged by the 18:03 re-save. Measured three ways: the geometry behind the bar is identical across the 01:57, 15:09 and 18:03 exports (265 slabs, same positions each time); the wall's front face is at plan y=0, flush with the back of ZONE_BAR; the outer glazing is at y=-205. See Plans/R2/handoff/01-bar-measure.md."
   },
+  "toolFixes": [
+    "extract-zones.mjs now bounds one rect per marker FACE and merges only overlapping faces. Bounding all triangles of a material together turned the two ZONE_HUPA faces into a bogus 3468×784 rectangle spanning the gap, and aborted the run on a ZONE_HUPA/ZONE_CHUPPAH 'disagreement' that was really just a second marker.",
+    "extract-zones.mjs now labels solid cells with 4-connectivity before tracing contours. The new floor area touches the east strip at a single corner; the one-edge-per-corner map dropped an edge there and produced a loop cutting diagonally across the hall (1.47 m² instead of 2.43 m²). Verified: the two pre-existing floorAreas polygons now come out byte-identical to the committed values."
+  ],
   "todo": ["footprint.json", "lighting.json"]
 }
