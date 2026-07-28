@@ -6,6 +6,7 @@
 import { capture } from '../editor2d/captureBus'
 import { migrateAndValidate } from '../core/migrations'
 import type { Project } from '../core/model/types'
+import type { ExportPackage } from '../core/prompts/compose'
 import { migrateSavedLayout, venueSignature, type SavedLayout } from '../core/savedLayouts'
 import { projectFromState, type EditorState } from '../state/store'
 import { makeProjectFile } from './autosave'
@@ -88,4 +89,54 @@ export function exportFloorPlanPng(projectName: string): boolean {
   if (!dataUrl) return false
   triggerDownload(dataUrlToBlob(dataUrl), `${sanitizeFilename(projectName)}.png`)
   return true
+}
+
+export type PromptExportResult = 'saved' | 'downloaded'
+
+/**
+ * Send one composed angle to the dev server, which writes the whole package —
+ * capture, prompt, references, manifest — into HANAN-APP-DOCS\צילומים
+ * (tools/capture-plugin.ts).
+ *
+ * ponytail: with no dev server there is nowhere to write, so this falls back to
+ * downloading the two files a browser CAN produce — the capture and the prompt,
+ * whose text names every reference by its path. Bundling the references into a
+ * zip is the obvious alternative and was rejected: `jszip` is a new dependency
+ * for a path that only exists in a production build the user does not currently
+ * use, and PLAN-08 A3 says not to add it.
+ */
+export async function exportPromptPackage(
+  pkg: ExportPackage,
+  dataUrl: string,
+  projectName: string,
+): Promise<PromptExportResult> {
+  try {
+    const res = await fetch('/__capture', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dataUrl, pkg, project: projectName }),
+    })
+    if (!res.ok) throw new Error(String(res.status))
+    return 'saved'
+  } catch {
+    const stem = `${sanitizeFilename(projectName)} — ${sanitizeFilename(pkg.angleLabel)}`
+    triggerDownload(dataUrlToBlob(dataUrl), `${stem}.png`)
+    triggerDownload(
+      new Blob([promptFileText(pkg)], { type: 'text/plain;charset=utf-8' }),
+      `${stem}.txt`,
+    )
+    return 'downloaded'
+  }
+}
+
+/** The prompt plus the reference list, so a downloaded .txt is self-contained. */
+function promptFileText(pkg: ExportPackage): string {
+  const refs = pkg.refs.map((r, i) => `${i + 1}. [${r.role}] ${r.path} — ${r.caption}`)
+  return [
+    pkg.prompt,
+    '',
+    '--- REFERENCE IMAGES ---',
+    ...refs,
+    ...(pkg.warnings.length ? ['', '--- WARNINGS ---', ...pkg.warnings] : []),
+  ].join('\n')
 }

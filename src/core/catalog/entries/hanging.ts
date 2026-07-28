@@ -41,6 +41,8 @@ import type { CatalogEntry } from '../types'
 function ceilingProp(
   id: string,
   labelKey: string,
+  /** what the item looks like, for the image prompt — see CatalogEntry.promptFragment */
+  promptFragment: string,
   model: string,
   size: Size3D,
   color: string,
@@ -52,6 +54,7 @@ function ceilingProp(
     id,
     category: 'lighting',
     labelKey,
+    promptFragment,
     defaultSize: size,
     resizable: [],
     minSize: {},
@@ -89,27 +92,27 @@ const P = (file: string) => `/props/${file}`
 
 export const hangingEntries: CatalogEntry[] = [
   // one slim lattice drum on a long cord — the cord is part of the 50 cm drop
-  ceilingProp('lamp.pendant', 'lampPendant', P('decor-pendant-lamp.glb'), { width: 12.6, depth: 12.4, height: 50 }, '#cfb995'),
+  ceilingProp('lamp.pendant', 'lampPendant', 'a slim lattice drum pendant lamp on a long cord', P('decor-pendant-lamp.glb'), { width: 12.6, depth: 12.4, height: 50 }, '#cfb995'),
   // NOT one "geometric" pendant: the model is a CLUSTER OF FOUR of the same
   // lattice drums on staggered cords (verified by render, 2026-07-20) — which is
   // why it is 42.6 deep. The longest cord defines the 60 cm drop.
-  ceilingProp('lamp.pendant-cluster', 'lampPendantCluster', P('decor-pendant-geometric.glb'), { width: 18.1, depth: 42.6, height: 60 }, '#d4c5aa', 'rect'),
+  ceilingProp('lamp.pendant-cluster', 'lampPendantCluster', 'a cluster of four lattice drum pendant lamps on staggered cords', P('decor-pendant-geometric.glb'), { width: 18.1, depth: 42.6, height: 60 }, '#d4c5aa', 'rect'),
   // --- chandeliers (2026-07-20) ---
   // Beaded crystal rhombus on a bare cord. 42% of the drop is cord (measured),
   // so 90 cm hangs a ~48 cm diamond about 40 cm below the ceiling.
   // Losing re-roll: "crystal+chandelier+3d+model (1).glb" — same product, but a
   // flatter diamond with coarse irregular beading; (5) matches the photos.
-  ceilingProp('lamp.chandelier-diamond', 'lampChandelierDiamond', P('decor-chandelier-diamond.glb'), { width: 48.1, depth: 48.2, height: 90 }, '#ad9e84', 'round', 0.55),
+  ceilingProp('lamp.chandelier-diamond', 'lampChandelierDiamond', 'a beaded crystal rhombus chandelier on a bare cord', P('decor-chandelier-diamond.glb'), { width: 48.1, depth: 48.2, height: 90 }, '#ad9e84', 'round', 0.55),
   // Brass empire basket: beaded column, two tiers of candle arms, beaded bowl.
   // The column is part of the fixture (it stays ~8 cm wide the whole way down),
   // so the full 110 cm is the piece, not a drop length.
   // Losing re-rolls: "(3)" (thinner column) and "chandelier+3d+model.glb"
   // (dropped a whole candle tier and the column beading).
-  ceilingProp('lamp.chandelier-basket', 'lampChandelierBasket', P('decor-chandelier-basket.glb'), { width: 54.7, depth: 57.1, height: 110 }, '#b8a383', 'round', 0.40),
+  ceilingProp('lamp.chandelier-basket', 'lampChandelierBasket', 'a brass empire basket chandelier with a beaded column and two tiers of candle arms', P('decor-chandelier-basket.glb'), { width: 54.7, depth: 57.1, height: 110 }, '#b8a383', 'round', 0.40),
   // Grand chrome candelabra, two concentric rings of candles under a scrolled
   // upper tier. Body is 85% of the bbox (short chain only), so 120 cm — the top
   // of the sensible range — still gives a ~102 cm fixture, 92 cm across.
   // Losing re-roll: "crystal+chandelier+3d+model.glb" — one candle ring instead
   // of the product's two.
-  ceilingProp('lamp.chandelier-candelabra', 'lampChandelierCandelabra', P('decor-chandelier-candelabra.glb'), { width: 91.7, depth: 91.7, height: 120 }, '#999895', 'round', 0.85),
+  ceilingProp('lamp.chandelier-candelabra', 'lampChandelierCandelabra', 'a grand chrome candelabra chandelier with two concentric rings of candles', P('decor-chandelier-candelabra.glb'), { width: 91.7, depth: 91.7, height: 120 }, '#999895', 'round', 0.85),
 ]

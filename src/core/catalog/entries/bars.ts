@@ -5,6 +5,7 @@ export const barCounter: CatalogEntry = {
   id: 'bar.straight',
   category: 'bars',
   labelKey: 'bar',
+  promptFragment: 'a 5.8m double bar counter with a full-height bottle display wall behind it',
   // THE resort bar station, sized from the user's real-bar photo (2026-07-19):
   // two joined counter units (~290 each → 580 total) PLUS the display wall
   // behind them — the wall is part of the bar (user-confirmed), so `height` is
@@ -41,6 +42,7 @@ export const djBooth: CatalogEntry = {
   id: 'dj.booth',
   category: 'bars',
   labelKey: 'djBooth',
+  promptFragment: 'a dark DJ booth',
   // The real booth reads a third bigger against the resort's 310×233 DJ zone
   // than the model was prepped at (§4 of the corrections document), so the
   // catalogued size is the GLB's 160×70×110 at 1.3 and `modelSize` below tells
@@ -74,6 +76,7 @@ export const buffetTable: CatalogEntry = {
   id: 'buffet.table',
   category: 'bars',
   labelKey: 'buffet',
+  promptFragment: 'a long draped buffet table',
   defaultSize: { width: 240, depth: 76, height: 90 },
   resizable: ['width'],
   minSize: { width: 120 },

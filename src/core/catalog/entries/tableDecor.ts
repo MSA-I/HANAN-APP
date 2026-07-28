@@ -18,6 +18,8 @@ import type { CatalogEntry } from '../types'
 function surfaceProp(
   id: string,
   labelKey: string,
+  /** what the item looks like, for the image prompt — see CatalogEntry.promptFragment */
+  promptFragment: string,
   model: string,
   size: Size3D,
   color: string,
@@ -27,6 +29,7 @@ function surfaceProp(
     id,
     category: 'tableDecor',
     labelKey,
+    promptFragment,
     defaultSize: size,
     resizable: [],
     minSize: {},
@@ -96,48 +99,48 @@ function napkin(entry: CatalogEntry): CatalogEntry {
 }
 
 export const tableDecorEntries: CatalogEntry[] = [
-  surfaceProp('decor.candlestick-brass', 'decorCandlestickBrass', P('decor-candlestick-brass.glb'), { width: 21.4, depth: 21.4, height: 35 }, '#a8823f'),
-  surfaceProp('decor.vase-ceramic', 'decorVaseCeramic', P('decor-vase-ceramic.glb'), { width: 17.5, depth: 23.7, height: 35 }, '#b8afa3'),
+  surfaceProp('decor.candlestick-brass', 'decorCandlestickBrass', 'a brass candlestick', P('decor-candlestick-brass.glb'), { width: 21.4, depth: 21.4, height: 35 }, '#a8823f'),
+  surfaceProp('decor.vase-ceramic', 'decorVaseCeramic', 'a matte ceramic vase', P('decor-vase-ceramic.glb'), { width: 17.5, depth: 23.7, height: 35 }, '#b8afa3'),
   // NOT goblets: the Tripo model is a PAIR of cut-crystal vases (verified against
   // the product shot, 2026-07-19) — sized as vases, id kept to avoid churn
-  surfaceProp('decor.goblet-crystal', 'decorGobletCrystal', P('decor-goblet-crystal.glb'), { width: 35, depth: 18.7, height: 35 }, '#dbe4ea', 'rect'),
-  surfaceProp('decor.candelabra-crystal', 'decorCandelabraCrystal', P('decor-candelabra-crystal.glb'), { width: 23.9, depth: 31.1, height: 55 }, '#cfd8e3'),
+  surfaceProp('decor.goblet-crystal', 'decorGobletCrystal', 'a pair of cut-crystal vases', P('decor-goblet-crystal.glb'), { width: 35, depth: 18.7, height: 35 }, '#dbe4ea', 'rect'),
+  surfaceProp('decor.candelabra-crystal', 'decorCandelabraCrystal', 'a crystal candelabra', P('decor-candelabra-crystal.glb'), { width: 23.9, depth: 31.1, height: 55 }, '#cfd8e3'),
   // a ROW of slim crystal holders (one mesh, seen end-on in renders)
-  surfaceProp('decor.candleholder-crystal-a', 'decorCandleholderCrystalA', P('decor-candleholder-crystal-a.glb'), { width: 9.5, depth: 28.8, height: 30 }, '#d8e0e8', 'rect'),
+  surfaceProp('decor.candleholder-crystal-a', 'decorCandleholderCrystalA', 'a row of slim crystal candle holders', P('decor-candleholder-crystal-a.glb'), { width: 9.5, depth: 28.8, height: 30 }, '#d8e0e8', 'rect'),
   // NOT a small holder: a full crystal candelabra with hanging prisms (verified)
-  surfaceProp('decor.candleholder-crystal-b', 'decorCandleholderCrystalB', P('decor-candleholder-crystal-b.glb'), { width: 20.3, depth: 22.6, height: 50 }, '#d8e0e8'),
-  surfaceProp('decor.vases-decorative', 'decorVasesDecorative', P('decor-vases-decorative.glb'), { width: 29, depth: 31.6, height: 40 }, '#9b8e7e'),
-  surfaceProp('decor.vase-flowers-a', 'decorVaseFlowersA', P('decor-vase-flowers-a.glb'), { width: 10.9, depth: 42, height: 45 }, '#c98ba0', 'rect'),
-  surfaceProp('decor.vase-flowers-b', 'decorVaseFlowersB', P('decor-vase-flowers-b.glb'), { width: 16.9, depth: 19.1, height: 45 }, '#c98ba0'),
+  surfaceProp('decor.candleholder-crystal-b', 'decorCandleholderCrystalB', 'a crystal candelabra hung with cut prisms', P('decor-candleholder-crystal-b.glb'), { width: 20.3, depth: 22.6, height: 50 }, '#d8e0e8'),
+  surfaceProp('decor.vases-decorative', 'decorVasesDecorative', 'a cluster of decorative stoneware vases', P('decor-vases-decorative.glb'), { width: 29, depth: 31.6, height: 40 }, '#9b8e7e'),
+  surfaceProp('decor.vase-flowers-a', 'decorVaseFlowersA', 'a tall narrow vase of pink flowers', P('decor-vase-flowers-a.glb'), { width: 10.9, depth: 42, height: 45 }, '#c98ba0', 'rect'),
+  surfaceProp('decor.vase-flowers-b', 'decorVaseFlowersB', 'a rounded vase of pink flowers', P('decor-vase-flowers-b.glb'), { width: 16.9, depth: 19.1, height: 45 }, '#c98ba0'),
   // 'מפית מקופלת' — the label says napkin, the id and labelKey still say fabric.
   // They are stable identifiers (stored projects and thumbnail filenames key off
   // them), so only the visible string changed.
-  napkin(surfaceProp('decor.fabric-folded', 'decorFabricFolded', P('decor-fabric-folded.glb'), { width: 6, depth: 10.8, height: 12 }, '#e8e2d8', 'rect')),
+  napkin(surfaceProp('decor.fabric-folded', 'decorFabricFolded', 'a folded fabric napkin standing on the place setting', P('decor-fabric-folded.glb'), { width: 6, depth: 10.8, height: 12 }, '#e8e2d8', 'rect')),
   {
-    ...surfaceProp('decor.napkin-folded', 'decorNapkinFolded', P('decor-napkin-folded.glb'), { width: 12.2, depth: 30.8, height: 10 }, '#f0ece4', 'rect'),
+    ...surfaceProp('decor.napkin-folded', 'decorNapkinFolded', 'a folded napkin laid flat on the place setting', P('decor-napkin-folded.glb'), { width: 12.2, depth: 30.8, height: 10 }, '#f0ece4', 'rect'),
     editableColorSlot: 'body',
   },
-  surfaceProp('decor.candleholders-glass', 'decorCandleholdersGlass', P('decor-candleholders-glass.glb'), { width: 5.4, depth: 29.4, height: 20 }, '#ccd6da', 'rect'),
-  surfaceProp('decor.candelabrum-gold', 'decorCandelabrumGold', P('decor-candelabrum-gold.glb'), { width: 30.3, depth: 36.8, height: 55 }, '#c9a86a'),
-  surfaceProp('decor.candlestick-gold', 'decorCandlestickGold', P('decor-candlestick-gold.glb'), { width: 6.1, depth: 12.5, height: 40 }, '#c9a86a'),
-  surfaceProp('decor.vases-gold-striped', 'decorVasesGoldStriped', P('decor-vases-gold-striped.glb'), { width: 10.3, depth: 22.4, height: 38 }, '#c2a25e', 'rect'),
-  surfaceProp('decor.candelabrum-golden', 'decorCandelabrumGolden', P('decor-candelabrum-golden.glb'), { width: 22.6, depth: 23.9, height: 55 }, '#c9a86a'),
-  surfaceProp('decor.topiary-green', 'decorTopiaryGreen', P('decor-topiary-green.glb'), { width: 32.7, depth: 30.9, height: 45 }, '#5f7f4f'),
-  surfaceProp('decor.vase-pampas', 'decorVasePampas', P('decor-vase-pampas.glb'), { width: 52.7, depth: 61.4, height: 70 }, '#cbb694'),
-  surfaceProp('decor.tulips-pink', 'decorTulipsPink', P('decor-tulips-pink.glb'), { width: 38.7, depth: 39.1, height: 40 }, '#d78ba3'),
-  surfaceProp('decor.bouquet-roses', 'decorBouquetRoses', P('decor-bouquet-roses.glb'), { width: 33.2, depth: 34.8, height: 40 }, '#c46a79'),
-  surfaceProp('decor.vases-rose-gold', 'decorVasesRoseGold', P('decor-vases-rose-gold.glb'), { width: 51.9, depth: 71.7, height: 38 }, '#d2a08a', 'rect'),
-  surfaceProp('decor.vase-striped', 'decorVaseStriped', P('decor-vase-striped.glb'), { width: 17.9, depth: 18.9, height: 35 }, '#8f8a80'),
-  surfaceProp('decor.vases-white-ceramic', 'decorVasesWhiteCeramic', P('decor-vases-white-ceramic.glb'), { width: 28.4, depth: 33.6, height: 35 }, '#e9e5dd'),
-  napkin(surfaceProp('decor.napkin-white', 'decorNapkinWhite', P('decor-napkin-white.glb'), { width: 8.6, depth: 5.4, height: 8 }, '#f3f0ea', 'rect')),
-  surfaceProp('decor.candleholders-wood', 'decorCandleholdersWood', P('decor-candleholders-wood.glb'), { width: 5.3, depth: 21.1, height: 25 }, '#8a6b4f', 'rect'),
-  surfaceProp('decor.candlestick-wood', 'decorCandlestickWood', P('decor-candlestick-wood.glb'), { width: 6.3, depth: 25.1, height: 30 }, '#8a6b4f', 'rect'),
+  surfaceProp('decor.candleholders-glass', 'decorCandleholdersGlass', 'a row of small glass tealight holders', P('decor-candleholders-glass.glb'), { width: 5.4, depth: 29.4, height: 20 }, '#ccd6da', 'rect'),
+  surfaceProp('decor.candelabrum-gold', 'decorCandelabrumGold', 'a gold candelabrum', P('decor-candelabrum-gold.glb'), { width: 30.3, depth: 36.8, height: 55 }, '#c9a86a'),
+  surfaceProp('decor.candlestick-gold', 'decorCandlestickGold', 'a slim gold candlestick', P('decor-candlestick-gold.glb'), { width: 6.1, depth: 12.5, height: 40 }, '#c9a86a'),
+  surfaceProp('decor.vases-gold-striped', 'decorVasesGoldStriped', 'a pair of gold-striped vases', P('decor-vases-gold-striped.glb'), { width: 10.3, depth: 22.4, height: 38 }, '#c2a25e', 'rect'),
+  surfaceProp('decor.candelabrum-golden', 'decorCandelabrumGolden', 'a golden branched candelabrum', P('decor-candelabrum-golden.glb'), { width: 22.6, depth: 23.9, height: 55 }, '#c9a86a'),
+  surfaceProp('decor.topiary-green', 'decorTopiaryGreen', 'a clipped green topiary ball in a pot', P('decor-topiary-green.glb'), { width: 32.7, depth: 30.9, height: 45 }, '#5f7f4f'),
+  surfaceProp('decor.vase-pampas', 'decorVasePampas', 'a tall vase of dried pampas grass', P('decor-vase-pampas.glb'), { width: 52.7, depth: 61.4, height: 70 }, '#cbb694'),
+  surfaceProp('decor.tulips-pink', 'decorTulipsPink', 'an arrangement of pink tulips', P('decor-tulips-pink.glb'), { width: 38.7, depth: 39.1, height: 40 }, '#d78ba3'),
+  surfaceProp('decor.bouquet-roses', 'decorBouquetRoses', 'a bouquet of deep red roses', P('decor-bouquet-roses.glb'), { width: 33.2, depth: 34.8, height: 40 }, '#c46a79'),
+  surfaceProp('decor.vases-rose-gold', 'decorVasesRoseGold', 'a group of rose-gold vases', P('decor-vases-rose-gold.glb'), { width: 51.9, depth: 71.7, height: 38 }, '#d2a08a', 'rect'),
+  surfaceProp('decor.vase-striped', 'decorVaseStriped', 'a striped stoneware vase', P('decor-vase-striped.glb'), { width: 17.9, depth: 18.9, height: 35 }, '#8f8a80'),
+  surfaceProp('decor.vases-white-ceramic', 'decorVasesWhiteCeramic', 'a group of white ceramic vases', P('decor-vases-white-ceramic.glb'), { width: 28.4, depth: 33.6, height: 35 }, '#e9e5dd'),
+  napkin(surfaceProp('decor.napkin-white', 'decorNapkinWhite', 'a small folded napkin', P('decor-napkin-white.glb'), { width: 8.6, depth: 5.4, height: 8 }, '#f3f0ea', 'rect')),
+  surfaceProp('decor.candleholders-wood', 'decorCandleholdersWood', 'a row of turned wooden candle holders', P('decor-candleholders-wood.glb'), { width: 5.3, depth: 21.1, height: 25 }, '#8a6b4f', 'rect'),
+  surfaceProp('decor.candlestick-wood', 'decorCandlestickWood', 'a turned wooden candlestick', P('decor-candlestick-wood.glb'), { width: 6.3, depth: 25.1, height: 30 }, '#8a6b4f', 'rect'),
   // The only 'seat'-placement entry: dropping it on a table lays one out in front
   // of EVERY chair (see core/layout/seatItemLayout.ts) instead of one at the pointer.
   // 45×33 is the cover the venue actually lays; the 15.9 height is the wine glass,
   // the tallest of the model's 9 meshes — footprint was resized, height was not.
   {
-    ...surfaceProp('decor.place-setting', 'decorPlaceSetting', P('decor-place-setting.glb'), { width: 45, depth: 33, height: 15.9 }, '#d9d4cb', 'rect'),
+    ...surfaceProp('decor.place-setting', 'decorPlaceSetting', 'a full place setting: charger, plate, cutlery and a wine glass', P('decor-place-setting.glb'), { width: 45, depth: 33, height: 15.9 }, '#d9d4cb', 'rect'),
     category: 'tableware',
     placement: 'seat',
     surfaceAnchor: 'free', // one per cover — never the centre

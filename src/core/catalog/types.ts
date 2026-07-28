@@ -232,6 +232,20 @@ export interface CatalogEntry {
   seats?: (seating: SeatingConfig, chair: Size3D) => Transform2D[]
   /** show the name label on canvas by default (tables) */
   labelByDefault?: boolean
+  /**
+   * A short English noun phrase describing what this item LOOKS LIKE, for the
+   * image-generation prompt (core/prompts). Singular and article-first ("a
+   * folded linen napkin") — the composer pluralises it and prefixes the count.
+   *
+   * Written against the model and the product shot, not the Hebrew label: the
+   * label is a name a venue manager uses ("שולחן אבירים"), and the image model
+   * needs a description of the object. Where the two disagree the render wins —
+   * `decor.goblet-crystal` is a pair of cut-crystal vases whatever its id says.
+   *
+   * Optional so an entry without one still composes; it falls back to the id,
+   * which reads badly in a prompt and is meant to.
+   */
+  promptFragment?: string
 }
 
 export function defaultAppearance(entry: CatalogEntry): Record<string, { color?: string }> {

@@ -68,6 +68,8 @@ function chairFootprint(s: { width: number; depth: number; height: number }) {
 function chair(
   id: string,
   labelKey: string,
+  /** what the chair looks like, for the image prompt — see CatalogEntry.promptFragment */
+  promptFragment: string,
   model: string,
   upholstery: string,
   frame: string,
@@ -76,6 +78,7 @@ function chair(
     id,
     category: 'seating',
     labelKey,
+    promptFragment,
     defaultSize: { ...CHAIR_SIZE },
     resizable: [],
     minSize: {},
@@ -92,12 +95,12 @@ function chair(
   }
 }
 
-export const chairXWhite = chair('chair.x-white', 'chairXWhite', '/props/chair-x-white.glb', '#f2f0ec', '#e8e6e1')
-export const chairXWood = chair('chair.x-wood', 'chairXWood', '/props/chair-x-wood.glb', '#c9a877', '#3a3632')
-export const chairGoldWhite = chair('chair.gold-white', 'chairGoldWhite', '/props/chair-gold-white.glb', '#f4f1ea', '#c9a86a')
-export const chairGoldBlack = chair('chair.gold-black', 'chairGoldBlack', '/props/chair-gold-black.glb', '#2b2825', '#c9a86a')
-export const chairBrown = chair('chair.brown', 'chairBrown', '/props/chair-brown.glb', '#8a6b4f', '#b49a78')
-export const chairBlack = chair('chair.black', 'chairBlack', '/props/chair-black.glb', '#26241f', '#1a1917')
+export const chairXWhite = chair('chair.x-white', 'chairXWhite', 'a white cross-back dining chair', '/props/chair-x-white.glb', '#f2f0ec', '#e8e6e1')
+export const chairXWood = chair('chair.x-wood', 'chairXWood', 'a natural oak cross-back dining chair', '/props/chair-x-wood.glb', '#c9a877', '#3a3632')
+export const chairGoldWhite = chair('chair.gold-white', 'chairGoldWhite', 'a gold-framed dining chair with white upholstery', '/props/chair-gold-white.glb', '#f4f1ea', '#c9a86a')
+export const chairGoldBlack = chair('chair.gold-black', 'chairGoldBlack', 'a gold-framed dining chair with black upholstery', '/props/chair-gold-black.glb', '#2b2825', '#c9a86a')
+export const chairBrown = chair('chair.brown', 'chairBrown', 'a brown upholstered dining chair on a pale wood frame', '/props/chair-brown.glb', '#8a6b4f', '#b49a78')
+export const chairBlack = chair('chair.black', 'chairBlack', 'a black dining chair', '/props/chair-black.glb', '#26241f', '#1a1917')
 
 export const seatingEntries = [chairXWhite, chairXWood, chairGoldWhite, chairGoldBlack, chairBrown, chairBlack]
 
@@ -126,6 +129,8 @@ export const chairBridal: CatalogEntry = {
   id: 'chair.bridal',
   category: 'bridalChair',
   labelKey: 'chairBridal',
+  promptFragment:
+    'a curved seven-panel button-tufted bridal settee for two, on splayed tapered legs',
   defaultSize: { width: 212, depth: 97.6, height: 77.9 },
   resizable: [],
   minSize: {},

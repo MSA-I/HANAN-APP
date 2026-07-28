@@ -8,11 +8,15 @@ import { Component, Suspense, useEffect, useMemo, useRef, useState, type ReactNo
 import { Canvas, useThree } from '@react-three/fiber'
 import { Environment, useTexture } from '@react-three/drei'
 import type CameraControlsImpl from 'camera-controls'
-import { EquirectangularReflectionMapping, SRGBColorSpace, type PerspectiveCamera } from 'three'
-import { Box, Camera, Check, CopyPlus, Download, Eye, Grid2x2, RotateCcw, Trash2 } from 'lucide-react'
+import { EquirectangularReflectionMapping, SRGBColorSpace, Vector3, type PerspectiveCamera } from 'three'
+import { Box, Camera, Check, CopyPlus, Download, Eye, Grid2x2, Images, RotateCcw, Trash2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
+import { composeExport, exportableAngles } from '../core/prompts/compose'
+import { CAPTURE_SIZE } from '../core/prompts/refs'
 import { getVenuePack } from '../core/venuePacks'
 import { useOverlayStore } from '../editor2d/overlayStore'
+import { exportPromptPackage } from '../persistence/export'
+import { strings } from '../ui/strings'
 import { clearSelection, duplicateObjects, removeObjects } from '../state/actions'
 import { isEffectivelyLocked, lightingOf, visibleTopLevelIds } from '../state/selectors'
 import { useEditorStore } from '../state/store'
@@ -210,6 +214,7 @@ const PRESETS: { id: CameraPreset; label: string; Icon: typeof Box }[] = [
 function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControlsImpl | null> }) {
   const [active, setActive] = useState<string>('overview')
   const [saved, setSaved] = useState(false)
+  const [busy, setBusy] = useState(false)
   const venuePackId = useEditorStore((s) => s.scene.venue.venuePackId)
   const activeZone = useEditorStore((s) => s.activeZone)
   // A sealed angle belongs to the work zone named in `camera.zone`; no zone means
@@ -297,33 +302,115 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
     return `${label}__${stamp}`
   }
 
+  /** One frame, taken after the selection outline has had a tick to disappear. */
+  const grabFrame = () =>
+    new Promise<string | null>((done) => {
+      requestAnimationFrame(() => done(capture3d(CAPTURE_SIZE)))
+    })
+
   /**
-   * Save the current angle. The dev server writes it into HANAN-APP-DOCS/צילומים
-   * (tools/capture-plugin.ts); in a real build that endpoint doesn't exist, so we
-   * fall back to a plain download rather than losing the frame.
+   * Block until the eye is actually AT `position`, or give up after ~1s.
+   *
+   * `setLookAt` only records where the camera should go; camera-controls moves
+   * it in `update()`, which drei drives from useFrame — and the canvas is
+   * `frameloop="demand"`, so there is no promise about when that runs. Capturing
+   * on a timer instead of on arrival silently exports the PREVIOUS angle's
+   * picture attached to this angle's prompt, which is the one failure this whole
+   * feature cannot survive. Observed doing exactly that before this existed.
    */
-  const doCapture = () => {
+  const settleAt = (position: [number, number, number]) =>
+    new Promise<boolean>((done) => {
+      const target = new Vector3(...position)
+      const here = new Vector3()
+      let frames = 0
+      const tick = () => {
+        const c = controlsRef.current
+        if (!c) return done(false)
+        c.update(1 / 60)
+        c.getPosition(here, false)
+        if (here.distanceTo(target) < 0.02) return done(true)
+        if (++frames > 60) return done(false)
+        requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+
+  const flash = (ok: boolean) => {
+    setSaved(ok)
+    window.setTimeout(() => setSaved(false), 1500)
+  }
+
+  /**
+   * Save the current angle. A SEALED angle leaves as a full package — capture,
+   * prompt and reference images (PLAN-08 §47) — because that is what an image
+   * model needs; a free preset has no template to describe it, so it still
+   * leaves as a bare frame.
+   *
+   * The dev server writes into HANAN-APP-DOCS/צילומים (tools/capture-plugin.ts);
+   * in a real build that endpoint doesn't exist and exportPromptPackage falls
+   * back to a download rather than losing the frame.
+   */
+  const doCapture = async () => {
     clearSelection() // no selection highlight in the frame
-    requestAnimationFrame(async () => {
-      const url = capture3d({ width: 1536, height: 1024 })
-      if (!url) return
-      const name = captureName()
+    const angle = sealed.find((s) => s.id === active)
+    // the chips fly with an animated transition — capturing mid-flight would
+    // export a frame from somewhere between two angles
+    if (angle) await settleAt(angle.position)
+    const url = await grabFrame()
+    if (!url) return
+    const { scene, projectName } = useEditorStore.getState()
+    if (!angle) {
+      // a free preset: no sealed camera, so no angle template and no frustum
       try {
         const res = await fetch('/__capture', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ dataUrl: url, name }),
+          body: JSON.stringify({ dataUrl: url, name: captureName() }),
         })
         if (!res.ok) throw new Error(String(res.status))
-        setSaved(true)
-        window.setTimeout(() => setSaved(false), 1500)
+        flash(true)
       } catch {
         const a = document.createElement('a')
         a.href = url
-        a.download = `${name}.png`
+        a.download = `${captureName()}.png`
         a.click()
       }
-    })
+      return
+    }
+    await exportPromptPackage(composeExport(scene, active), url, projectName)
+    flash(true)
+  }
+
+  /**
+   * §47's "export all seven angles": jump to each sealed angle in turn and export
+   * it. Sequential on purpose — there is one renderer and one camera.
+   *
+   * Iterates the PACK's cameras, not `sealed`: the chip bar shows only the active
+   * work zone's angles (§42), but an export of "all the angles" means all of
+   * them, reception deck included, and driving the camera does not need the chip.
+   */
+  const doCaptureAll = async () => {
+    const controls = controlsRef.current
+    if (!controls || busy) return
+    const { scene } = useEditorStore.getState()
+    const angles = exportableAngles(scene)
+    if (!angles.length) return
+    setBusy(true)
+    clearSelection()
+    try {
+      for (const cam of angles) {
+        applySealedCamera(controls, cam, false)
+        setActive(cam.id)
+        await settleAt(cam.position)
+        const url = await grabFrame()
+        if (!url) continue
+        const state = useEditorStore.getState()
+        await exportPromptPackage(composeExport(state.scene, cam.id), url, state.projectName)
+      }
+      flash(true)
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -347,7 +434,7 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
       <button
         type="button"
         onClick={doCapture}
-        title={strings3d.capture.title}
+        title={sealed.some((s) => s.id === active) ? strings.promptExport.one : strings3d.capture.title}
         aria-label={strings3d.capture.title}
         className={
           'ms-0.5 flex items-center rounded-full p-1.5 transition-colors ' +
@@ -356,6 +443,21 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
       >
         {saved ? <Check size={14} /> : <Download size={14} />}
       </button>
+      {sealed.length > 0 && (
+        <button
+          type="button"
+          onClick={doCaptureAll}
+          disabled={busy}
+          title={busy ? strings.promptExport.allBusy : strings.promptExport.all}
+          aria-label={strings.promptExport.all}
+          className={
+            'flex items-center rounded-full p-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40 ' +
+            'text-ink-soft hover:bg-accent-tint hover:text-accent'
+          }
+        >
+          <Images size={14} />
+        </button>
+      )}
       <button
         type="button"
         onClick={() => apply('overview')}
