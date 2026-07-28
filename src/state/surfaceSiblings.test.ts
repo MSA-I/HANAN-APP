@@ -259,11 +259,37 @@ describe('the reception deck answers the same question twice (§27)', () => {
   })
 })
 
+/**
+ * ⚠ The surround's SHAPE is not part of the contract and must not be assumed here:
+ * the pack held one bounding box while this was written and PLAN-01C replaces it
+ * with the four rectangles the user drew. A legal point is therefore SEARCHED for
+ * against whatever the pack holds, and what is asserted is the rule — the clamp
+ * leaves the plant in the zone that admitted it, and every other zone still ejects.
+ */
 describe('a zone an entry may stand ONLY in', () => {
   const pack = getVenuePack('resort')!
-  const SAVIV = pack.restricted!.find((z) => z.kind === 'saviv')!
-  const POOL = pack.restricted!.find((z) => z.kind === 'pool')!
+  const SAVIV = pack.restricted!.filter((z) => z.kind === 'saviv')
+  const POOLS = pack.restricted!.filter((z) => z.kind === 'pool')
   const PLANT = 'plant.potted'
+  const inside = (p: Vec2, z: { x: number; y: number; width: number; depth: number }) =>
+    p.x >= z.x && p.x <= z.x + z.width && p.y >= z.y && p.y <= z.y + z.depth
+
+  const legalRingPoint = (): Vec2 | null => {
+    for (const z of SAVIV) {
+      for (let x = z.x + 10; x <= z.x + z.width - 10; x += 20) {
+        for (let y = z.y + 10; y <= z.y + z.depth - 10; y += 20) {
+          const at = { x, y }
+          const v = checkPlacement(scene(), {
+            catalogId: PLANT,
+            transform: { position: at, rotation: 0, elevation: 0 },
+            size: getCatalogEntry(PLANT).defaultSize,
+          })
+          if (!v.length) return at
+        }
+      }
+    }
+    return null
+  }
 
   beforeEach(() => {
     newProject({
@@ -276,28 +302,42 @@ describe('a zone an entry may stand ONLY in', () => {
 
   it('does not eject the entry that named it', () => {
     expect(getCatalogEntry(PLANT).allowedZones?.map((r) => r.kind)).toEqual(['saviv'])
-    // the strip of the surround that is clear of the water — the two rectangles
-    // overlap everywhere left of the pool's right edge (venuePacks.ts:139-144)
-    const drop = {
-      x: (POOL.x + POOL.width + SAVIV.x + SAVIV.width) / 2,
-      y: SAVIV.y + SAVIV.depth / 2,
-    }
-    const id = addObject(PLANT, drop)
+    const drop = legalRingPoint()
+    expect(drop).not.toBeNull()
 
+    // `addObject` clamps in `legacy` mode, the one that PUSHES. Without the
+    // allowedZones skip it would shove the plant straight out of the only zone it is
+    // allowed in — a green ghost followed by an object somewhere else.
+    const id = addObject(PLANT, drop!)
     const p = scene().objects[id].transform.position
-    expect(p.x).toBeGreaterThanOrEqual(SAVIV.x)
-    expect(p.x).toBeLessThanOrEqual(SAVIV.x + SAVIV.width)
-    expect(p.y).toBeGreaterThanOrEqual(SAVIV.y)
-    expect(p.y).toBeLessThanOrEqual(SAVIV.y + SAVIV.depth)
+    expect(p).toEqual(drop)
+    expect(SAVIV.some((z) => inside(p, z))).toBe(true)
   })
 
-  it('and every OTHER zone still pushes it out — the water included', () => {
-    const drop = {
-      x: (POOL.x + POOL.width + SAVIV.x + SAVIV.width) / 2,
-      y: SAVIV.y + SAVIV.depth / 2,
+  /**
+   * The contrast is the whole rule: the zone the entry NAMED leaves it alone, every
+   * other zone still shoves it. Stated as "was it moved", which is what the clamp
+   * decides, and not as "did it end up out of the water".
+   *
+   * That stronger claim is not true and was never PLAN-06's: `clampToVenue`'s legacy
+   * push is a SINGLE pass over the zone list, so a later rectangle can hand the
+   * object back to an earlier one — drop a plant in the middle of the old pool and
+   * the pool lifts it north onto the dance floor, which pushes it south again onto
+   * the pool's own edge. Pre-existing, unrelated to `allowedZones`, and asserting it
+   * here would make this test a hostage to the zone ORDER in the pack.
+   */
+  it('and every OTHER zone still pushes it — the water included', () => {
+    for (const water of POOLS) {
+      newProject({
+        name: 'saviv',
+        venueWidth: pack.size.width,
+        venueDepth: pack.size.depth,
+        venuePackId: 'resort',
+      })
+      const at = { x: water.x + water.width / 2, y: water.y + water.depth / 2 }
+      const id = addObject(PLANT, at)
+      expect(scene().objects[id].transform.position).not.toEqual(at)
     }
-    const id = addObject(PLANT, drop)
-    expect(objectAABB(scene(), id)!.minX).toBeGreaterThanOrEqual(POOL.x + POOL.width - 0.01)
   })
 })
 

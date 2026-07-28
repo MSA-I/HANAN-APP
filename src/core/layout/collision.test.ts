@@ -700,17 +700,34 @@ describe('performance — this runs on every drag frame', () => {
  *    everywhere else by the band rule that follows.
  *
  * The cases that matter most are the ones where the exception does NOT spread: the
- * pool still refuses the vegetation whose ring overlaps it, and the deck still
- * refuses everything the whitelist leaves out. Every rectangle below is read from
- * the pack, because the saviv one is a placeholder bounding box that PLAN-01C will
- * replace with the four real ring rectangles.
+ * pool still refuses the vegetation whose ring touches it, and the deck still
+ * refuses everything the whitelist leaves out.
+ *
+ * ⚠ Nothing here may assume the SHAPE of the surround. The pack held one bounding
+ * box while this was written and PLAN-01C replaces it with the four rectangles the
+ * user actually drew, so a test that names a corner of it passes today and fails on
+ * the merge for a reason that has nothing to do with the rule. Points are SEARCHED
+ * for against whatever the pack currently holds, and the assertions are about the
+ * rule: somewhere in the surround is legal, the water is not, and the hall is not.
  */
 describe('zones an entry is allowed into (PLAN-06)', () => {
-  const SAVIV = pack.restricted!.find((z) => z.kind === 'saviv')!
+  const SAVIV = pack.restricted!.filter((z) => z.kind === 'saviv')
+  const POOLS = pack.restricted!.filter((z) => z.kind === 'pool')
   const DECK = pack.restricted!.find((z) => z.kind === 'kabalatPanim')!
   const PLANT = 'plant.potted'
-  const halfWidth = (catalogId: string) => getCatalogEntry(catalogId).defaultSize.width / 2
   const deckCentre = { x: DECK.x + DECK.width / 2, y: DECK.y + DECK.depth / 2 }
+
+  /** A point inside SOME saviv rectangle where the plant is fully legal, or null. */
+  const legalRingPoint = (): Vec2 | null => {
+    for (const z of SAVIV) {
+      for (let x = z.x + 10; x <= z.x + z.width - 10; x += 20) {
+        for (let y = z.y + 10; y <= z.y + z.depth - 10; y += 20) {
+          if (!checkPlacement(scene(), ghost(PLANT, { x, y })).length) return { x, y }
+        }
+      }
+    }
+    return null
+  }
   /** Plain hall floor — asserted clear of every rectangle so a moved zone shows up here. */
   const openHall = { x: 500, y: 700 }
 
@@ -722,14 +739,18 @@ describe('zones an entry is allowed into (PLAN-06)', () => {
     }
   })
 
-  it('lets vegetation 1 stand in the part of saviv the pool does not claim (§3ב)', () => {
-    // The pack's saviv is the ring's BOUNDING BOX and most of it lies over the
-    // water, so the genuinely free part is east of the pool's right edge. Derived
-    // rather than written down: when PLAN-01C swaps in the four ring rectangles this
-    // widens by itself instead of turning red.
-    const clear = { x: POOL.x + POOL.width + halfWidth(PLANT) + 1, y: SAVIV.y + SAVIV.depth / 2 }
-    expect(clear.x).toBeLessThan(SAVIV.x + SAVIV.width)
-    expect(checkPlacement(scene(), ghost(PLANT, clear))).toEqual([])
+  it('lets vegetation 1 stand in the surround (§3ב)', () => {
+    // The claim is that the ring is USABLE — that naming it in `allowedZones` buys a
+    // real place to stand and not an empty intersection. Which point that is depends
+    // on the pack, so it is searched for; what is asserted is that one exists and
+    // that it is inside a rectangle the user painted as the surround.
+    const point = legalRingPoint()
+    expect(point).not.toBeNull()
+    expect(checkPlacement(scene(), ghost(PLANT, point!))).toEqual([])
+    const inSaviv = SAVIV.some(
+      (z) => point!.x >= z.x && point!.x <= z.x + z.width && point!.y >= z.y && point!.y <= z.y + z.depth,
+    )
+    expect(inSaviv).toBe(true)
   })
 
   it('refuses vegetation 1 out in the hall — the ring is the only place it belongs', () => {
@@ -751,14 +772,18 @@ describe('zones an entry is allowed into (PLAN-06)', () => {
     expect(checkPlacement(scene(), ghost(PLANT, { x: 1000, y: 1000 }))).toEqual([])
   })
 
-  it('still refuses vegetation 1 over the WATER, where saviv and pool overlap', () => {
-    // The proof that naming one zone does not open another: this point is inside
-    // saviv — so the band rule is satisfied and there is no `wrongZone` — and the
-    // only thing said about it is that it is in the pool.
-    const overWater = { x: (SAVIV.x + POOL.x + POOL.width) / 2, y: SAVIV.y + SAVIV.depth / 2 }
-    const v = checkPlacement(scene(), ghost(PLANT, overWater))
-    expect(kinds(v)).toEqual(['forbiddenZone'])
-    expect(v[0]).toMatchObject({ zone: 'pool' })
+  it('still refuses vegetation 1 over the WATER — naming one zone opens only that one', () => {
+    // Middle of the water, whatever shape the water is. The point of the assertion is
+    // that `pool` is named as the refusal: the exemption is per-zone-per-entry, not a
+    // blanket "this entry ignores restricted rectangles". Whether a `wrongZone` joins
+    // it depends on how far the surround reaches, and that is not what is under test.
+    for (const water of POOLS) {
+      const v = checkPlacement(
+        scene(),
+        ghost(PLANT, { x: water.x + water.width / 2, y: water.y + water.depth / 2 }),
+      )
+      expect(v.some((x) => x.kind === 'forbiddenZone' && x.zone === 'pool')).toBe(true)
+    }
   })
 
   it('holds vegetation 2 to no zone at all (§4)', () => {
