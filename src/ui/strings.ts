@@ -168,12 +168,17 @@ export const strings = {
       decorCandleholdersWood: 'מחזיקי נר עץ',
       decorCandlestickWood: 'פמוט עץ',
       decorPlaceSetting: 'ערכת סכו״ם',
-      // tableDesigns — the three centrepieces the venue bought as a set (source
-      // doc §41/§47). A fourth product shot exists with no model behind it; it is
-      // deliberately unlabelled, see tools/thumbs-prep.mjs and BLOCKED-02-A2.md.
+      // tableDesigns — the four centrepieces the venue bought as a set (source
+      // doc §41/§47). The fourth model arrived at 19:07 on 2026-07-28, after the
+      // round that shipped the first three had already scanned the folder — which
+      // is why BLOCKED-02-A2 reports three and is not wrong.
       designCandelabrumCrystal: 'פמוט קריסטל',
       designLampGlassRod: 'מנורת מוט זכוכית',
       designOrchidSculpture: 'פסל סחלבים',
+      // the other 13-light candelabrum: all glass, and every candle stands in its
+      // own tall chimney. The chimneys are what tell it apart from `…Crystal`
+      // above, so they are what the label says.
+      designCandelabrumHurricane: 'פמוט ארובות זכוכית',
       // ringCenter — the small round table that drops into the ⌀156 hole of the
       // large round table, and the floral piece that stands on it (source doc §39/§46).
       ringTable: 'שולחן פנימי',

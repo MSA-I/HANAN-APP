@@ -12,7 +12,29 @@ const PACK = 'resort'
 const cameras = getVenuePack(PACK)!.cameras!
 const cam = (id: string): SealedCamera => cameras.find((c) => c.id === id)!
 
+/**
+ * A resort scene holding EXACTLY the objects passed in.
+ *
+ * `createDefaultScene` seeds the hall's baked fixtures (core/venueFixtures.ts —
+ * the bar and its back wall), which is right for the app and wrong for these
+ * assertions: every test below names the objects it expects by id, so a seeded
+ * fixture is noise that would have to be spelled into each one. They are cleared
+ * here instead, and the fact that fixtures DO reach a composed prompt is pinned by
+ * its own test rather than smeared across thirteen.
+ */
 function sceneWith(...objects: SceneObject[]): SceneState {
+  const scene = createDefaultScene(undefined, undefined, PACK)
+  scene.objects = {}
+  scene.objectOrder = []
+  for (const obj of objects) {
+    scene.objects[obj.id] = obj
+    if (!obj.parentId) scene.objectOrder.push(obj.id)
+  }
+  return scene
+}
+
+/** The same scene WITH whatever the venue bakes in — used by the fixture test. */
+function sceneWithFixtures(...objects: SceneObject[]): SceneState {
   const scene = createDefaultScene(undefined, undefined, PACK)
   for (const obj of objects) {
     scene.objects[obj.id] = obj
@@ -59,6 +81,21 @@ describe('catalog prompt fragments', () => {
       expect(entry.promptFragment).toMatch(/^[a-z0-9]/)
       expect(entry.promptFragment, entry.id).not.toMatch(/[֐-׿]/)
     }
+  })
+})
+
+describe('baked venue fixtures reach the prompt', () => {
+  it('names the resort bar even though the user placed nothing', () => {
+    // The bar is a fitting of the hall, not event furniture, so it is in every
+    // render whether or not the event has a single table — and the prompt has to
+    // say so or the image model will leave the bar out of a photo of the bar wall.
+    const scene = sceneWithFixtures()
+    const fixtures = Object.values(scene.objects).filter((o) => o.flags.frozen)
+    expect(fixtures.length).toBeGreaterThan(0)
+    // s2 stands at plan x≈4423 looking back down the hall, past the bar at x≈2189
+    const seen = objectsInFrame(scene, cam('s2')).map((o) => o.catalogId)
+    expect(seen).toContain('bar.resort-left')
+    expect(seen).toContain('bar.resort-right')
   })
 })
 

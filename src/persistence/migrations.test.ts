@@ -456,7 +456,7 @@ describe('v7 → v8 layout tag split', () => {
     project.scene.objects = {
       f1: {
         id: 'f1',
-        catalogId: 'bar.straight',
+        catalogId: 'bar.resort-left',
         name: '',
         transform: { position: { x: 300, y: 300 }, rotation: 0, elevation: 0 },
         size: { width: 200, depth: 60, height: 110 },
@@ -570,7 +570,7 @@ describe('v8 → v9 new categories, stacked napkins, hang re-clamp', () => {
     const revived = migrateAndValidate(v8FileWithStackedNapkin())
     expect(revived.schemaVersion).toBe(SCHEMA_VERSION)
     expect(revived.project.schemaVersion).toBe(SCHEMA_VERSION)
-    expect(SCHEMA_VERSION).toBe(9)
+    expect(SCHEMA_VERSION).toBe(10)
   })
 
   it('adds the three new categories to the catalog order', () => {
@@ -703,6 +703,154 @@ describe('v8 → v9 new categories, stacked napkins, hang re-clamp', () => {
     file.project.scene.objectOrder.push('t1')
     const revived = migrateAndValidate(JSON.parse(JSON.stringify(file)))
     expect(revived.project.scene.objects.t1.transform.elevation).toBe(470)
+  })
+})
+
+/**
+ * v9 → v10: `bar.straight` retires into the three baked bar pieces, and stored
+ * `dj.booth` objects are resized for the model swap.
+ *
+ * The id really is gone from the catalog, so these tests cannot build a
+ * `bar.straight` through `createObject` — they write the stored shape directly,
+ * which is what a v9 file on disk actually looks like.
+ */
+const FIXTURE_IDS_V10 = ['fixture-resort-001', 'fixture-resort-002', 'fixture-resort-003']
+
+function v9File(venuePackId: string | null, objects: Record<string, unknown>, order: string[]): unknown {
+  const pack = venuePackId ? getVenuePack(venuePackId)! : null
+  return {
+    schemaVersion: 9,
+    app: 'hanan-app',
+    savedAt: new Date().toISOString(),
+    project: {
+      id: 'p9',
+      schemaVersion: 9,
+      name: 'v9',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      scene: {
+        venue: pack
+          ? { size: { ...pack.size }, wallHeight: pack.wallHeight, floor: { color: '#efebe4' }, elements: [], venuePackId }
+          : { size: { width: 2400, depth: 1600 }, wallHeight: 350, floor: { color: '#efebe4' }, elements: [] },
+        objects,
+        objectOrder: order,
+        settings: { gridSize: 10, snapEnabled: true, showGrid: true, showLabels: true, layers: {} },
+      },
+    },
+  }
+}
+
+const storedObject = (id: string, catalogId: string, size: Record<string, number>, x = 2100, y = 200) => ({
+  id,
+  catalogId,
+  name: '',
+  transform: { position: { x, y }, rotation: 0, elevation: 0 },
+  size,
+  parentId: null,
+  appearance: {},
+  flags: { locked: false, visible: true },
+  meta: {},
+})
+
+describe('v9 → v10 bar.straight retires, dj.booth resizes', () => {
+  const savedResortProject = () =>
+    v9File(
+      'resort',
+      {
+        b1: storedObject('b1', 'bar.straight', { width: 580, depth: 80, height: 237 }, 2100, 200),
+        d1: storedObject('d1', 'dj.booth', { width: 208, depth: 91, height: 143 }, 2400, 1500),
+      },
+      ['b1', 'd1'],
+    )
+
+  it('turns one stored bar into the three baked pieces, at the fixture positions', () => {
+    const revived = migrateAndValidate(savedResortProject())
+    const objects = revived.project.scene.objects
+    expect(objects.b1).toBeUndefined()
+    for (const id of FIXTURE_IDS_V10) expect(objects[id]).toBeDefined()
+    expect(FIXTURE_IDS_V10.map((id) => objects[id].catalogId)).toEqual([
+      'bar.back-wall',
+      'bar.resort-left',
+      'bar.resort-right',
+    ])
+    // the positions the bake produced, not an offset off the retired object
+    expect(objects['fixture-resort-001'].transform.position).toEqual({ x: 2189, y: 42.95 })
+    expect(objects['fixture-resort-002'].transform.position).toEqual({ x: 2059.1, y: 275.65 })
+    expect(objects['fixture-resort-003'].transform.position).toEqual({ x: 2318.9, y: 275.65 })
+  })
+
+  it('seeds them frozen, so a converted project behaves like a fresh one', () => {
+    const objects = migrateAndValidate(savedResortProject()).project.scene.objects
+    for (const id of FIXTURE_IDS_V10) {
+      expect(objects[id].flags).toEqual({ locked: true, visible: true, frozen: true })
+      expect(objects[id].meta.fixture).toBe(true)
+      expect(objects[id].parentId).toBeNull()
+    }
+  })
+
+  it('resizes the stored DJ booth for the model swap', () => {
+    const objects = migrateAndValidate(savedResortProject()).project.scene.objects
+    expect(objects.d1.size).toEqual(getCatalogEntry('dj.booth').defaultSize)
+  })
+
+  it('leaves objectOrder in step with objects, and no bar.straight anywhere', () => {
+    const scene = migrateAndValidate(savedResortProject()).project.scene
+    expect(new Set(scene.objectOrder)).toEqual(new Set(Object.keys(scene.objects)))
+    expect(scene.objectOrder).toHaveLength(Object.keys(scene.objects).length)
+    expect(JSON.stringify(scene)).not.toContain('bar.straight')
+    // fixtures draw first, exactly as createDefaultScene seeds them
+    expect(scene.objectOrder.slice(0, 3)).toEqual(FIXTURE_IDS_V10)
+  })
+
+  it('every id the migration can produce actually exists in the catalog', () => {
+    // the same guard v1→v2 carries: a migration that writes a dead id is a
+    // project that cannot be opened, because getCatalogEntry throws
+    const objects = migrateAndValidate(savedResortProject()).project.scene.objects
+    for (const o of Object.values(objects)) expect(() => getCatalogEntry(o.catalogId)).not.toThrow()
+  })
+
+  it('gives the bar to a resort project that never had one', () => {
+    // createDefaultScene copies fixtures into the scene at CREATION and nothing
+    // re-seeds on load, so without this a project saved before the bake would show
+    // a hall with no bar while every new project has one
+    const file = v9File('resort', { d1: storedObject('d1', 'dj.booth', { width: 208, depth: 91, height: 143 }) }, ['d1'])
+    const objects = migrateAndValidate(file).project.scene.objects
+    for (const id of FIXTURE_IDS_V10) expect(objects[id]).toBeDefined()
+  })
+
+  it('does not double-seed a project that already carries the fixtures', () => {
+    const first = migrateAndValidate(savedResortProject()).project
+    const again = { schemaVersion: 9, app: 'hanan-app', savedAt: new Date().toISOString(), project: { ...first, schemaVersion: 9 } }
+    const objects = migrateAndValidate(JSON.parse(JSON.stringify(again))).project.scene.objects
+    expect(Object.values(objects).filter((o) => o.catalogId === 'bar.resort-left')).toHaveLength(1)
+  })
+
+  it('drops a bar in a procedural room instead of planting resort fittings in it', () => {
+    // zoneKind only binds where the venue declares the zone, so a manual-dimensions
+    // room never clamped its bar and the baked resort positions mean nothing there
+    const file = v9File('procedural' as unknown as null, {}, [])
+    const raw = file as { project: { scene: { venue: Record<string, unknown>; objects: Record<string, unknown>; objectOrder: string[] } } }
+    raw.project.scene.venue = { size: { width: 2400, depth: 1600 }, wallHeight: 350, floor: { color: '#efebe4' }, elements: [] }
+    raw.project.scene.objects = { b1: storedObject('b1', 'bar.straight', { width: 580, depth: 80, height: 237 }, 500, 400) }
+    raw.project.scene.objectOrder = ['b1']
+    const scene = migrateAndValidate(JSON.parse(JSON.stringify(file))).project.scene
+    expect(scene.objects.b1).toBeUndefined()
+    expect(Object.keys(scene.objects)).toEqual([])
+    expect(scene.objectOrder).toEqual([])
+  })
+
+  it('sweeps a child orphaned by the retirement', () => {
+    const file = v9File(
+      'resort',
+      {
+        b1: storedObject('b1', 'bar.straight', { width: 580, depth: 80, height: 237 }),
+        c1: { ...storedObject('c1', 'decor.vase-ceramic', { width: 17.5, depth: 23.7, height: 35 }), parentId: 'b1' },
+      },
+      ['b1'],
+    )
+    const objects = migrateAndValidate(file).project.scene.objects
+    expect(objects.b1).toBeUndefined()
+    expect(objects.c1).toBeUndefined()
   })
 })
 

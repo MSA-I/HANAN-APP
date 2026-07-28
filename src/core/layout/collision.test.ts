@@ -1,4 +1,4 @@
-/**
+﻿/**
  * The placement rules (PLAN-03). Three things here are easy to break silently:
  *
  *  - Rotation. The pre-existing `aabbIntersects` reads a 45°-turned table as
@@ -176,7 +176,7 @@ describe('venue bounds and no-go zones', () => {
 
   it('says nothing about a fixed station — its home zone decides, not the drop point', () => {
     expect(checkPlacement(scene(), ghost('dj.booth', { x: 300, y: 300 }))).toEqual([])
-    expect(checkPlacement(scene(), ghost('bar.straight', { x: 4000, y: 2400 }))).toEqual([])
+    expect(checkPlacement(scene(), ghost('bar.resort-left', { x: 4000, y: 2400 }))).toEqual([])
   })
 })
 

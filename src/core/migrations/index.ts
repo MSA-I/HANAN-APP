@@ -341,6 +341,148 @@ function addCategoriesAndReclampHang(raw: unknown): unknown {
 }
 
 /**
+ * v9 → v10: `bar.straight` is retired, and `dj.booth` changed model.
+ *
+ * ‼ WHY THIS MIGRATION MUST BE EXHAUSTIVE. `getCatalogEntry` THROWS on an unknown
+ * id (catalog/registry.ts:29-33) and the zod schema below validates `catalogId` as
+ * a plain string, so a leftover `bar.straight` passes validation and then throws
+ * the first time anything reads the object — the 3D pane, the seat reconciler, a
+ * selector. That is a project the user cannot open. The sweep below therefore
+ * walks the whole `objects` map rather than `objectOrder`, so an object that is
+ * somehow parented or missing from the order is still caught.
+ *
+ * 1. `bar.straight` WAS the resort bar: its own promptFragment called it "a 5.8m
+ *    double bar counter with a full-height bottle display wall behind it". It is
+ *    now three separately placeable pieces, and a resort project gets them at the
+ *    positions the bake produced. Those absolute positions are the honest answer
+ *    rather than an offset measured off the old object, because `bar.straight`
+ *    carries `zoneKind: 'bar'` and the clamp has always pinned it inside ZONE_BAR
+ *    — in a PACK hall it could never be anywhere else.
+ *
+ *    ⚠ That reasoning holds ONLY for a pack hall. `zoneKind` binds an object to a
+ *    zone the venue declares, and a procedural room declares none, so the clamp
+ *    never ran there (state/actions.ts:350 filters `zones` and does nothing when
+ *    the list is empty; catalog/types.ts:190-193 says as much). A `bar.straight`
+ *    in a manual-dimensions room really can sit anywhere. It is DROPPED there
+ *    rather than converted, and not because converting is hard: the piece only
+ *    ever existed as the resort's own bar, the replacements are frozen fittings OF
+ *    that hall, and seeding three immovable resort fittings into a room that is
+ *    not the resort would be wrong in a way no position could fix. The old
+ *    footprint does not map onto the new one either — 580×80 against an assembly
+ *    that is 519.6 wide and 345.4 deep — so there is no honest anchor to use.
+ *    Same treatment `stage.platform` got at v3→v4, orphan sweep included.
+ *
+ * 2. EVERY resort project is given the fixtures, not only one that held a bar.
+ *    `venueFixtures` is read in exactly one place, `createDefaultScene`
+ *    (model/factory.ts:40), which copies the fixtures INTO the scene at creation;
+ *    nothing re-seeds them on load. So a project saved before the bake carries no
+ *    bar at all, and would keep showing a hall with no bar while every new project
+ *    has one. The bar is a fitting of the building, not event furniture, so the
+ *    two must agree. Idempotent by fixture id, so converting and seeding cannot
+ *    both fire and produce six objects.
+ *
+ * 3. `dj.booth` keeps its id and gets a new stored `size`. The entry swapped to
+ *    `dj-resort.glb`, whose bounds are 309.9 × 242.9 × 183.8, and propModel scales
+ *    per axis by `size / (modelSize ?? defaultSize)` — a stored 208 × 91 × 143
+ *    would have drawn the new model squashed to 0.37 on depth.
+ *
+ * Constants are frozen copies, like v5's and v9's: a later re-bake must not reach
+ * back and change what v10 meant.
+ */
+const BAR_STRAIGHT_V10 = 'bar.straight'
+const DJ_BOOTH_V10 = 'dj.booth'
+const DJ_BOOTH_SIZE_V10 = { width: 309.9, depth: 242.9, height: 183.8 }
+
+/** The bake of 2026-07-28, copied verbatim out of core/venueFixtures.ts. */
+const RESORT_BAR_FIXTURES_V10 = [
+  {
+    id: 'fixture-resort-001',
+    catalogId: 'bar.back-wall',
+    name: 'קיר מאחורי הבר',
+    transform: { position: { x: 2189, y: 42.95 }, rotation: 180, elevation: 0 },
+    size: { width: 188.9, depth: 85.9, height: 240 },
+    parentId: null,
+    appearance: {},
+    flags: { locked: true, visible: true, frozen: true },
+    meta: { fixture: true },
+  },
+  {
+    id: 'fixture-resort-002',
+    catalogId: 'bar.resort-left',
+    name: 'בר ריזורט שמאל',
+    transform: { position: { x: 2059.1, y: 275.65 }, rotation: 180, elevation: 0 },
+    size: { width: 259.8, depth: 139.5, height: 157 },
+    parentId: null,
+    appearance: {},
+    flags: { locked: true, visible: true, frozen: true },
+    meta: { fixture: true },
+  },
+  {
+    id: 'fixture-resort-003',
+    catalogId: 'bar.resort-right',
+    name: 'בר ריזורט ימין',
+    transform: { position: { x: 2318.9, y: 275.65 }, rotation: 180, elevation: 0 },
+    size: { width: 259.8, depth: 139.5, height: 157 },
+    parentId: null,
+    appearance: {},
+    flags: { locked: true, visible: true, frozen: true },
+    meta: { fixture: true },
+  },
+]
+
+function retireBarStraight(raw: unknown): unknown {
+  const file = raw as {
+    project?: {
+      scene?: {
+        venue?: { venuePackId?: string | null }
+        objects?: Record<string, { catalogId?: string; parentId?: string | null; size?: unknown }>
+        objectOrder?: string[]
+      }
+    }
+  }
+  const scene = file?.project?.scene
+  const objects = scene?.objects
+  if (objects) {
+    for (const obj of Object.values(objects)) {
+      if (obj.catalogId === DJ_BOOTH_V10) obj.size = { ...DJ_BOOTH_SIZE_V10 }
+    }
+
+    // the whole map, not objectOrder — see the header note on exhaustiveness
+    for (const [id, obj] of Object.entries(objects)) {
+      if (obj.catalogId === BAR_STRAIGHT_V10) delete objects[id]
+    }
+    // orphan sweep to fixpoint, as v3→v4 does: nothing attaches to a bar today,
+    // but a child left pointing at a deleted parent is silent corruption
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const [id, obj] of Object.entries(objects)) {
+        if (obj.parentId && !(obj.parentId in objects)) {
+          delete objects[id]
+          changed = true
+        }
+      }
+    }
+    if (Array.isArray(scene.objectOrder)) {
+      scene.objectOrder = scene.objectOrder.filter((id) => id in objects)
+    }
+
+    if (scene.venue?.venuePackId === 'resort') {
+      // `unshift` rather than push: createDefaultScene seeds fixtures first, and a
+      // migrated project should draw in the same order as a fresh one.
+      const added: string[] = []
+      for (const fixture of RESORT_BAR_FIXTURES_V10) {
+        if (fixture.id in objects) continue
+        objects[fixture.id] = structuredClone(fixture)
+        added.push(fixture.id)
+      }
+      if (added.length) scene.objectOrder = [...added, ...(scene.objectOrder ?? [])]
+    }
+  }
+  return { ...(raw as object), schemaVersion: 10, project: { ...file.project, schemaVersion: 10 } }
+}
+
+/**
  * Keyed by the SOURCE version each function upgrades FROM. `migrations[0]`
  * turns a v0 file into a v1 file (and must set `schemaVersion` to 1).
  */
@@ -353,6 +495,7 @@ export const migrations: Record<number, (raw: unknown) => unknown> = {
   6: widenResortVenue,
   7: splitLayoutTags,
   8: addCategoriesAndReclampHang,
+  9: retireBarStraight,
 }
 
 function schemaVersionOf(raw: unknown): number {

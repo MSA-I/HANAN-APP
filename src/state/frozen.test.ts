@@ -1,4 +1,4 @@
-/**
+﻿/**
  * `flags.frozen` — the bake button's other half (source doc §16: "לא יהיה
  * אפשרות להסיר או להזיז את האלמנטים הללו").
  *
@@ -41,7 +41,7 @@ let ordinary: Id
 
 beforeEach(() => {
   newProject({ name: 'frozen-test', venuePackId: 'resort' })
-  fixture = addObject('bar.straight', { x: 600, y: 600 })
+  fixture = addObject('bar.resort-left', { x: 600, y: 600 })
   freeze(fixture)
   ordinary = addObject('table.round', { x: 1200, y: 900 })
 })
@@ -69,8 +69,15 @@ describe('frozen venue fixtures', () => {
 
   it('3. clearAllObjects keeps it — "clear the event", not "clear the venue"', () => {
     clearAllObjects()
-    expect(Object.keys(scene().objects)).toEqual([fixture])
-    expect(scene().objectOrder).toEqual([fixture])
+    // The resort now SHIPS fixtures (the baked bar), so what survives is this
+    // test's own frozen object plus those. Asserting "everything left is frozen,
+    // and the ordinary table is not among it" is the actual rule, and it does not
+    // go stale the next time the venue bakes one more fitting.
+    const left = Object.keys(scene().objects)
+    expect(left).toContain(fixture)
+    expect(left).not.toContain(ordinary)
+    expect(left.every((id) => isFrozen(scene().objects[id]))).toBe(true)
+    expect(scene().objectOrder).toEqual(left)
   })
 
   it('4. setLocked cannot open its lock', () => {
@@ -103,17 +110,26 @@ describe('frozen venue fixtures', () => {
 })
 
 describe('seeding fixtures into a new project', () => {
-  it('ships empty — the arrangement is the user’s to bake', () => {
-    expect(venueFixtures('resort')).toEqual([])
+  it('seeds the resort bar, and nothing for a venue that has no bake', () => {
+    // The bar was baked on 2026-07-28: two counter halves and the back wall.
+    // Every seeded object arrives frozen, which is what makes it a fitting rather
+    // than furniture the user happens to have been given.
+    const resort = venueFixtures('resort')
+    expect(resort.map((o) => o.catalogId).sort()).toEqual([
+      'bar.back-wall',
+      'bar.resort-left',
+      'bar.resort-right',
+    ])
+    for (const o of resort) expect(o.flags).toEqual({ locked: true, visible: true, frozen: true })
     expect(venueFixtures(null)).toEqual([])
     expect(venueFixtures('no-such-venue')).toEqual([])
   })
 
   it('re-freezes every seeded object and drops one whose catalog id is gone', () => {
-    const baked = createObject('bar.straight', { x: 100, y: 100 })
+    const baked = createObject('bar.resort-left', { x: 100, y: 100 })
     baked.id = 'fixture-resort-001'
     baked.flags = { locked: false, visible: true }
-    const retired = createObject('bar.straight', { x: 200, y: 200 })
+    const retired = createObject('bar.resort-left', { x: 200, y: 200 })
     retired.catalogId = 'bar.no-longer-real'
 
     const seeded = venueFixtures('resort', { resort: [baked, retired] })

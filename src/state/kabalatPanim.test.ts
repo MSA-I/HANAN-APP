@@ -1,4 +1,4 @@
-/**
+﻿/**
  * The reception deck and the one-chuppah rule (source doc §41, §42, §43).
  *
  * The deck is the first INVERTED restricted zone: every other zone pushes
@@ -21,6 +21,12 @@ import { getCatalogEntry } from '../core/catalog/registry'
 import { chuppahEntries } from '../core/catalog/entries/chuppah'
 
 const scene = () => useEditorStore.getState().scene
+/**
+ * What the EVENT contains. A resort project is seeded with the hall's own baked
+ * fixtures (core/venueFixtures.ts — the bar), so counting `scene().objects` counts
+ * those too and says nothing about how many chuppot were placed.
+ */
+const placed = () => Object.values(scene().objects).filter((o) => !o.flags.frozen)
 const pack = getVenuePack('resort')!
 const DECK = pack.restricted!.find((z) => z.kind === 'kabalatPanim')!
 const centre = { x: DECK.x + DECK.width / 2, y: DECK.y + DECK.depth / 2 }
@@ -91,7 +97,7 @@ describe('the whitelist — what may stand on the deck', () => {
   })
 
   it('pushes a bar unit off the deck — a fixed station belongs to its own zone', () => {
-    const id = addObject('bar.straight', centre)
+    const id = addObject('bar.resort-left', centre)
     expect(overlapsDeck(id)).toBe(false)
   })
 
@@ -112,9 +118,9 @@ describe('one chuppah per event (§43)', () => {
 
   it('refuses a second chuppah — including a different model, in a different zone', () => {
     const first = addObject('chuppah.draped-white', { x: 300, y: 300 })
-    expect(Object.keys(scene().objects)).toHaveLength(1)
+    expect(placed()).toHaveLength(1)
     const second = addObject('chuppah.round-beige', centre)
-    expect(Object.keys(scene().objects)).toHaveLength(1)
+    expect(placed()).toHaveLength(1)
     // the refusal hands back the one already placed, and selects it
     expect(second).toBe(first)
     expect(useEditorStore.getState().selection).toEqual([first])
@@ -124,7 +130,7 @@ describe('one chuppah per event (§43)', () => {
     const onDeck = addObject('chuppah.acrylic', centre)
     expect(insideDeck(onDeck)).toBe(true)
     expect(addObject('chuppah.draped-blush', { x: 300, y: 300 })).toBe(onDeck)
-    expect(Object.keys(scene().objects)).toHaveLength(1)
+    expect(placed()).toHaveLength(1)
   })
 
   it('still allows swapping the chuppah for another model in place', () => {
@@ -132,7 +138,7 @@ describe('one chuppah per event (§43)', () => {
     expect(canReplaceObject(scene(), id, 'chuppah.round-white')).toBe(true)
     expect(replaceObject(id, 'chuppah.round-white')).toBe(true)
     expect(scene().objects[id].catalogId).toBe('chuppah.round-white')
-    expect(Object.keys(scene().objects)).toHaveLength(1)
+    expect(placed()).toHaveLength(1)
   })
 
   it('refuses to turn a SECOND object into a chuppah', () => {
