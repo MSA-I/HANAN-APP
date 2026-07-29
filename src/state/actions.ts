@@ -1331,16 +1331,40 @@ function deleteLayout(scene: SceneState, tag: string): void {
 const deleteHallLayout = (scene: SceneState) => deleteLayout(scene, LAYOUT_TAG.tables)
 
 /**
+ * Apply-time overrides for a hall layout (source doc §22 — "לשנות עיצובים וסוג
+ * כסאות לאותה פריסה"). Both are TRANSIENT: they decide what this one click
+ * produces and are not remembered by the layout. A layout that carried its own
+ * chair would need a field on `SavedLayout`, which is a model change — see
+ * PLAN-04 gate 2.
+ */
+export interface HallLayoutOptions {
+  /** replaces the chair each preset bakes into its id (`TABLE_PRESETS`) */
+  chairCatalogId?: string
+  /** a `TABLE_DESIGNS` id, laid on every table this layout places */
+  designId?: string
+}
+
+/**
  * Place a named layout's tables at their authored positions, replacing any
  * previous layout (tag-scoped, like applyHallDesign) — hand-placed furniture is
  * never touched, and collisions with it are not auto-resolved: the authored
  * positions win, and the expected flow is layout first, personal touches after.
- * One mutateScene = one undo entry.
+ * One mutateScene = one undo entry — the overrides are applied INSIDE it, so
+ * choosing a chair and a design still costs the user exactly one Ctrl+Z.
  */
-export function applyHallLayout(layoutId: string): Id[] {
+export function applyHallLayout(layoutId: string, options: HallLayoutOptions = {}): Id[] {
   const layout = getHallLayout(layoutId)
   if (!layout) return []
   const { venue } = get().scene
+  // Resolved BEFORE the draft is opened: an id the catalog does not have would
+  // otherwise throw out of getCatalogEntry halfway through the loop, and immer
+  // would discard the whole mutation — a click that deleted the previous layout
+  // and put nothing back.
+  const chairOverride =
+    options.chairCatalogId && hasCatalogEntry(options.chairCatalogId)
+      ? options.chairCatalogId
+      : undefined
+  const design = options.designId ? getTableDesign(options.designId) : undefined
   const ids: Id[] = []
   mutateScene((scene) => {
     deleteHallLayout(scene)
@@ -1355,10 +1379,11 @@ export function applyHallLayout(layoutId: string): Id[] {
     for (const placement of layout.placements) {
       const preset = getTablePreset(placement.presetId)
       if (!preset) continue
+      const chairId = chairOverride ?? preset.chairCatalogId
       const obj = createObject(preset.tableCatalogId, { x: placement.x, y: placement.y }, venue)
       obj.transform.rotation = placement.rotation ?? 0
       if (obj.seating) {
-        obj.seating.chairCatalogId = preset.chairCatalogId
+        obj.seating.chairCatalogId = chairId
         obj.seating.count = preset.seatCount
       }
       obj.meta.number = next++
@@ -1366,8 +1391,11 @@ export function applyHallLayout(layoutId: string): Id[] {
       scene.objects[obj.id] = obj
       scene.objectOrder.push(obj.id)
       reconcileSeats(scene, obj.id)
+      // the decor rides the same draft, so `ids` stays the TABLES the layout
+      // placed — its children are found through the parent, as everywhere else
+      if (design) layTableDesign(scene, design, obj.id)
       unhideCategoryOf(scene, preset.tableCatalogId)
-      unhideCategoryOf(scene, preset.chairCatalogId)
+      unhideCategoryOf(scene, chairId)
       ids.push(obj.id)
     }
     clampToVenue(scene, ids, 'legacy')
