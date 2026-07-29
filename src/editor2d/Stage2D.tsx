@@ -44,15 +44,13 @@ import { SelectionTransformer } from './SelectionTransformer'
 import { useEditorShortcuts, type ZoomApi } from './useEditorShortcuts'
 import { clampZoom, useViewportStore, ZOOM_100 } from './viewportStore'
 import { VenueLayer } from './VenueLayer'
+import { cachedVenueCut } from '../core/venueCut'
+import { getVenuePack } from '../core/venuePacks'
 import { registerCapture } from './captureBus'
 import { registerZoomApi } from './zoomBus'
 
-/**
- * cm of paper the PNG export keeps around the venue rectangle. 250 clears the
- * resort's north wall, which lives at y ∈ [−10, 0], with room to spare for the
- * dimension chain a plan should eventually carry outside the building.
- */
-const SHEET_MARGIN = 250
+/** cm of paper the PNG export keeps around whatever it framed. */
+const SHEET_MARGIN = 120
 
 interface MenuState {
   x: number
@@ -220,6 +218,21 @@ export function Stage2D() {
       const stage = stageRef.current
       if (!stage) return null
       const { width: vw, depth: vd } = useEditorStore.getState().scene.venue.size
+      // ⚠ THE VENUE RECTANGLE IS NOT THE BUILDING. `size` is the box the editor
+      // frames and clamps furniture to; the resort's walls run from y ≈ −640 to
+      // 2550 and from x ≈ −230, all outside it. Framing the rectangle alone cut
+      // the north wall off every export and left the top of the sheet looking
+      // empty (handoff/FOUND-06.md §1) — on screen it was always there, because
+      // the canvas is bigger than the rectangle. So the sheet is the UNION of the
+      // two, and a pack with no walls still gets exactly its rectangle.
+      const pack = getVenuePack(useEditorStore.getState().scene.venue.venuePackId)
+      const walls = cachedVenueCut(pack?.cut)?.bounds
+      const frame = {
+        minX: Math.min(0, walls?.minX ?? 0),
+        minY: Math.min(0, walls?.minY ?? 0),
+        maxX: Math.max(vw, walls?.maxX ?? vw),
+        maxY: Math.max(vd, walls?.maxY ?? vd),
+      }
       const exportScale = ZOOM_100 // 64px/m at pixelRatio 1
       const prevScale = stage.scaleX()
       const prevPos = stage.position()
@@ -238,15 +251,10 @@ export function Stage2D() {
         stage.scale({ x: exportScale, y: exportScale })
         stage.position({ x: 0, y: 0 })
         return stage.toDataURL({
-          // ⚠ the venue rectangle is NOT the building. The resort's north wall sits
-          // at y ∈ [−10, 0] — outside it — so framing exactly 0,0 → size clipped the
-          // wall out of every export and made the top edge of the sheet look empty
-          // (handoff/FOUND-06.md §1). On screen it was always there; the canvas is
-          // bigger than the rectangle. The margin is what a drawing has anyway.
-          x: -SHEET_MARGIN * exportScale,
-          y: -SHEET_MARGIN * exportScale,
-          width: (vw + SHEET_MARGIN * 2) * exportScale,
-          height: (vd + SHEET_MARGIN * 2) * exportScale,
+          x: (frame.minX - SHEET_MARGIN) * exportScale,
+          y: (frame.minY - SHEET_MARGIN) * exportScale,
+          width: (frame.maxX - frame.minX + SHEET_MARGIN * 2) * exportScale,
+          height: (frame.maxY - frame.minY + SHEET_MARGIN * 2) * exportScale,
           pixelRatio,
           mimeType: 'image/png',
         })

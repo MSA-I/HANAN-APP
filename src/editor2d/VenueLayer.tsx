@@ -14,7 +14,7 @@
  * handoff document still describes the hatch version — read the code, not it.
  */
 import { Fragment, useEffect, useState } from 'react'
-import { Circle, Group, Layer, Line, Rect, Text } from 'react-konva'
+import { Circle, Group, Layer, Line, Rect, Shape, Text } from 'react-konva'
 import { useShallow } from 'zustand/react/shallow'
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import { isZoneInside, isZoneOccupied } from '../core/layout/zoneOccupancy'
@@ -28,12 +28,7 @@ import {
 import type { Vec2 } from '../core/model/types'
 import { venueOutline } from '../core/venueOutline'
 import { getVenuePack, type RestrictedZone } from '../core/venuePacks'
-import {
-  cachedVenueSection,
-  loadVenueSection,
-  type SectionKind,
-  type VenueSection,
-} from '../core/venueSection'
+import { cachedVenueCut, loadVenueCut, type VenueCut } from '../core/venueCut'
 import { isObjectVisible } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { strings } from '../ui/strings'
@@ -46,38 +41,24 @@ const LEVEL_TEXT = '#6b635a'
 
 /**
  * LINE WEIGHT IS THE INFORMATION. On an architectural plan you know what a line
- * is before you read any label, because the weight says how the cut plane met
- * it: the heaviest ink is what the plane went THROUGH, the lightest is what it
- * merely passed over. Everything in this layer picks one of these four, and
- * nothing invents a fifth.
+ * is before you read any label: the heaviest ink is the building itself, cut
+ * through, and lighter ink is everything the drawing only passes over.
  *
- *   poché + edge   cut and solid      walls, columns
- *   medium         cut but see-through glazing
- *   fine           cut, class unknown  an unclassified run (see SectionLines)
- *   floor / level  BELOW the plane     floor edge, change of level
+ *   poché          the walls the user painted as ZONE_CUT
+ *   floor / level  BELOW the walls — floor edge, change of level
+ *
+ * The glazing / unclassified / railing pens that used to live here went with the
+ * cut-plane extractor on 2026-07-29. They classified by GLB material at a chosen
+ * cut height, and the height was the bug: see core/venueCut.ts.
  *
  * Widths are SCREEN px (`strokeScaleEnabled={false}`), not world cm. That is
  * what a drawing does: print it at 1:200 and the wall gets thinner but its
- * outline does not vanish. The one thing that must stay in world units is the
- * poché itself — its width IS the wall's width — so the fill carries the
- * thickness and the stroke only keeps a 5 cm wall from disappearing at
- * fit-the-venue zoom, where 5 cm is one and a half pixels.
+ * outline does not vanish.
  */
-const INK_GLAZING = '#5a6b74'
-/** `kind: 'opening'` means UNCLASSIFIED, and 45 of the resort's 47 are a seam in
- *  the extractor rather than a hole in the building (handoff/01-section.md §6).
- *  Drawing them in wall ink is what produced the "scattered black stumps"; they
- *  get the lightest ink there is, which says "the plane met something here" and
- *  claims nothing else. */
-const INK_UNCLASSED = '#9a938a'
-/** the floor's edge once the real walls are drawn: the placement limit, not a wall */
 const INK_FLOOR_EDGE = '#7d746a'
 
 const INK_LEVEL = '#6b635a'
 
-const W_POCHE_EDGE = 0.75
-const W_GLAZING = 1.8
-const W_UNCLASSED = 0.9
 const W_FLOOR_EDGE = 1.6
 const W_LEVEL = 2.2
 const W_NOTE = 1.3
@@ -144,6 +125,9 @@ const ZONE_TINT: Record<string, ZoneTint> = {
   bar: { fill: '#f7efe1', stroke: '#d3bf9b' },
   dj: { fill: '#fbeee1', stroke: '#dcbc98' },
   chuppah: { fill: '#f9eaf1', stroke: '#ddb4c9' },
+  // the aisle to the ceremony — same hue family as the pad it leads to, a shade
+  // lighter, so the two read as one place rather than two
+  shvilHupa: { fill: '#fdf3f7', stroke: '#e8cbd9' },
   passage: { fill: '#edeff3', stroke: '#bcc3cc' },
   // the pack used to spell the passage `corridor`; both resolve, as in strings.ts
   corridor: { fill: '#edeff3', stroke: '#bcc3cc' },
@@ -152,87 +136,37 @@ const ZONE_TINT: Record<string, ZoneTint> = {
 const FALLBACK_TINT: ZoneTint = { fill: '#f0eff4', stroke: '#c0bcc8' }
 
 /**
- * One drawing convention per `SectionKind`.
+ * The building, as the user painted it.
  *
- * `fill` is what separates the two things the cut plane can go through. A wall
- * and a column are SOLID, so the loop is filled and that is the poché. Glass is
- * not: the resort's glazing runs are 1.0–1.2 cm thick, and filling them made a
- * frameless glass wall into a thin black smear indistinguishable from a chopped
- * wall. Stroking the loop instead gives the double line a plan uses for glass —
- * both faces at high zoom, collapsing to one line as you pull back, which is
- * exactly how it should degrade.
+ * ONE Konva shape for every triangle. A path per triangle would put a seam on
+ * every shared edge — antialiasing does not cancel between two adjacent fills —
+ * and 4,640 nodes into a layer that redraws on every pan. One path with one fill
+ * has neither problem: the interior edges disappear because the fill never stops.
  *
- * ⚠ `railing` has ZERO instances in the resort asset, and that is measured, not
- * broken: `Glass Railing Color` exists in the GLB but only between 0.60–0.75 m
- * and 1.46–1.50 m, and the hall is cut at 1.00 m — straight through the gap
- * where the infill glass (material `'Glass'`) lives instead. The convention is
- * here so that lowering the cut needs no code, and the one real railing in the
- * building — 3.03 m of it, two glass panels at planX 617…913 on the south edge —
- * currently arrives as `glazing`, which is what it physically is at 1.00 m.
- *
- * ⚠ `dash` is in WORLD cm, unlike every width here: Konva has no
- * `dashScaleEnabled`. 24/16 cm reads as a dash across the useful zoom range.
+ * There is no stroke. The old poché carried a screen-space edge so a 5 cm wall
+ * stayed visible when zoomed out, and that was needed because the extractor
+ * returned some walls as 5 cm slivers. These are the footprints the user drew,
+ * at the thickness he drew them.
  */
-interface SectionPen {
-  ink: string
-  width: number
-  fill: boolean
-  dash?: number[]
-}
-
-const SECTION_PENS: Record<SectionKind, SectionPen> = {
-  wall: { ink: WALL, width: W_POCHE_EDGE, fill: true },
-  // poché too — a cut column is solid, same as a cut wall — but with a heavier
-  // edge, which is what stops the six 50×50 columns along the south wall from
-  // reading as loose black squares next to the wall band they touch.
-  column: { ink: WALL, width: W_POCHE_EDGE * 2.4, fill: true },
-  glazing: { ink: INK_GLAZING, width: W_GLAZING, fill: false },
-  railing: { ink: INK_GLAZING, width: W_GLAZING * 0.8, fill: false, dash: [24, 16] },
-  opening: { ink: INK_UNCLASSED, width: W_UNCLASSED, fill: false },
-}
-
-/**
- * Painting order, lightest first. The file's own order is the order the chainer
- * happened to finish runs in, so without this a 4 cm unclassified fragment can
- * land on top of the wall it was chopped off, and 45 of them do exactly that
- * along x = 4423.
- */
-const KIND_ORDER: SectionKind[] = ['opening', 'railing', 'glazing', 'wall', 'column']
-
-/**
- * The building, cut.
- *
- * ⚠ The poché used to carry NO stroke, on the reasoning that its width IS the
- * wall's width and a stroke would fatten it. That is right for a WORLD stroke
- * and wrong for a screen one: 22 of the resort's 74 wall runs are 5 cm thick and
- * at fit-the-venue zoom (0.28 px/cm) they are a pixel and a half of grey. The
- * screen-space edge is what keeps a thin wall a wall when you zoom out, and it
- * adds a constant fraction of a pixel rather than centimetres.
- */
-function SectionLines({ section }: { section: VenueSection }) {
+function CutPoche({ cut }: { cut: VenueCut }) {
   return (
-    <Fragment>
-      {KIND_ORDER.map((kind) => {
-        const pen = SECTION_PENS[kind]
-        return section.lines.map((line, i) =>
-          line.kind !== kind ? null : (
-            <Line
-              key={`s${i}`}
-              points={line.pts.flat()}
-              closed={line.closed}
-              fill={pen.fill && line.closed ? pen.ink : undefined}
-              stroke={pen.ink}
-              strokeWidth={pen.width}
-              dash={pen.dash}
-              strokeScaleEnabled={false}
-              listening={false}
-            />
-          ),
-        )
-      })}
-    </Fragment>
+    <Shape
+      listening={false}
+      sceneFunc={(ctx, shape) => {
+        ctx.beginPath()
+        for (const t of cut.tris) {
+          ctx.moveTo(t[0], t[1])
+          ctx.lineTo(t[2], t[3])
+          ctx.lineTo(t[4], t[5])
+          ctx.closePath()
+        }
+        ctx.fillStrokeShape(shape)
+      }}
+      fill={WALL}
+    />
   )
 }
+
 
 /*
  * The sheet furniture that used to live here — drawing title, north point and
@@ -398,19 +332,19 @@ export function VenueLayer() {
   const zones = pack?.restricted ?? []
   const floorAreas = pack?.floorAreas ?? []
   const outline = venueOutline(pack)
-  // The section is a static asset of a static pack, so it is fetched once and
-  // held. Seeded from the cache so a venue already loaded paints its walls on the
+  // The walls are a static asset of a static pack, so they are fetched once and
+  // held. Seeded from the cache so a venue already loaded paints them on the
   // first frame instead of flashing a wall-less plan.
-  const [section, setSection] = useState<VenueSection | null>(() => cachedVenueSection(pack?.section))
+  const [cut, setCut] = useState<VenueCut | null>(() => cachedVenueCut(pack?.cut))
   useEffect(() => {
     let live = true
-    void loadVenueSection(pack?.section).then((s) => {
-      if (live) setSection(s)
+    void loadVenueCut(pack?.cut).then((c) => {
+      if (live) setCut(c)
     })
     return () => {
       live = false
     }
-  }, [pack?.section])
+  }, [pack?.cut])
   // index-aligned with `zones`: solved geometry, not a style choice — see
   // core/layout/zoneLabels.ts for why centring cannot work here (source doc §17).
   const labelBoxes = zoneLabelBoxes(zones)
@@ -491,9 +425,9 @@ export function VenueLayer() {
             points={outline.flat()}
             closed
             fill={PAPER}
-            stroke={section ? INK_FLOOR_EDGE : WALL}
-            strokeWidth={section ? W_FLOOR_EDGE : FALLBACK_WALL_THICKNESS}
-            strokeScaleEnabled={!section}
+            stroke={cut ? INK_FLOOR_EDGE : WALL}
+            strokeWidth={cut ? W_FLOOR_EDGE : FALLBACK_WALL_THICKNESS}
+            strokeScaleEnabled={!cut}
             lineJoin="miter"
           />
         ) : (
@@ -503,9 +437,9 @@ export function VenueLayer() {
             width={venueSize.width}
             height={venueSize.depth}
             fill={PAPER}
-            stroke={section ? INK_FLOOR_EDGE : WALL}
-            strokeWidth={section ? W_FLOOR_EDGE : FALLBACK_WALL_THICKNESS}
-            strokeScaleEnabled={!section}
+            stroke={cut ? INK_FLOOR_EDGE : WALL}
+            strokeWidth={cut ? W_FLOOR_EDGE : FALLBACK_WALL_THICKNESS}
+            strokeScaleEnabled={!cut}
             lineJoin="miter"
           />
         )}
@@ -531,7 +465,7 @@ export function VenueLayer() {
           and over the zone tints, which are markings on that floor. Not inside
           either opacity group — the hall/reception toggle dims what stands in a
           zone, and the building is not standing in one. */}
-      {section ? <SectionLines section={section} /> : null}
+      {cut ? <CutPoche cut={cut} /> : null}
     </Layer>
   )
 }

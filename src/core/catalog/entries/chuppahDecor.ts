@@ -74,9 +74,13 @@ function chuppahDecorProp(
     ],
     model,
     thumbnail: `/thumbs/${id.replaceAll('.', '-')}.webp`,
-    // ceremony decoration — lives only inside the venue's chuppah zone, exactly
-    // like the canopy it stands beside
-    zoneKind: 'chuppah',
+    // ⚠ The AISLE, not the ceremony pad. The user painted ZONE_SHVIL_HUPA on
+    // 2026-07-29 and said in as many words that it is where the chuppah
+    // decorations go; before it existed they shared the canopy's own rectangle
+    // because there was nowhere else to put them. The canopy keeps `chuppah` —
+    // one ceremony, one canopy, on its podium — and what dresses the walk up to
+    // it now has its own ground.
+    zoneKind: 'shvilHupa',
   }
 }
 

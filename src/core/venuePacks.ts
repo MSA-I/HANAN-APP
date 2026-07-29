@@ -91,15 +91,15 @@ export interface VenuePack {
    *  (source doc §16). Absent → the viewer keeps its own default. */
   beamColor?: string
   /**
-   * URL of the plan-section asset: the building cut through at eye height, so the
-   * 2D view can draw real walls with real openings instead of a fabricated band
-   * around `outline`. Produced by tools/glb-prep/extract-section.mjs from THIS
-   * pack's model, so the two views describe one building. See core/venueSection.ts.
+   * URL of the wall asset: the building's walls in plan, traced by hand in the
+   * SketchUp source with the `ZONE_CUT` material and read back by
+   * tools/glb-prep/extract-cut.mjs. See core/venueCut.ts for why this replaced
+   * slicing the model at a chosen height.
    *
    * Absent → the plan falls back to stroking `outline`, which is what every pack
    * did before this existed.
    */
-  section?: string
+  cut?: string
 }
 
 export const VENUE_PACKS: VenuePack[] = [
@@ -189,6 +189,16 @@ export const VENUE_PACKS: VenuePack[] = [
       // 15:09: re-measured unchanged at 425 deep. 6 of the 8 chuppah models are
       // deeper than that (Plans/R1/handoff/BLOCKED-01-A3.md) — still open.
       { x: 1809, y: 1651, width: 760, depth: 425, elevation: 50, label: 'חופה', kind: 'chuppah' },
+      // ZONE_SHVIL_HUPA, painted 2026-07-29: the aisle to the ceremony, and the
+      // home of the chuppah DECORATIONS (the canopy itself keeps `chuppah`). It
+      // runs north from y 1651 — the ceremony pad's own top edge, met exactly, so
+      // the walk and the pad are continuous rather than merely near each other.
+      //
+      // ⚠ No `elevation`, though the marker face measures 1 cm up. A zone's
+      // elevation is the local 0.00 for everything bound to it, and 1 cm is the
+      // thickness of a paint stroke, not a step: honouring it would stand every
+      // decoration a centimetre off the floor for no reason anyone could see.
+      { x: 2119, y: 1051, width: 140, depth: 600, label: 'שביל החופה', kind: 'shvilHupa' },
       // was `corridor`/'מסדרון' and 2544 deep — the user shortened it (source doc §34).
       // 15:09 rasterises it 4cm deeper; the floor it gave back is floorAreas[2].
       { x: 3962, y: 0, width: 461, depth: 1408, label: 'מעבר', kind: 'passage' },
@@ -280,31 +290,21 @@ export const VENUE_PACKS: VenuePack[] = [
     // and it renders the beam far too light. Re-read off the 19:47 build: same
     // factor, still no texture.
     beamColor: '#ddd1c1',
-    // Cut from THIS venue.glb by tools/glb-prep/extract-section.mjs, two planes:
-    // 1.00 m over the hall and 5.70 m over the reception deck, because the deck
-    // floor is 4.70 m up and one plane cannot catch both. 134 polylines, 114 of
-    // them closed — those are the wall cross-sections the plan fills as poché.
-    // `--clip` throws away the 126 that lay wholly outside this pack's rectangle:
-    // the model carries the rest of the building and a desert backdrop.
-    // Every polyline also carries `kind` and the `material` it was cut from:
-    // 74 wall, 33 glazing, 16 column, 11 opening, 0 railing. Glazing is the
-    // material literally named `'Glass'`, quotes and all; column is a compact
-    // closed loop, thresholds recorded in the file itself. ⚠ `opening` means
-    // UNCLASSIFIED and nothing else — this model has NO door material, so a door
-    // is not identifiable from it and `opening` must never be drawn as one.
-    //
-    // ⚠ THE TWO CUT RANGES MUST TOUCH. They used to be 0..4423 and 4432..6051,
-    // leaving a 9 cm strip no plane covered — and the hall's east wall sits exactly
-    // there, so it came out as 36 severed stumps in a vertical comb down the middle
-    // of the drawing. That comb was most of what made the plan look unarchitectural.
-    // Closing the strip to 0..4432 dropped `opening` from 47 to 11 and left wall,
-    // glazing and column IDENTICAL — nothing real was traded for it.
-    // Railing comes back 0 because `Glass Railing Color` exists only at 0.60-0.75
-    // and 1.46-1.50 m, and the 1.00 m plane passes through the gap between them.
-    // Measurements: HANAN-APP-DOCS/Plans/R3/handoff/01-section.md · FOUND-06.md §6.
-    // ⚠ Re-run it whenever venue.glb changes, or the plan draws the old building:
-    //   node tools/glb-prep/extract-section.mjs public/venue-packs/resort/venue.glb --offset 0,24.861 --clip 0,0,6051,2544 --cut "1@0..4432" --cut "5.7@4432..6051"
-    section: '/venue-packs/resort/section.json',
+    // The walls, as the user PAINTED them in SketchUp with one material, ZONE_CUT
+    // — 4,640 triangles, filled as poché. This replaced slicing venue.glb with a
+    // horizontal plane, and the replacement is the point: every hard problem the
+    // plan had came out of choosing a cut height. The railing vanished because the
+    // 1.00 m plane passed through the gap between its rail and its cap; the east
+    // wall came out as 36 severed stumps because two cut ranges left a 9 cm strip
+    // uncovered; and a door was never identifiable, because the model has no door
+    // material and an opening is only the ABSENCE of geometry. A painted face has
+    // none of those: no height to guess, an opening is where he did not paint, and
+    // the marking lives in the SKP so it survives the next re-import — which
+    // matters, because this model was re-imported three times in one day.
+    // Rationale in full: src/core/venueCut.ts. ⚠ Re-run after any SKP edit:
+    //   mcp simlab_convert  <skp> -> D:/simlab-out/raw-venue-<stamp>.glb
+    //   node tools/glb-prep/extract-cut.mjs D:/simlab-out/raw-venue-<stamp>.glb
+    cut: '/venue-packs/resort/cut.json',
     // SketchUp Scenes → app three-metres via (x, z, 24.861 − y). Extracted from
     // SimLab Scene nodes (tools flow: SimLab session on the SKP → read Scene N).
     // Cameras do NOT survive the GLB export, so inspect-cameras.mjs reports 0 —

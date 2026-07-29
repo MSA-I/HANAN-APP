@@ -252,6 +252,11 @@ const zoneMeta = {
   ZONE_BAR: { kind: 'bar', label: 'בר' },
   ZONE_DANCEFLOOR: { kind: 'dancefloor', label: 'רחבת ריקודים' },
   ZONE_CHUPPAH: { kind: 'chuppah', label: 'חופה' },
+  // Added 2026-07-29 by the user: "the zone is meant for placing chuppah
+  // decorations and designs". It is the AISLE — 140 × 600 cm running north from
+  // the ceremony pad's top edge, which it meets exactly. The canopy keeps
+  // ZONE_CHUPPAH; what stands ALONG the walk is what this is for.
+  ZONE_SHVIL_HUPA: { kind: 'shvilHupa', label: 'שביל החופה' },
   ZONE_CORRIDOR: { kind: 'passage', label: 'מעבר' },
   ZONE_KABALAT_PANIM: { kind: 'kabalatPanim', label: 'קבלת פנים' },
   // Source doc §20, "a flooring ZONE belonging only to the reception". The user
