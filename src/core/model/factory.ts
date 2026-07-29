@@ -39,7 +39,10 @@ export function createDefaultScene(
   const objectOrder: Id[] = []
   for (const fixture of venueFixtures(venue.venuePackId)) {
     objects[fixture.id] = fixture
-    objectOrder.push(fixture.id)
+    // `objectOrder` is the TOP-LEVEL z-order and nothing else (model/types.ts):
+    // a baked chair or centrepiece renders inside its parent's group, and listing
+    // it here would draw it a second time at parent-relative coordinates.
+    if (!fixture.parentId) objectOrder.push(fixture.id)
   }
   return {
     venue,
@@ -54,6 +57,19 @@ export function createDefaultScene(
  * catalogId is dropped rather than thrown on: a bake written before a catalog
  * change must not make every NEW project unopenable.
  *
+ * The bake carries a TREE, not a list — a baked table brings its chairs and its
+ * centrepiece — so `parentId`, `attachment` and `seating` are seeded exactly as
+ * written. Flattening them (which is what this function used to do, with a blunt
+ * `parentId: null`) would read each child's parent-RELATIVE transform as a hall
+ * coordinate and stack every chair at the origin.
+ *
+ * Only ROOTS are frozen. `frozen` implies `isEffectivelyLocked`
+ * (state/selectors.ts:73), and an effectively-locked object cannot be picked in
+ * the 2D editor, so freezing chairs and table decor would ship the user a table
+ * they can never dress. The hall's own fittings stay immovable and undeletable;
+ * what stands on them stays editable — which is also why children are seeded
+ * `locked: false`, since `locked` reaches `isEffectivelyLocked` just the same.
+ *
  * `registry` is injectable for the same reason `runMigrations` takes one — the
  * shipped table is empty until the user bakes, so a test needs its own.
  */
@@ -63,13 +79,24 @@ export function venueFixtures(
 ): SceneObject[] {
   const baked = venuePackId ? registry[venuePackId] : undefined
   if (!baked) return []
-  return baked
-    .filter((object) => hasCatalogEntry(object.catalogId))
-    .map((object) => ({
+  // One forward pass: bake-plugin writes every root ahead of its children, so a
+  // parent that survived is already in `kept` by the time its child is read. A
+  // child whose root was dropped (retired catalogId) goes with it rather than
+  // being seeded as an orphan holding a local offset.
+  const kept = new Set<Id>()
+  const seeded: SceneObject[] = []
+  for (const object of baked) {
+    if (!hasCatalogEntry(object.catalogId)) continue
+    if (object.parentId && !kept.has(object.parentId)) continue
+    kept.add(object.id)
+    seeded.push({
       ...structuredClone(object),
-      parentId: null,
-      flags: { locked: true, visible: true, frozen: true },
-    }))
+      flags: object.parentId
+        ? { locked: false, visible: true }
+        : { locked: true, visible: true, frozen: true },
+    })
+  }
+  return seeded
 }
 
 export interface NewProjectOptions {

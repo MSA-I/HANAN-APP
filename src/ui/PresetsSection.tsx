@@ -10,12 +10,14 @@
  * used to be select-then-press-החל while hall layouts applied on click, which is
  * why "nothing happens when I click a design" (source doc §23) was the report.
  */
-import { Pencil, Save, Trash2 } from 'lucide-react'
+import { Pencil, Pin, Save, Trash2 } from 'lucide-react'
 import { useEffect, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react'
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import { layoutStats, layoutsForVenue } from '../core/hallLayouts'
-import type { SceneObject } from '../core/model/types'
-import { HALL_DESIGNS, TABLE_DESIGNS, TABLE_PRESETS } from '../core/presets'
+import { hangRange } from '../core/layout/beams'
+import type { Id, SceneObject, SceneState } from '../core/model/types'
+import { HALL_DESIGNS, TABLE_DESIGNS, TABLE_PRESETS, getHallDesign } from '../core/presets'
+import { getVenuePack } from '../core/venuePacks'
 import {
   createLightingLayout,
   createSavedLayout,
@@ -39,27 +41,37 @@ import {
   applySavedTableDesignToAll,
   applyTableDesign,
   applyTableDesignToAll,
+  beginGesture,
   captureTableDesign,
   designItems,
+  endGesture,
   fillHallWithTables,
   hasHallDesign,
   removeHallDesign,
   removeHallLayout,
   removeLightingLayout,
   removeTableDesign,
+  setElevation,
   tableDesignBlock,
 } from '../state/actions'
 import { notify } from '../state/notice'
 import { isEffectivelyLocked } from '../state/selectors'
 import { useEditorStore } from '../state/store'
-import { Section } from './fields'
+import { Section, SliderField } from './fields'
 import { LayoutThumbnail, SavedLayoutThumbnail } from './LayoutThumbnail'
 import { strings } from './strings'
 
 const T = strings.presets
 const repo = indexedDbRepository
 
-const label = (key: string) => T.items[key as keyof typeof T.items] ?? key
+/**
+ * A registry entry's Hebrew name. `pending` is what a TableDesign carries in
+ * `pendingLabel` until its key is seeded in `strings.presets.items` — the
+ * dictionary is not this plan's file (BRIEF §1.2), and without the fallback a new
+ * design would show the user its raw camelCase key.
+ */
+const label = (key: string, pending?: string) =>
+  T.items[key as keyof typeof T.items] ?? pending ?? key
 
 const selectClass =
   'min-h-9 w-full rounded-md border border-line bg-panel px-2 py-1.5 text-[14px] focus:border-accent focus:outline-none'
@@ -186,7 +198,7 @@ function ThumbGrid({
 }: {
   value: string
   onChange: (v: string) => void
-  options: { id: string; labelKey: string; thumbnail?: string }[]
+  options: { id: string; labelKey: string; pendingLabel?: string; thumbnail?: string }[]
   disabled?: boolean
 }) {
   return (
@@ -200,8 +212,10 @@ function ThumbGrid({
           onClick={() => onChange(o.id)}
           className={cardClass(value === o.id) + (disabled ? ' opacity-50' : '')}
         >
-          <ThumbImage src={o.thumbnail} alt={label(o.labelKey)} />
-          <span className="text-[13px] font-medium leading-tight text-ink">{label(o.labelKey)}</span>
+          <ThumbImage src={o.thumbnail} alt={label(o.labelKey, o.pendingLabel)} />
+          <span className="text-[13px] font-medium leading-tight text-ink">
+            {label(o.labelKey, o.pendingLabel)}
+          </span>
         </button>
       ))}
     </div>
@@ -216,6 +230,51 @@ const designThumb = (design: (typeof TABLE_DESIGNS)[number]) => {
 
 const hallThumb = (design: (typeof HALL_DESIGNS)[number]) =>
   getCatalogEntry(design.catalogId).thumbnail
+
+/**
+ * The fixtures a hall design put in the scene, read back from the tag
+ * `applyHallDesign` writes. The action returns its ids at apply time, but the
+ * height control has to reach them again afterwards, and after an undo the ids
+ * the component remembered would be stale. `objectOrder` is top-level only, and
+ * the ceiling test keeps a table's design-tagged DECOR out of the list —
+ * `setElevation` refuses those anyway (it is ceiling-placement only), so this is
+ * belt and braces on a read.
+ */
+function hallFixtureIds(scene: SceneState): Id[] {
+  return scene.objectOrder.filter((id) => {
+    const obj = scene.objects[id]
+    return (
+      !!obj &&
+      obj.meta.design !== undefined &&
+      hasCatalogEntry(obj.catalogId) &&
+      getCatalogEntry(obj.catalogId).placement === 'ceiling'
+    )
+  })
+}
+
+/**
+ * The design actually hanging and the height it hangs at, read off the scene
+ * rather than remembered in component state. The inspector unmounts on every trip
+ * through the 3D view, so a `useState` pick is forgotten while the fixtures stay —
+ * and the height control would then be showing ANOTHER fixture's legal band,
+ * offering the user metres that `clampHang` would silently discard.
+ *
+ * ⚠ Two selectors returning PRIMITIVES, not one returning `{id, elevation}`: a
+ * store selector that builds a fresh object every call fails
+ * `useSyncExternalStore`'s cache check and spins ("The result of getSnapshot
+ * should be cached to avoid an infinite loop"). Found by running the app, not by
+ * the tests.
+ */
+function appliedHallId(scene: SceneState): string | null {
+  const first = hallFixtureIds(scene)[0]
+  const tag = first ? scene.objects[first].meta.design : undefined
+  return typeof tag === 'string' ? tag : null
+}
+
+function appliedHallElevation(scene: SceneState): number | null {
+  const first = hallFixtureIds(scene)[0]
+  return first ? scene.objects[first].transform.elevation : null
+}
 
 /** Name-a-thing modal, shared by the three "save this arrangement" buttons. */
 function NameDialog({
@@ -711,8 +770,53 @@ export function SaveSelectionSection() {
 /** Hall-wide operations: fill the floor with tables, hang a ceiling design. */
 export function ScenePresetsSection() {
   const [presetId, setPresetId] = useState(TABLE_PRESETS[0].id)
-  const [hallId, setHallId] = useState(HALL_DESIGNS[0].id)
+  const [pickedId, setPickedId] = useState(HALL_DESIGNS[0].id)
+  // cm above the floor, i.e. transform.elevation: the BOTTOM of the fixture.
+  // Only consulted before anything hangs — once it does, the scene is the truth.
+  const [hangCm, setHangCm] = useState(() => HALL_DESIGNS[0].floorDistance ?? 0)
   const hallApplied = useEditorStore((s) => hasHallDesign(s.scene))
+  const appliedId = useEditorStore((s) => appliedHallId(s.scene))
+  const appliedCm = useEditorStore((s) => appliedHallElevation(s.scene))
+  const venuePackId = useEditorStore((s) => s.scene.venue.venuePackId)
+  const wallHeight = useEditorStore((s) => s.scene.venue.wallHeight)
+
+  // The band belongs to the ACTIVE design's fixture, not to the hall: it is
+  // `[hangHeight − height, …]`, so a slider ranged once for all five would offer
+  // the user heights clampHang silently discards for four of them.
+  const hallId = appliedId ?? pickedId
+  const hallDesign = getHallDesign(hallId) ?? HALL_DESIGNS[0]
+  const fixtureHeight = getCatalogEntry(hallDesign.catalogId).defaultSize.height
+  const range = hangRange(getVenuePack(venuePackId), wallHeight, fixtureHeight)
+  const shown = Math.min(range.max, Math.max(range.min, appliedCm ?? hangCm))
+
+  /**
+   * Apply the design and trim its fixtures to one height, as ONE undo entry
+   * (BRIEF §1.5) — `applyHallDesign` is a separate mutation from each
+   * `setElevation`, so without the gesture a single click would cost the user
+   * one Ctrl+Z per fixture. `setElevation` runs `clampHang` itself, which is why
+   * the design can state a plain plan-cm height and nothing here re-clamps it.
+   */
+  const applyHall = (id: string, cm: number) => {
+    beginGesture()
+    try {
+      for (const objId of applyHallDesign(id)) setElevation(objId, cm)
+    } finally {
+      endGesture()
+    }
+  }
+
+  /** Move fixtures already hanging. Re-applying the design instead would throw
+   *  away any fixture the user had slid along its beam since. */
+  const retrim = (cm: number) => {
+    const ids = hallFixtureIds(useEditorStore.getState().scene)
+    if (!ids.length) return
+    beginGesture()
+    try {
+      for (const id of ids) setElevation(id, cm)
+    } finally {
+      endGesture()
+    }
+  }
 
   return (
     <>
@@ -730,10 +834,30 @@ export function ScenePresetsSection() {
         <ThumbGrid
           value={hallId}
           onChange={(id) => {
-            setHallId(id)
-            applyHallDesign(id)
+            // each design carries its own authored height; absent one, the seeded
+            // hang (top against the truss) is the top of that fixture's band
+            const next = getHallDesign(id)
+            const entry = next ? getCatalogEntry(next.catalogId) : null
+            const band = entry
+              ? hangRange(getVenuePack(venuePackId), wallHeight, entry.defaultSize.height)
+              : range
+            const cm = next?.floorDistance ?? band.max
+            setPickedId(id)
+            setHangCm(cm)
+            applyHall(id, cm)
           }}
           options={HALL_DESIGNS.map((d) => ({ ...d, thumbnail: hallThumb(d) }))}
+        />
+        <SliderField
+          label={T.floorDistance}
+          value={Math.round(shown) / 100}
+          min={Math.round(range.min) / 100}
+          max={Math.round(range.max) / 100}
+          step={0.05}
+          onChange={(v) => {
+            setHangCm(v * 100)
+            retrim(v * 100)
+          }}
         />
         {hallApplied && (
           <button className={dangerClass} onClick={() => removeHallDesign()}>
@@ -742,6 +866,78 @@ export function ScenePresetsSection() {
         )}
       </Section>
       <LightingLayoutsSection />
+      <BakeFixturesSection />
     </>
+  )
+}
+
+/**
+ * Source doc §5 — the temporary development button that turns the arrangement
+ * on screen into `src/core/venueFixtures.ts`, the file every new project is
+ * seeded from.
+ *
+ * It lives HERE, under the layout pickers, because that is where the user went
+ * looking for it: *"יש כפתור של פריסות אישיות אבל אין כפתור לשמירת אלמנטים כמו
+ * שביקשתי"*. The button did exist — as an unlabelled pin between the select and
+ * hand tools in the toolbar, which is not a place anyone would find it.
+ *
+ * DEV ONLY, twice over: `import.meta.env.DEV` here and `apply: 'serve'` in
+ * tools/bake-plugin.ts, so it neither renders nor has an endpoint to call in a
+ * production build ("זמנית … עבור הפיתוח"). Removing it later needs no other
+ * change — the baked file stays, the factory keeps seeding it, and
+ * `flags.frozen` keeps the roots put.
+ */
+function BakeFixturesSection() {
+  const venueId = useEditorStore((s) => s.scene.venue.venuePackId)
+  if (!import.meta.env.DEV || !venueId) return null
+
+  const bake = async () => {
+    const { scene } = useEditorStore.getState()
+    // `objectOrder` is top-level only, and the chairs and table decor the user
+    // arranged are exactly what is NOT in it — walking it was why the button
+    // saved a hall of bare tables. Roots keep their z-order, children follow
+    // their root, and bakeSource re-parents both into its own id space.
+    const roots = new Set(scene.objectOrder)
+    const objects: SceneObject[] = [
+      ...scene.objectOrder.map((id) => scene.objects[id]).filter((o): o is SceneObject => !!o),
+      ...Object.values(scene.objects).filter((o) => !roots.has(o.id)),
+    ]
+    // frozen fixtures are sent BACK rather than filtered out, so a second bake
+    // rewrites the first one instead of deleting what it produced
+    if (!objects.length) {
+      notify(T.bakeEmpty)
+      return
+    }
+    if (!window.confirm(T.bakeConfirm(objects.length))) return
+    try {
+      const res = await fetch('/__bake', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ venueId, objects }),
+      })
+      if (!res.ok) throw new Error(`bake failed: ${res.status}`)
+      notify(T.bakeDone(objects.length))
+    } catch (err) {
+      console.error('bake failed', err)
+      notify(T.bakeFailed)
+    }
+  }
+
+  // A titleless section: `strings.presets.bake` already says what the button
+  // does, and `strings.ts` is not this plan's file to add a heading to (BRIEF
+  // §1.2), so a <Section> here would print the same sentence twice. The wrapper
+  // carries Section's own padding and rule so it sits in the panel like one.
+  return (
+    <div className="border-b border-line px-4 py-3.5">
+      <button
+        type="button"
+        data-bake-fixtures
+        className={`${buttonClass} flex w-full items-center justify-center gap-2`}
+        onClick={() => void bake()}
+      >
+        <Pin size={15} />
+        {T.bake}
+      </button>
+    </div>
   )
 }

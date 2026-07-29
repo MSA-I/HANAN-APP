@@ -11,17 +11,54 @@ import type { AppearanceOverrides } from '../model/types'
 import type { CatalogEntry } from '../catalog/types'
 
 /**
- * How many DESIGN references may ride along with a capture, over and above the
- * capture itself and the hall material shot — so the package tops out at 16
- * images. That 16 is the documented input ceiling of OpenAI's image-edit
- * endpoint for gpt-image-1, not a guess, and the user's "10" in §45 of the
- * source document was the figure being corrected.
+ * The image budget, and the whole of its arithmetic.
  *
- * ⚠ THE ONE PLACE THIS NUMBER LIVES. The model that will actually be used was
- * named "GPT IMAGE 2.0", which could not be verified to exist; when the real
- * target is settled, changing this line is the whole change.
+ * ⚠ THE ONE PLACE THESE NUMBERS LIVE. 16 is the documented input ceiling of
+ * OpenAI's image-edit endpoint for gpt-image-1, not a guess — it was round 1's
+ * G8 decision, and the user's "10" in §45 of the source document was the figure
+ * being corrected. The package must never exceed it:
+ *
+ *   16 total = 1 capture + 1 materials + 1 background + up to 5 fixed + design refs
+ *
+ * The capture counts: it is an input image like any other. `materials` and
+ * `background` are the two fixed references every angle carries (refs.ts).
+ * `fixed` is §26's route for the hall's OWN fittings — the bar, the DJ booth,
+ * the planters — which are selected ahead of the design cut so they stop being
+ * the first thing to fall out of a crowded frame.
+ *
+ * MAX_DESIGN_REFS is therefore the WORST case: what is left when five fixed
+ * elements are in shot. Most frames hold fewer, so `designRefBudget` hands the
+ * unclaimed fixed slots back rather than wasting them.
+ *
+ * The model that will actually be used was named "GPT IMAGE 2.0", which could
+ * not be verified to exist; when the real target is settled, MAX_INPUT_IMAGES is
+ * the whole change.
  */
-export const MAX_DESIGN_REFS = 14
+export const MAX_INPUT_IMAGES = 16
+/** the capture itself */
+const CAPTURE_SLOTS = 1
+/** HALL_MATERIAL_REF + BACKGROUND_REF, both present on every angle */
+const ALWAYS_ON_SLOTS = 2
+/** §26: how many of the hall's own fittings may be illustrated */
+export const MAX_FIXED_REFS = 5
+/** 16 − 1 capture − 1 materials − 1 background − 5 fixed = 8 */
+export const MAX_DESIGN_REFS =
+  MAX_INPUT_IMAGES - CAPTURE_SLOTS - ALWAYS_ON_SLOTS - MAX_FIXED_REFS
+
+/**
+ * How many design references fit alongside `fixedCount` fixed ones — the floor
+ * above plus every fixed slot nobody took. Fewer than five fixed elements in
+ * frame must not cost the design list its pictures.
+ *
+ * Total images are `1 + refs.length`, and this function is what keeps that at or
+ * under MAX_INPUT_IMAGES for any fixed count at all (compose.test.ts pins it).
+ */
+export function designRefBudget(fixedCount: number): number {
+  const used = Number.isFinite(fixedCount)
+    ? Math.min(Math.max(Math.trunc(fixedCount), 0), MAX_FIXED_REFS)
+    : 0
+  return MAX_DESIGN_REFS + (MAX_FIXED_REFS - used)
+}
 
 /**
  * hex → an English colour word an image model will act on.
