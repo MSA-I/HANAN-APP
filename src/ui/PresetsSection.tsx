@@ -6,14 +6,23 @@
  * layers panel (they are scene-level, so there is nothing to select first).
  * Dropping a table+chairs unit is a library gesture and lives there instead.
  *
- * One interaction rule throughout: CLICKING A CARD APPLIES IT. Table designs
- * used to be select-then-press-החל while hall layouts applied on click, which is
- * why "nothing happens when I click a design" (source doc §23) was the report.
+ * The interaction rule, and its ONE exception.
+ *
+ * DESIGN cards — table designs, hall designs — apply on click. They used to be
+ * select-then-press-החל, which is why "nothing happens when I click a design"
+ * (source doc §23) was the report, and the rule has held since.
+ *
+ * HALL LAYOUT cards no longer do (source doc §22): *"אם אני לוחץ על פריסות אולם
+ * צריך שייפתח תפריט … שמשם אני יכול לשנות עיצובים וסוג כסאות לאותה פריסה"*. A
+ * layout replaces every table in the hall, so the choices belong BEFORE the
+ * click lands, not after it — the card opens `HallLayoutOptions` and applying is
+ * a second, explicit step. The one-click path is not gone: it is the ⚡ button in
+ * the card's own corner, which applies the layout exactly as before.
  */
-import { Pencil, Pin, Save, Trash2 } from 'lucide-react'
+import { ChevronRight, Pencil, Pin, Save, Trash2, Zap } from 'lucide-react'
 import { useEffect, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react'
-import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
-import { layoutStats, layoutsForVenue } from '../core/hallLayouts'
+import { getCatalogEntry, hasCatalogEntry, listByCategory } from '../core/catalog/registry'
+import { layoutStats, layoutsForVenue, type HallLayout } from '../core/hallLayouts'
 import { hangRange } from '../core/layout/beams'
 import type { Id, SceneObject, SceneState } from '../core/model/types'
 import { HALL_DESIGNS, TABLE_DESIGNS, TABLE_PRESETS, getHallDesign } from '../core/presets'
@@ -581,10 +590,119 @@ export function TableDesignHintSection() {
   )
 }
 
+/** The tables and seats a layout produces, the same line the card carries. */
+function LayoutStats({ layout }: { layout: HallLayout }) {
+  const stats = layoutStats(layout)
+  return (
+    <span className="ltr-nums text-[13px] text-ink-soft">
+      {stats.tables} {T.tablesSuffix} · {stats.seats} {T.seatsSuffix}
+    </span>
+  )
+}
+
+/**
+ * Source doc §22 — the submenu a hall-layout card opens, in place of applying on
+ * the spot. Two choices, both handed to `applyHallLayout` and both consumed
+ * INSIDE its single mutateScene, so a layout plus its chairs plus its decor is
+ * still ONE undo entry (BRIEF §1.5).
+ *
+ * ⚠ Neither choice is remembered. It changes what THIS apply produces; a chair
+ * stored ON the layout would be a new field on SavedLayout and a model change,
+ * which PLAN-04 gate 2 puts out of scope.
+ *
+ * Both pickers are the ones that already exist: `ThumbGrid` is the very grid the
+ * table-design section renders, and the chair list is `listByCategory('seating')`
+ * — the same source the inspector's per-table chair <select> reads. Nothing here
+ * is a second implementation of either.
+ *
+ * State is local on purpose: the app has no panel registry and no open/closed
+ * flag in the store, and which picker a user is looking at is not project data.
+ */
+function HallLayoutOptions({ layout, onBack }: { layout: HallLayout; onBack: () => void }) {
+  const [designId, setDesignId] = useState('')
+  const [chairId, setChairId] = useState('')
+
+  return (
+    <div className="grid gap-2">
+      <button
+        type="button"
+        onClick={onBack}
+        className="flex items-center gap-0.5 justify-self-start text-[13px] text-ink-soft hover:text-accent"
+      >
+        {/* RTL: back is towards the start of the line, i.e. rightwards */}
+        <ChevronRight size={14} />
+        {T.layoutBack}
+      </button>
+
+      <div className="rounded-md border border-accent bg-accent-tint p-1.5">
+        <LayoutThumbnail layout={layout} />
+        <span className="mt-1 block text-[13px] font-medium leading-tight text-ink">
+          {label(layout.labelKey)}
+        </span>
+        <LayoutStats layout={layout} />
+      </div>
+
+      <h4 className="pt-1 text-[13px] font-semibold text-ink-soft">{T.layoutOptions}</h4>
+      <p className="text-[13px] text-ink-soft">{T.layoutOptionsHint}</p>
+
+      <span className="pt-1 text-[13px] font-medium text-ink-soft">{T.layoutDesign}</span>
+      <ThumbGrid
+        value={designId}
+        onChange={setDesignId}
+        // "no design" is a card like any other: without it there is no way to
+        // UNPICK one. It carries pendingLabel because it is not a design and so
+        // has no key in strings.presets.items to look up.
+        options={[
+          { id: '', labelKey: 'layoutDesignNone', pendingLabel: T.layoutDesignNone },
+          ...TABLE_DESIGNS.map((d) => ({ ...d, thumbnail: designThumb(d) })),
+        ]}
+      />
+
+      <label className="grid gap-1 pt-1">
+        <span className="text-[13px] font-medium text-ink-soft">{T.layoutChairType}</span>
+        <select
+          className={selectClass}
+          value={chairId}
+          onChange={(event) => setChairId(event.target.value)}
+        >
+          {/* the empty value means "leave each preset's own chair alone" — the
+              chair is baked into the preset id (presets.ts TABLE_PRESETS) */}
+          <option value="">{T.layoutChairDefault}</option>
+          {listByCategory('seating').map((chair) => (
+            <option key={chair.id} value={chair.id}>
+              {strings.catalog.items[chair.labelKey as keyof typeof strings.catalog.items]}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <button
+        type="button"
+        data-apply-layout
+        className="min-h-10 rounded-md bg-accent px-3 py-2 text-[14px] font-semibold text-white hover:bg-accent-hover"
+        onClick={() => {
+          applyHallLayout(layout.id, {
+            ...(chairId && { chairCatalogId: chairId }),
+            ...(designId && { designId }),
+          })
+          onBack()
+        }}
+      >
+        {T.layoutApply}
+      </button>
+    </div>
+  )
+}
+
 /**
  * Named layout picker: a visual grid of top-view schematics, one card per
- * authored layout for the current venue. Clicking applies (replace semantics —
- * see applyHallLayout); the active card is marked via aria-pressed.
+ * authored layout for the current venue. A card OPENS ITS OPTIONS (see the file
+ * header); the ⚡ in its corner applies it straight away, which is what the card
+ * itself used to do. The active card is marked via aria-pressed.
+ *
+ * "פריסות אישיות" — the user's own saved layouts — stay one-click and stay
+ * visible while the options panel is open: they are separate snapshots, not
+ * authored layouts, and there is no preset for the panel to re-chair.
  */
 export function HallLayoutsSection() {
   const venuePackId = useEditorStore((s) => s.scene.venue.venuePackId)
@@ -594,32 +712,50 @@ export function HallLayoutsSection() {
   const layouts = layoutsForVenue(venuePackId)
   const { layouts: all, error } = useVenueLayouts(venuePackId, venueWidth, venueDepth)
   const saved = all.filter((layout) => layout.kind === 'tables')
+  // the ID, not the layout: switching venue re-lists the layouts, and a
+  // remembered object would leave the panel showing another hall's arrangement
+  const [optionsFor, setOptionsFor] = useState<string | null>(null)
+  const pending = layouts.find((layout) => layout.id === optionsFor) ?? null
 
   if (!layouts.length && !saved.length) return null
 
   return (
     <Section title={T.layouts}>
-      <div className="grid grid-cols-2 gap-1.5">
-        {layouts.map((layout) => {
-          const stats = layoutStats(layout)
-          const active = applied === layout.id
-          return (
-            <button
-              key={layout.id}
-              type="button"
-              aria-pressed={active}
-              onClick={() => applyHallLayout(layout.id)}
-              className={cardClass(active)}
-            >
-              <LayoutThumbnail layout={layout} />
-              <span className="text-[13px] font-medium leading-tight text-ink">{label(layout.labelKey)}</span>
-              <span className="ltr-nums text-[13px] text-ink-soft">
-                {stats.tables} {T.tablesSuffix} · {stats.seats} {T.seatsSuffix}
-              </span>
-            </button>
-          )
-        })}
-      </div>
+      {pending ? (
+        <HallLayoutOptions layout={pending} onBack={() => setOptionsFor(null)} />
+      ) : (
+        <div className="grid grid-cols-2 gap-1.5">
+          {layouts.map((layout) => {
+            const active = applied === layout.id
+            return (
+              <div key={layout.id} className="relative">
+                <button
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setOptionsFor(layout.id)}
+                  className={cardClass(active) + ' pe-8'}
+                >
+                  <LayoutThumbnail layout={layout} />
+                  <span className="text-[13px] font-medium leading-tight text-ink">
+                    {label(layout.labelKey)}
+                  </span>
+                  <LayoutStats layout={layout} />
+                </button>
+                <button
+                  type="button"
+                  data-apply-now
+                  title={T.layoutApplyNow}
+                  aria-label={`${T.layoutApplyNow}: ${label(layout.labelKey)}`}
+                  onClick={() => applyHallLayout(layout.id)}
+                  className="absolute end-1.5 top-1.5 rounded-md bg-panel/90 p-1.5 text-ink-soft shadow-sm hover:bg-accent-tint hover:text-accent"
+                >
+                  <Zap size={14} />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
       {saved.length > 0 && (
         <>
           <h4 className="pt-1 text-[13px] font-semibold text-ink-soft">{T.savedLayouts}</h4>
@@ -904,15 +1040,28 @@ export function ScenePresetsSection() {
  *      hall design and lighting layouts. It is now the FIRST thing under the
  *      layout pickers, i.e. directly beneath "פריסות אישיות" — the section he
  *      said he could see while looking for this one.
- *   3. SILENCE — the only feedback was a StatusBar line at the far bottom of the
- *      window, four seconds long. The result now also stays put next to the
- *      button that produced it.
+ *   3. SILENCE — measured 2026-07-29: writing venueFixtures.ts makes Vite push an
+ *      HMR update through every module that imports it, which is most of the app.
+ *      Fast Refresh remounts this component and re-evaluates the notice store, so
+ *      BOTH the StatusBar line and any useState of ours are gone within
+ *      milliseconds of a SUCCESSFUL bake. Pressing the button looked like
+ *      pressing a dead button. The result is therefore parked in sessionStorage
+ *      and read back on mount — the only feedback here that survives its own
+ *      side effect.
  * (The `venueId` gate was never the cause: it is set for every pack project.)
  */
+const BAKE_RESULT_KEY = 'hanan.bakeResult'
+
 function BakeFixturesSection() {
   const venueId = useEditorStore((s) => s.scene.venue.venuePackId)
-  const [status, setStatus] = useState('')
+  const [status, setStatus] = useState(() => sessionStorage.getItem(BAKE_RESULT_KEY) ?? '')
   if (!import.meta.env.DEV || !venueId) return null
+
+  const say = (message: string) => {
+    sessionStorage.setItem(BAKE_RESULT_KEY, message)
+    setStatus(message)
+    notify(message)
+  }
 
   const bake = async () => {
     const { scene } = useEditorStore.getState()
@@ -929,7 +1078,6 @@ function BakeFixturesSection() {
     // rewrites the first one instead of deleting what it produced
     if (!objects.length) {
       notify(T.bakeEmpty)
-      setStatus('')
       return
     }
     if (!window.confirm(T.bakeConfirm(objects.length))) return
@@ -940,12 +1088,10 @@ function BakeFixturesSection() {
         body: JSON.stringify({ venueId, objects }),
       })
       if (!res.ok) throw new Error(`bake failed: ${res.status}`)
-      notify(T.bakeDone(objects.length))
-      setStatus(T.bakeDone(objects.length))
+      say(T.bakeDone(objects.length))
     } catch (err) {
       console.error('bake failed', err)
-      notify(T.bakeFailed)
-      setStatus(T.bakeFailed)
+      say(T.bakeFailed)
     }
   }
 
@@ -964,10 +1110,16 @@ function BakeFixturesSection() {
         {T.bakeSaveElements}
       </button>
       <p className="text-[13px] text-ink-soft">{T.bakeHint}</p>
-      {/* The POST carries top-level objects only — chairs and table decor are
-          NOT baked. The new label invites exactly that expectation, so the
-          caveat ships with it rather than being discovered afterwards. */}
-      <p className="text-[13px] text-warning">{T.bakeTopLevelOnly}</p>
+      {/*
+        `strings.presets.bakeTopLevelOnly` — "נשמרים אלמנטים ראשיים בלבד — כסאות
+        וקישוטי שולחן אינם נכללים" — is deliberately NOT rendered. It was seeded
+        for this button against a limitation that no longer exists: the POST above
+        sends roots AND every child. Measured on a real bake, 2026-07-29: the
+        generated file held 336 chairs, 336 place settings and 84 candlesticks
+        beside its 28 tables. Printing that sentence would tell the user his
+        chairs were dropped when they were not. See handoff/FOUND-04.md — the
+        string belongs to PLAN-02's file, so it is reported, not edited.
+      */}
       {status && (
         <p role="status" className="text-[13px] text-success">
           {status}
