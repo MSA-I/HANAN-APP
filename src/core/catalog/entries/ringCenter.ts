@@ -29,9 +29,11 @@
  * different `category` — see that file's header for why the recipe is shared
  * rather than copied.
  *
- * Sizes are A1's measured prepped bounds (handoff/02-a1-measurements.md). The one
- * hard constraint: `ring-center-table.glb` must fit the ⌀156 hole. If it measures
- * larger it is reported, not squeezed — see the plan's rule A1/2.
+ * `ring.floral`'s size is its measured prepped bounds
+ * (handoff/02-a1-measurements.md). `ring.table`'s is NOT: it is the hole, and its
+ * file's own bounds are stated separately as `modelSize` so the loader stretches
+ * the model onto it. That one entry is sized to a hard constraint rather than to
+ * its file — see its comment.
  */
 import { surfaceProp } from './tableDecor'
 import type { CatalogEntry } from '../types'
@@ -44,14 +46,38 @@ function ringCenter(...args: Parameters<typeof surfaceProp>): CatalogEntry {
 }
 
 export const ringCenterEntries: CatalogEntry[] = [
-  // ⌀150, and the diameter is derived rather than chosen: the model's height is
-  // exactly half its diameter (measured 0.5004), so ⌀150 puts its top at 75.05 cm
-  // — level with `table.round-large`'s own 75 cm top, so it sits FLUSH in the well
-  // instead of standing proud or sunk. It also clears the ⌀156 hole by 3 cm per
-  // side; ⌀156 would have made it 78 cm tall and left no clearance at all.
-  ringCenter('ring.table', 'ringTable',
-    'a small round table under a floor-length pleated white cloth',
-    P('ring-center-table.glb'), { width: 149.7, depth: 150, height: 75.1 }, '#e9e9e9'),
+  // ⌀156 — the hole's own diameter, EXACTLY, and that is the point of the number
+  // (source doc §26: "the circle that sits inside must cover the whole hole, there
+  // must be no GAP").
+  //
+  // It used to be ⌀149.7, the GLB's raw bbox, on the reasoning that the model's
+  // height is half its diameter so ⌀150 lands its top at 75.05 and 3 cm of
+  // clearance is tidy. Both halves of that were wrong in practice: the hole is a
+  // REAL hole — 2D draws a `Ring` with the floor showing through it
+  // (viewer2d/footprintShapes.tsx) — so "clearance" is 3 cm of visible floor all
+  // the way round, and 0.05 cm of extra height is below the model's own Draco
+  // noise. Sized to the hole, the gap closes with no inner disc and no special
+  // case; `rInner` is 78 (entries/tables.ts:70, measured — see below), so 78×2.
+  //
+  // ⚠ `modelSize` IS LOAD-BEARING AND MUST STAY. The 3D loader fits by
+  // `size / (modelSize ?? defaultSize)` (viewer3d/propModel.ts). With no
+  // `modelSize` that ratio is 1 whatever `defaultSize` says, so growing
+  // `defaultSize` alone would have left 3D rendering the old ⌀149.7 model inside a
+  // ⌀156 2D footprint — the gap still there in the viewport, gone from the plan,
+  // and nothing failing anywhere. The numbers below are the file's own measured
+  // bbox (`measure-top.mjs ring-center-table.glb`, 2026-07-29:
+  // 149.73 × 75.05 × 150), so the loader grows it 1.0419 on x, 1.04 on z and
+  // shrinks it 0.9993 on y. ringHole.test.ts asserts the field exists.
+  //
+  // Height 75, not 75.1: `table.round-large` declares 75, so this makes the two
+  // tops exactly flush rather than 1 mm proud. `ring.floral` rides it through
+  // `stackHeight`, so the urn follows the millimetre down on its own.
+  {
+    ...ringCenter('ring.table', 'ringTable',
+      'a small round table under a floor-length pleated white cloth',
+      P('ring-center-table.glb'), { width: 156, depth: 156, height: 75 }, '#e9e9e9'),
+    modelSize: { width: 149.73, depth: 150, height: 75.05 },
+  },
   // The arrangement that stands on that table. `requiresHost` is what keeps it
   // there rather than floating on the ⌀380's cloth (source doc §46).
   //

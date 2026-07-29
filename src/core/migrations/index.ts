@@ -534,6 +534,59 @@ function shrinkDjBooth(raw: unknown): unknown {
 }
 
 /**
+ * v11 → v12: the rolled napkin is catalogued at 0.62 of the model's own size.
+ *
+ * `decor.napkin-folded` used to state the GLB's own bounds, 12.2 × 30.78 × 10,
+ * and a 30.8 cm napkin does not fit the ⌀23 cm plate it is laid on — it hung 8-11
+ * cm off the cover, which is the "the napkins are not laid on the plate" report
+ * (round-3 correction §13). The entry now states a uniform 0.62 of the file and
+ * gained a `modelSize` in the same edit, which is what makes the loader draw it
+ * small rather than at 1.
+ *
+ * A stored object keeps the size it was saved with — nothing re-reads
+ * `defaultSize` for an object that already exists — so without this every napkin
+ * in every saved project would stay giant for ever, beside a library that lays
+ * small ones. The same shape of fix as v10→v11, for the same reason.
+ *
+ * What it does NOT do:
+ *
+ * 1. NO RE-POSITION, and none is owed. Where a napkin sits is not stored data the
+ *    user owns: it is DERIVED from its host every time the surface clamp runs
+ *    (`stackedPosition`, state/actions.ts), so the first edit after the upgrade
+ *    re-pins every napkin onto its plate. Writing a position here would be a
+ *    second copy of that rule, free to drift from the first, and it would need
+ *    the host's rotation — i.e. it would make persistence depend on the store,
+ *    the dependency v6→v7 and v8→v9 both refused.
+ * 2. NO ROTATION REWRITE. A napkin may now carry a rotation of its own, and a
+ *    stored one carries the host's rotation, which is exactly what a fresh lay
+ *    still produces. There is no old value to correct.
+ * 3. NOTHING FOR THE OTHER TWO NAPKINS. `decor.fabric-folded` (6 × 10.8) and
+ *    `decor.napkin-white` (8.6 × 5.4) both fit the plate at their catalogued
+ *    sizes and did not change, so a stored one is already right.
+ *
+ * The constants are frozen copies, like v5's, v9's, v10's and v11's: this file
+ * must NOT import the catalogue. A later re-measure of the napkin must not reach
+ * back and change what v12 meant.
+ */
+const NAPKIN_V12 = 'decor.napkin-folded'
+const NAPKIN_SIZE_V12 = { width: 7.56, depth: 19.08, height: 6.2 }
+
+function shrinkRolledNapkin(raw: unknown): unknown {
+  const file = raw as {
+    project?: { scene?: { objects?: Record<string, { catalogId?: string; size?: unknown }> } }
+  }
+  const objects = file?.project?.scene?.objects
+  if (objects) {
+    // the whole map, not objectOrder — same exhaustiveness note v9→v10 carries,
+    // and a napkin is a CHILD, so it never appears in objectOrder at all
+    for (const obj of Object.values(objects)) {
+      if (obj.catalogId === NAPKIN_V12) obj.size = { ...NAPKIN_SIZE_V12 }
+    }
+  }
+  return { ...(raw as object), schemaVersion: 12, project: { ...file.project, schemaVersion: 12 } }
+}
+
+/**
  * Keyed by the SOURCE version each function upgrades FROM. `migrations[0]`
  * turns a v0 file into a v1 file (and must set `schemaVersion` to 1).
  */
@@ -548,6 +601,7 @@ export const migrations: Record<number, (raw: unknown) => unknown> = {
   8: addCategoriesAndReclampHang,
   9: retireBarStraight,
   10: shrinkDjBooth,
+  11: shrinkRolledNapkin,
 }
 
 function schemaVersionOf(raw: unknown): number {

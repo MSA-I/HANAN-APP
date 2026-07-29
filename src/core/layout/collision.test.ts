@@ -30,6 +30,7 @@ import {
   removeObjects,
   rotateObjectsBy,
   setPosition,
+  stackedPosition,
 } from '../../state/actions'
 import { objectAABB } from '../../state/selectors'
 import { useEditorStore } from '../../state/store'
@@ -434,13 +435,17 @@ describe('the rules bite on real gestures', () => {
     const napkins = addSeatItemsToTable('decor.napkin-white', table)
     expect(napkins).toHaveLength(settings.length)
     expect(napkins.length).toBeGreaterThan(0)
-    // each napkin stands ON a setting, at its position and above its height
+    // each napkin stands ON a setting, on the point that setting offers a rider
+    // and above its height. `stackedPosition`, not the host's own point: since
+    // round-3 §13 a napkin is pinned to the setting's PLATE, which is off-centre
+    // in the cover — asserting the host's raw position here would freeze the very
+    // defect that fix removed (BRIEF §1.7).
     for (const id of napkins) {
       const napkin = scene().objects[id]
       if (napkin.attachment?.kind !== 'surface') throw new Error('expected a surface child')
       const host = scene().objects[napkin.attachment.stackedOn!]
       expect(host.catalogId).toBe('decor.place-setting')
-      expect(napkin.transform.position).toEqual(host.transform.position)
+      expect(napkin.transform.position).toEqual(stackedPosition(host))
       expect(napkin.transform.elevation).toBeGreaterThan(host.transform.elevation)
     }
     removeObjects(settings)

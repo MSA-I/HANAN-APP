@@ -494,9 +494,10 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>, mode: ClampMode = 's
  * re-measured, recompute this from the 2.2908 file constant — do not scale 1.83.
  *
  * `ring.table` is deliberately NOT in this table: its cloth is flat at 75.00 file
- * cm out to r = 60 with a 0.05 cm edge fold, against a declared height of 75.1 —
- * so the fallback is already right to within the model's own Draco noise, and a
- * row here would be false precision.
+ * cm out to r = 60 with a 0.05 cm edge fold, and the entry now declares a height
+ * of 75 with the file's 75.05 stated as `modelSize` — so the loader's own fit puts
+ * the cloth within 0.05 cm of the declared top, the fallback is already right to
+ * within the model's Draco noise, and a row here would be false precision.
  *
  * ponytail: the right home for this is an optional `stackHeight` on CatalogEntry,
  * beside `defaultSize`/`modelSize` — it is a property of the product, not of the
@@ -526,13 +527,90 @@ export function stackHeight(host: SceneObject): number {
 }
 
 /**
+ * WHERE on an item another item stands, in the host's OWN frame and in catalogue
+ * centimetres at the host's `defaultSize` — the sideways twin of `STACK_HEIGHTS`.
+ * Absent means "the host's origin", which is right for `ring.floral` on
+ * `ring.table` (a disc centred on a disc) and for anything else stacked middle on
+ * middle.
+ *
+ * `decor.place-setting` needs an entry because its PLATE is not at its origin. A
+ * cover is a whole laid setting — plates, cutlery, two glasses — so the middle of
+ * its bounding box falls between the plate and the cutlery, and a napkin pinned
+ * there lands half on the plate and half on the knives. That is the "the napkins
+ * are not laid on the plate" report (round-3 correction §13).
+ *
+ * MEASURED on public/props/decor-place-setting.glb, 2026-07-29 — the file the
+ * catalog actually ships, NOT the Tripo source, whose own measurement gives the
+ * same magnitudes with both signs flipped because glb-prep yaws the model on the
+ * way in. `tools/glb-prep/measure-plate.mjs` is the measurement, re-runnable:
+ * take the flat plateau at y = 2.29 file cm (the same surface STACK_HEIGHTS
+ * reads), keep only its largest connected cluster in xz — a height slab alone is
+ * NOT the plate, cutlery and a glass rim cross that height 20 cm away — and fit a
+ * circle to the cluster's outer edge:
+ *
+ *   plate axis   FILE x = +1.855, z = -2.730 — least squares over 170 rim points,
+ *                rms 0.09 cm. The midpoint of the cluster's bounding box agrees
+ *                independently at +1.851 / -2.725.
+ *   plate rim    a flat annulus, r = 12.97 … 14.39 file cm (569 vertices)
+ *
+ * File units become catalogue cm through the loader's per-axis fit, and plan y IS
+ * glTF z with no sign flip (core/space.ts:55-57):
+ *
+ *   x:  1.855 * 36/45       = +1.48
+ *   y: -2.730 * 31.3/39.14  = -2.18
+ *
+ * ponytail: the right home is an optional `stackOffset` on CatalogEntry beside
+ * the `stackHeight` this pairs with — it is a property of the product, not of the
+ * editor. Same three steps, same reason it is not there yet: src/core/catalog is
+ * PLAN-02's and merged before this plan started.
+ */
+const STACK_OFFSETS: Record<string, Vec2> = {
+  'decor.place-setting': { x: 1.48, y: -2.18 },
+}
+
+/**
+ * The position a rider takes when it stands on `host`, in the host's PARENT frame.
+ *
+ * ONE function because there are TWO writers of this position and `mutateScene`
+ * does not clamp surface children by itself — `clampSurfaceChildrenIn` is called
+ * explicitly by the move/rotate/resize actions. `laySeatItems` writes the position
+ * when the napkins are dropped and `clampToSurface` re-writes it on every later
+ * clamp of the napkin, so if the two disagreed by the offset the napkin would sit
+ * on the plate until the first drag and then jump to the middle of the cover.
+ * Exactly why `stackHeight` is one function too.
+ *
+ * The offset is scaled by the host's own size, like `stackHeight`: the loader fits
+ * the whole model to `size`, so a resized host carries its plate with it.
+ */
+export function stackedPosition(host: SceneObject): Vec2 {
+  const declared = STACK_OFFSETS[host.catalogId]
+  if (!declared) return { ...host.transform.position }
+  let local = declared
+  if (hasCatalogEntry(host.catalogId)) {
+    const base = getCatalogEntry(host.catalogId).defaultSize
+    local = {
+      x: base.width > 0 ? declared.x * (host.size.width / base.width) : declared.x,
+      y: base.depth > 0 ? declared.y * (host.size.depth / base.depth) : declared.y,
+    }
+  }
+  // the offset lives in the HOST's frame, so it turns with the host — a cover on
+  // the far side of a round table faces the other way (BRIEF §1.3: the rotation
+  // goes through `rotateVec`, never a raw sin/cos)
+  const turned = rotateVec(local, host.transform.rotation)
+  return {
+    x: host.transform.position.x + turned.x,
+    y: host.transform.position.y + turned.y,
+  }
+}
+
+/**
  * The elevation a surface child stands at, in its PARENT's frame — derived from
  * whatever it stands on rather than from the parent's height. Two riders need
  * this and they are not the same case:
  *
  *   napkin      -> place setting, which stands on the table top   -> 75 + 1.83
  *   ring.floral -> ring.table, which stands on the FLOOR through the ⌀380's hole
- *                  (`inHole`), so its own elevation is 0          ->  0 + 75.1
+ *                  (`inHole`), so its own elevation is 0          ->  0 + 75
  *
  * Reading the host's own base is one rule for both, and for any future host
  * dropped into a hole; `parent.size.height + host.size.height` was right only for
@@ -608,12 +686,24 @@ function clampToSurface(scene: SceneState, child: SceneObject): void {
   if (!parent) return
   const entry = getCatalogEntry(child.catalogId)
 
-  // stacked on another item (napkin on its place setting): it IS that item's
-  // position — it rides along when the setting is nudged and cannot drift off it
+  // stacked on another item (napkin on its place setting): it is PINNED to that
+  // item — it rides along when the setting is nudged and cannot drift off it.
+  // What it is pinned to is the host's stacking SURFACE, not the host's origin:
+  // the place setting's plate sits off-centre, and a napkin at the origin lands
+  // on the cutlery (see `stackedPosition`, and `laySeatItems`, which lays it on
+  // the same point through the same function).
   const host = child.attachment.stackedOn ? scene.objects[child.attachment.stackedOn] : undefined
   if (host && host.parentId === child.parentId) {
-    child.transform.position = { ...host.transform.position }
-    child.transform.rotation = host.transform.rotation
+    child.transform.position = stackedPosition(host)
+    // The rotation is deliberately NOT re-asserted here. `child.rotation =
+    // host.rotation` used to run on every clamp, which is why a napkin could
+    // never be turned at all: it is LAID with the host's rotation (a rolled
+    // napkin points at its guest, like the cover it dresses), and re-writing that
+    // on the next clamp silently undid whatever the user had done. Nothing needs
+    // the two locked together — a cover is laid per seat rather than posed by
+    // hand (PLAN-09 item 11 makes settings non-editable), and both transforms are
+    // PARENT-local, so rotating the TABLE turns cover and napkin as one without
+    // either value moving.
     // NOT `parent.size.height + host.size.height`: the host's own base can be the
     // floor (ring.table sits in the ⌀380's hole) and its own STACKING surface can
     // be far below its total height (the place setting's 15 cm is its wine glass).
@@ -938,7 +1028,17 @@ function laySeatItems(scene: SceneState, catalogId: string, tableId: Id): Id[] {
     // place setting's charger (1.83 cm), not on the rim of its wine glass (15 cm).
     // Same rule `clampToSurface` re-applies on every later clamp, so the two
     // cannot drift — that is what `stackHeight` being one function is for.
-    obj.transform = { ...t, elevation: table.size.height + (host ? stackHeight(host) : 0) }
+    //
+    // The position is the same story one axis over: the plate is off-centre in
+    // the cover, so `stackedPosition` — not the host's own point — is where the
+    // napkin goes, and `clampToSurface` re-derives it from the same function.
+    // It also hands back a fresh Vec2, where `{ ...t }` alone would leave the
+    // napkin sharing the host's own position object.
+    obj.transform = {
+      ...t,
+      position: host ? stackedPosition(host) : t.position,
+      elevation: table.size.height + (host ? stackHeight(host) : 0),
+    }
     scene.objects[obj.id] = obj
     ids.push(obj.id)
   }
@@ -965,7 +1065,14 @@ function laySeatItems(scene: SceneState, catalogId: string, tableId: Id): Id[] {
   // the top goes with them (source doc §43): a seat knows the rim it sits outside
   // but not the RING's opening on the far side of it
   const top = tableEntry.footprint(table.size).outline
-  for (const t of seatItemTransforms(seats, chair, entry.defaultSize, table.seating.offset, top)) {
+  for (const t of seatItemTransforms(
+    seats,
+    chair,
+    entry.defaultSize,
+    table.seating.offset,
+    top,
+    table.catalogId,
+  )) {
     lay(t)
   }
   unhideCategoryOf(scene, catalogId)
@@ -1118,7 +1225,14 @@ function layTableDesign(scene: SceneState, design: TableDesign, tableId: Id): Id
     const seats = seatsForEntry(entry, table.size, table.seating, chair)
     // same top as the hand-laid path — a design's settings obey §43 too
     const top = entry.footprint(table.size).outline
-    for (const t of seatItemTransforms(seats, chair, item, table.seating.offset, top)) {
+    for (const t of seatItemTransforms(
+      seats,
+      chair,
+      item,
+      table.seating.offset,
+      top,
+      table.catalogId,
+    )) {
       lay(design.seatItem, t)
     }
   }

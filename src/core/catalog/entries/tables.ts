@@ -270,7 +270,24 @@ export const serpentineTable: CatalogEntry = {
   // The flanks differ because the arcs sweep through different angles, so the
   // r+d / r−d offsets do not cancel — see the warning on `edgeLength`. The two
   // heads sit past the band's end caps, which the flank walk never reaches.
-  // Asserted against the geometry in serpentine.test.ts so the two cannot drift.
+  //
+  // ⚠ Re-measured: `capacities()` returns [11, 9] at these defaults, so
+  // `serpentineMaxSeats` DOES reach the 22 declared here — 22 is not an
+  // aspirational ceiling the math falls short of, whatever a passing reading of
+  // `floor(edgeLength / (width + gap))` suggests. serpentine.test.ts derives the
+  // split from the same lengths rather than repeating this comment's numbers, and
+  // asserts both `max` and `defaultCount` against the geometry, so a chair-size,
+  // gap or offset change that broke the 22 fails there instead of silently seating
+  // 20. Measured slack, unlike the square and knights tables where a single cm of
+  // gap costs chairs: capacity holds 22 from gap 9 through 12 and drops to 21 at
+  // 13, so `maxGapForSeats` caps the inspector's field at 12. The offset does not
+  // move the total at all over 0…20 — what it adds to the long flank it takes off
+  // the short one.
+  //
+  // What IS wrong on this table is the two head PLACE SETTINGS, which overlap
+  // their flank neighbours by 12…15cm — see the warning on `HEAD_SEATS` in
+  // layout/serpentine.ts. It is a position defect, not a count one, and no number
+  // on this line can fix it.
   seating: { min: 0, max: 22, defaultCount: 22, defaultChair: DEFAULT_CHAIR, defaultGap: 10, defaultOffset: 6 },
   librarySubtitle: 'seats',
   labelByDefault: true,

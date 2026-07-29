@@ -4,7 +4,7 @@ import type { Outline } from '../catalog/types'
 import type { SeatingConfig, Size3D, Transform2D } from '../model/types'
 import { rotateVec } from '../space'
 import { holeRadius } from './bounds'
-import { seatItemTransforms } from './seatItemLayout'
+import { EDGE_INSET, seatItemTransforms, tableTopInset } from './seatItemLayout'
 import { computeSeatTransforms, seatsForEntry } from './seatLayout'
 import { serpentineBandDepth } from './serpentine'
 
@@ -21,8 +21,14 @@ const seating = (count: number, gap: number): SeatingConfig => ({
   startAngle: 0,
 })
 
-/** seat offset + half the chair + seatItemTransforms' 3cm edge inset + half the item */
-const DISTANCE = 6 + chair.depth / 2 + 3 + item.depth / 2
+/**
+ * seat offset + half the chair + the edge inset + half the item. Read from
+ * `EDGE_INSET` rather than written out, so a change to the styling gap moves the
+ * expectation with it (BRIEF §1.7). No table id goes into `lay` below, so no
+ * `tableTopInset` is in play here — these two cases are synthetic outlines with
+ * no model behind them, and an unmeasured table is exactly the 0-inset path.
+ */
+const DISTANCE = 6 + chair.depth / 2 + EDGE_INSET + item.depth / 2
 
 const lay = (outline: Outline, cfg: SeatingConfig) => {
   const seats = computeSeatTransforms(outline, cfg, chair)
@@ -162,8 +168,109 @@ function coversOn(tableId: string): Transform2D[] {
   const s = entry.seating!
   const cfg = seating(s.defaultCount, s.defaultGap)
   const seats = seatsForEntry(entry, entry.defaultSize, { ...cfg, offset: s.defaultOffset }, chair)
-  return seatItemTransforms(seats, chair, item, s.defaultOffset, topOf(tableId))
+  // the id goes in too, exactly as laySeatItems passes it: it is what selects the
+  // table's measured `tableTopInset`
+  return seatItemTransforms(seats, chair, item, s.defaultOffset, topOf(tableId), tableId)
 }
+
+/**
+ * The outline of the table's USABLE TOP: the declared one pulled in by the
+ * measured `tableTopInset`. Derived, never written out — the whole point of
+ * `tableTopInset` being a function is that a re-measured model moves this too.
+ */
+function usableTop(tableId: string): Outline {
+  const top = topOf(tableId)
+  const inset = tableTopInset(tableId)
+  return top.kind === 'circle'
+    ? { ...top, r: top.r - inset }
+    : { kind: 'rect', w: top.w - 2 * inset, h: top.h - 2 * inset }
+}
+
+/** How far a point pokes OUTSIDE an outline; negative when it is inside. */
+function outside(p: { x: number; y: number }, o: Outline): number {
+  if (o.kind === 'circle') return Math.hypot(p.x, p.y) - o.r
+  return Math.max(Math.abs(p.x) - o.w / 2, Math.abs(p.y) - o.h / 2)
+}
+
+/** The cover's outermost point along the direction it was pushed in FROM. */
+function outboardEdge(t: Transform2D): { x: number; y: number } {
+  const front = rotateVec({ x: 0, y: -1 }, t.rotation)
+  return {
+    x: t.position.x + (front.x * item.depth) / 2,
+    y: t.position.y + (front.y * item.depth) / 2,
+  }
+}
+
+const ALL_TABLES = [
+  'table.round',
+  'table.round-large',
+  'table.square',
+  'table.banquet',
+  'table.knights-480',
+  'table.serpentine',
+]
+
+/**
+ * Source doc §3/§23, and the evidence images: the covers hung over the drape with
+ * daylight under them. The fix is `tableTopInset` — the declared outline is the
+ * GLB's bounding box, i.e. the HEM, and the surface a plate stands on is up to
+ * 20 cm inside it. So the test is against the usable top, never against
+ * `defaultSize`.
+ *
+ * Every number here is derived: the outlines come from the catalog, the inset from
+ * `tableTopInset`, the cover from its own entry. Re-measure a model and these
+ * follow it (BRIEF §1.7).
+ */
+describe('place settings sit on the table TOP, not on its bounding box', () => {
+  for (const tableId of ALL_TABLES) {
+    // The property the inset actually guarantees, and the one the images are
+    // about: the edge the cover was pushed in FROM is inside the usable top,
+    // with the styling gap still showing. True on all six.
+    it(`keeps every cover's outboard edge ${EDGE_INSET}cm inside ${tableId}'s real top`, () => {
+      const top = usableTop(tableId)
+      const covers = coversOn(tableId)
+      expect(covers).toHaveLength(getCatalogEntry(tableId).seating!.defaultCount)
+      for (const t of covers) expect(outside(outboardEdge(t), top)).toBeLessThanOrEqual(-EDGE_INSET + 1e-9)
+    })
+  }
+
+  // …and on the two ROUND tables the whole rotated footprint is inside it, which
+  // is the strongest form of the claim. Verified independently against each
+  // model's own rasterised silhouette: 0 of 48 and 0 of 88 cover corners hang
+  // over the drape, down from 24 and 44 before the inset existed.
+  for (const tableId of ['table.round', 'table.round-large']) {
+    it(`keeps every CORNER of every cover on ${tableId}`, () => {
+      const top = usableTop(tableId)
+      for (const t of coversOn(tableId)) for (const c of corners(t)) expect(outside(c, top)).toBeLessThan(0)
+    })
+  }
+
+  /**
+   * The rectangles cannot make that claim, and this says by how much rather than
+   * quietly testing something weaker.
+   *
+   * `rectSeats` spreads its seats across the FULL declared side length, so the end
+   * seat of a run sits beyond where the drape rounds off at the corner. Pulling the
+   * covers in along the seat normal — all `tableTopInset` can do — moves them in
+   * depth and not along the run, so the overhang bottoms out and stays: measured
+   * against the real silhouettes it is 8 corners of 40 on the square, 4 of 48 on
+   * the banquet and 12 of 88 on the knights table, every one of them at a run's
+   * end. That is the same pre-existing corner defect as the interpenetration in
+   * handoff/FOUND-03.md, it belongs to seat ALLOCATION, and it is not this file's
+   * to fix. The inset still halved it — before it there were 24, 28 and 50.
+   */
+  it.each([
+    ['table.square', 4.33],
+    ['table.banquet', 1.0],
+    ['table.knights-480', 11.33],
+  ])('admits that %s still overhangs at the ends of its runs, by %scm', (tableId, worst) => {
+    const top = usableTop(tableId)
+    const over = coversOn(tableId).flatMap((t) => corners(t).map((c) => outside(c, top)))
+    expect(Math.max(...over)).toBeCloseTo(worst, 1)
+    // and it really is a corner effect: the depth direction is clean
+    for (const t of coversOn(tableId)) expect(outside(outboardEdge(t), top)).toBeLessThan(0)
+  })
+})
 
 /**
  * Source doc §2a and §42: the cover was resized because a full set of them rode on
@@ -215,16 +322,34 @@ describe('place settings — a full set on every table in the venue', () => {
       expect(Math.max(...radii)).toBeLessThanOrEqual(rOuter)
     })
 
-    // The measurement behind `clearOfHole`'s "it never fires today" note. Kept as
-    // an assertion rather than a comment so that the day it stops being true, this
-    // fails instead of the guard silently starting to move furniture.
-    it('has 78cm of slack between the nearest cover corner and the opening', () => {
-      const rInner = holeRadius(topOf(RING))
-      const nearest = Math.min(
-        ...coversOn(RING).flatMap((t) => corners(t).map((c) => Math.hypot(c.x, c.y))),
-      )
-      expect(nearest).toBeCloseTo(156.7, 1)
-      expect(nearest - rInner).toBeGreaterThan(70)
+    /**
+     * The measurement behind `clearOfHole`'s "it never fires today" note. Kept as
+     * an assertion rather than a comment so that the day it stops being true, this
+     * fails instead of the guard silently starting to move furniture.
+     *
+     * ⚠ `tableTopInset` is what makes this worth re-asserting: it pulls the whole
+     * cover ring 19 cm INWARD, i.e. straight at the opening, so it is the first
+     * change that can ever bring the two into contact. The slack fell from 78.7 cm
+     * to 59.9 — still nowhere near — and both the ring and the corner are computed
+     * from the catalog here, so a further inset would move them and be seen.
+     */
+    it('leaves the nearest cover corner 59cm clear of the opening', () => {
+      const top = topOf(RING)
+      const rInner = holeRadius(top)
+      const rOuter = top.kind === 'circle' ? top.r : 0
+      const covers = coversOn(RING)
+
+      // where the ring of covers lands, derived from the catalog and the inset
+      const rCentre = rOuter - EDGE_INSET - tableTopInset(RING) - item.depth / 2
+      for (const t of covers) expect(Math.hypot(t.position.x, t.position.y)).toBeCloseTo(rCentre, 6)
+      expect(rCentre).toBeCloseTo(152.35, 2)
+
+      // …and the nearest corner is that ring pulled in by half the cover's depth,
+      // splayed out by half its width
+      const nearest = Math.min(...covers.flatMap((t) => corners(t).map((c) => Math.hypot(c.x, c.y))))
+      expect(nearest).toBeCloseTo(Math.hypot(rCentre - item.depth / 2, item.width / 2), 6)
+      expect(nearest).toBeCloseTo(137.88, 1)
+      expect(nearest - rInner).toBeGreaterThan(50)
     })
 
     // …which leaves the guard itself untested by the real catalog, so drive it:
@@ -237,11 +362,11 @@ describe('place settings — a full set on every table in the venue', () => {
       const cfg = { ...seating(s.defaultCount, s.defaultGap), offset: s.defaultOffset }
       const seats = seatsForEntry(entry, entry.defaultSize, cfg, chair)
 
-      const loose = seatItemTransforms(seats, chair, item, s.defaultOffset)
+      const loose = seatItemTransforms(seats, chair, item, s.defaultOffset, undefined, RING)
       const reached = Math.hypot(loose[0].position.x, loose[0].position.y)
       const greedy: Outline = { kind: 'circle', r: top.kind === 'circle' ? top.r : 0, rInner: reached }
 
-      for (const t of seatItemTransforms(seats, chair, item, s.defaultOffset, greedy)) {
+      for (const t of seatItemTransforms(seats, chair, item, s.defaultOffset, greedy, RING)) {
         // pushed out far enough that the whole footprint clears the opening
         for (const c of corners(t)) expect(Math.hypot(c.x, c.y)).toBeGreaterThanOrEqual(reached - 1e-9)
         expect(Math.hypot(t.position.x, t.position.y)).toBeGreaterThan(reached)
@@ -259,10 +384,10 @@ describe('place settings — a full set on every table in the venue', () => {
 
     // The straight push in from the seat is what §43 suspected of leaving the
     // curve. It does not: on both flanks and at both heads the cover ends up the
-    // same 3cm + half its depth inside whichever band edge its seat was measured
+    // same inset + half its depth inside whichever band edge its seat was measured
     // from, because the seat's own front is radial to the arc it sits on.
     it('sets every serpentine cover the same depth inside the band edge', () => {
-      const inset = 3 + item.depth / 2
+      const inset = EDGE_INSET + tableTopInset('table.serpentine') + item.depth / 2
       const flanks = coversOn('table.serpentine').filter(
         (t) => Math.abs(serpentineBandDepth(t.position) - inset) < 1e-6,
       )
@@ -272,13 +397,39 @@ describe('place settings — a full set on every table in the venue', () => {
     })
   })
 
-  it('admits the ⌀180 × 12 corner clip rather than hiding it', () => {
+  /**
+   * ⚠ THE PRICE OF `tableTopInset`, STATED IN FULL. The ⌀180 was already over-set
+   * at 12 covers; anchoring to the real top makes it worse, and there is nothing in
+   * this file that can stop it.
+   *
+   * 12 covers of 36 cm need 432 cm of circumference. The declared ⌀180 offers 565
+   * at the rim, so the arithmetic used to work at the rim — but the cover ring now
+   * sits on the REAL top, and 12 covers on a ⌀118.7 circle have 31.1 cm of arc each
+   * for a 36 cm cover. They cannot fit, and the pitch (centre to centre, 36.9 cm
+   * before, 30.7 now) is below the cover's own width. Measured with the same
+   * separating-axis test as everything above: the worst overlap between two
+   * neighbours goes from 5.7 cm to 11.7.
+   *
+   * That is not a regression introduced by choice — before the inset those covers
+   * were not overlapping less, they were hanging off the table (24 of their 48
+   * corners over the drape, measured against the model's own silhouette). This
+   * trades a defect the user photographed for one they did not, and the honest
+   * answer is either a smaller cover or fewer than 12 seats on this table. Both are
+   * decisions outside this file: the cover's size belongs to entries/tableDecor.ts
+   * and the count to entries/tables.ts.
+   */
+  it('admits that a full 12 on the ⌀180 now overlap, and by how much', () => {
     const round = getCatalogEntry('table.round')
     const items = coversOn('table.round')
     expect(items).toHaveLength(round.seating!.defaultCount)
+
     const r = Math.hypot(items[0].position.x, items[0].position.y)
-    expect(r).toBeCloseTo(round.defaultSize.width / 2 - 3 - item.depth / 2)
-    expect((2 * Math.PI * r) / items.length).toBeGreaterThan(item.width)
-    expect(worstInlineOverlap(items)).toBeCloseTo(5.7, 0)
+    expect(r).toBeCloseTo(
+      round.defaultSize.width / 2 - EDGE_INSET - tableTopInset('table.round') - item.depth / 2,
+    )
+    // there is no longer a cover's width of arc each — this is the over-set claim
+    expect((2 * Math.PI * r) / items.length).toBeLessThan(item.width)
+    expect((2 * Math.PI * r) / items.length).toBeCloseTo(31.1, 1)
+    expect(worstInlineOverlap(items)).toBeCloseTo(11.7, 1)
   })
 })

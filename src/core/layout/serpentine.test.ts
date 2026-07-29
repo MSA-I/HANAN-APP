@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { getCatalogEntry } from '../catalog/registry'
 import type { SeatingConfig, Size3D } from '../model/types'
 import { rotateVec } from '../space'
+import { seatItemTransforms } from './seatItemLayout'
+import { seatsForEntry } from './seatLayout'
 import {
   SERPENTINE_ARCS,
   SERPENTINE_BAND,
@@ -15,27 +17,33 @@ import {
   snapIntoSerpentineBand,
 } from './serpentine'
 
-const chair: Size3D = { width: 45, depth: 45, height: 92 }
+/**
+ * The chair and the seating config are READ FROM THE CATALOG, never typed in.
+ *
+ * Half of this file's job is to catch the catalog drifting away from the geometry,
+ * and a frozen copy of the catalog's own numbers cannot do that — it just agrees
+ * with whatever it was written against while the app seats a different number
+ * (AGENT-BRIEF §1.7; round 2 lost two rounds to exactly this, `c43d989`).
+ *
+ * The two constants that stay frozen below are the ones that come from OUTSIDE the
+ * code — the prepped asset's bbox and the band width the user specified.
+ */
+const entry = getCatalogEntry('table.serpentine')
+const spec = entry.seating!
+const chair: Size3D = getCatalogEntry(spec.defaultChair).defaultSize
 const seating = (count: number): SeatingConfig => ({
   enabled: true,
-  chairCatalogId: 'chair.x-white',
+  chairCatalogId: spec.defaultChair,
   count,
-  gap: 10,
-  offset: 6,
+  gap: spec.defaultGap,
+  offset: spec.defaultOffset,
   startAngle: 0,
 })
 
 /** The prepped GLB this geometry was fitted to, measured after glb-prep. */
 const GLB = { width: 422, depth: 422, height: 75 }
-/** Capacity with the house chair at the entry's default gap/offset. */
-const SEATS = 22
-const LONG_FLANK = 11
-const SHORT_FLANK = 9
 /** One chair at each end of the S, appended after the two flanks. */
 const HEADS = 2
-const FLANK_SEATS = LONG_FLANK + SHORT_FLANK
-/** The flank seats only — indices 0…19, the ones a saved project may reference. */
-const flanksOf = (seats: { position: { x: number; y: number } }[]) => seats.slice(0, FLANK_SEATS)
 
 const rad = (d: number) => (d * Math.PI) / 180
 
@@ -75,7 +83,23 @@ const flankLength = (side: number, d: number) =>
     return t + rad(Math.abs(a.turn)) * Math.max(0, a.r + side * flip * d)
   }, 0)
 
-const seatD = SERPENTINE_BAND / 2 + 6 + chair.depth / 2
+const seatD = SERPENTINE_BAND / 2 + spec.defaultOffset + chair.depth / 2
+
+/**
+ * What the entry DECLARES it seats. The geometry has to reach this number; the
+ * cross-check runs the other way round too, at the end of the seat suite.
+ */
+const SEATS = spec.defaultCount
+/**
+ * The per-flank split, derived from the same lengths `capacities()` divides rather
+ * than copied out of it — so a chair, gap or offset change moves both together and
+ * a re-fit of CHAIN cannot leave a stale 11/9 behind.
+ */
+const LONG_FLANK = Math.floor(flankLength(1, seatD) / (chair.width + spec.defaultGap))
+const SHORT_FLANK = Math.floor(flankLength(-1, seatD) / (chair.width + spec.defaultGap))
+const FLANK_SEATS = LONG_FLANK + SHORT_FLANK
+/** The flank seats only — the indices a saved project may reference. */
+const flanksOf = (seats: { position: { x: number; y: number } }[]) => seats.slice(0, FLANK_SEATS)
 
 describe('serpentine geometry', () => {
   it('has the width the user specified and the length the model happens to have', () => {
@@ -308,7 +332,7 @@ describe('serpentine seats', () => {
       // it clears the cap by exactly the chair's own offset — offset + depth/2,
       // measured ALONG the band rather than across it
       const reach = dist(head)
-      expect(reach).toBeCloseTo(6 + chair.depth / 2, 6)
+      expect(reach).toBeCloseTo(spec.defaultOffset + chair.depth / 2, 6)
       // and it faces the table: front points from the chair back at the cap
       const front = rotateVec({ x: 0, y: -1 }, head.rotation)
       const toTip = { x: (tip.x - head.position.x) / reach, y: (tip.y - head.position.y) / reach }
@@ -356,7 +380,7 @@ describe('serpentine seats', () => {
     // long arcs and SHORTENS the one inside them. In the old symmetric model
     // that was provably impossible — the two changes cancelled exactly — so this
     // monotonicity is the property that replaced "capacity is depth-independent".
-    const deeper = (depth: number) => SERPENTINE_BAND / 2 + 6 + depth / 2
+    const deeper = (depth: number) => SERPENTINE_BAND / 2 + spec.defaultOffset + depth / 2
     expect(flankLength(1, deeper(80))).toBeGreaterThan(flankLength(1, seatD))
     expect(flankLength(-1, deeper(80))).toBeLessThan(flankLength(-1, seatD))
 
@@ -364,7 +388,7 @@ describe('serpentine seats', () => {
     // crosses a whole chair — at 45 vs 80 deep the total happens to land back on
     // the same 20, so a test comparing just those two would prove nothing
     const capLong = (depth: number) =>
-      Math.floor(flankLength(1, deeper(depth)) / (chair.width + 10))
+      Math.floor(flankLength(1, deeper(depth)) / (chair.width + spec.defaultGap))
     expect(capLong(100)).toBeGreaterThan(capLong(30))
   })
 
@@ -434,18 +458,118 @@ describe('serpentine seats', () => {
   })
 
   it('the catalog entry declares the capacity and size this math produces', () => {
-    // the entry's max/defaultCount/defaultSize are hand-written; this is what
-    // stops them drifting away from the geometry and the asset after a re-fit
-    const entry = getCatalogEntry('table.serpentine')
-    const house = getCatalogEntry(entry.seating!.defaultChair).defaultSize
-    const cfg = {
-      ...seating(99),
-      gap: entry.seating!.defaultGap,
-      offset: entry.seating!.defaultOffset,
-    }
+    // The entry's max/defaultCount/defaultSize are hand-written; this is what stops
+    // them drifting away from the geometry and the asset after a re-fit.
+    //
+    // ⚠ This is also the test that refutes the standing theory about item 27 — that
+    // `caps[0]+caps[1]+HEAD_SEATS` never actually reaches the declared 22 and the
+    // table silently seats 20. It reaches it: caps come back [11, 9] plus two heads.
+    // A chair-size, gap or offset change that broke the 22 would fail HERE, loudly,
+    // instead of quietly seating fewer.
     expect(entry.seats).toBe(serpentineSeats)
-    expect(entry.seating!.max).toBe(serpentineMaxSeats(cfg, house))
-    expect(entry.seating!.defaultCount).toBe(serpentineMaxSeats(cfg, house))
+    expect(serpentineMaxSeats(seating(99), chair)).toBe(spec.defaultCount)
+    expect(spec.max).toBe(serpentineMaxSeats(seating(99), chair))
     expect(entry.defaultSize).toEqual(GLB)
+  })
+
+  it('appends the two heads LAST — the index contract reconcileSeats maps by', () => {
+    // reconcileSeats resolves a stored chair to a position BY ITS INDEX, so this
+    // ordering is load-bearing for every saved project: flanks own 0…n−3 and the
+    // heads are appended. Reordering them silently moves every saved chair.
+    const seats = serpentineSeats(seating(SEATS), chair)
+    expect(seats).toHaveLength(SEATS)
+    // the split the capacity formula predicts is the split the walk produces, and
+    // the two heads are exactly what makes the difference up to the declared count
+    expect(FLANK_SEATS + HEADS).toBe(SEATS)
+    // …stated positionally as well, so a reorder fails even if the counts survive:
+    // a flank seat sits exactly one seat-offset off the centre line. A head does
+    // not — it clears the end cap ALONG the band, which puts it closer in.
+    for (const s of seats.slice(0, SEATS - HEADS))
+      expect(toCenterLine(s.position).dist).toBeCloseTo(seatD, 0)
+    for (const h of seats.slice(SEATS - HEADS))
+      expect(toCenterLine(h.position).dist).toBeLessThan(seatD - 1)
+  })
+
+  it('lays one place setting per chair, and there really are 22 of both', () => {
+    // Corrections document item 27: "בשולחן נחש … אין שם 22 כמספר הכסאות".
+    // Measured, there are: chairs, settings and the declared count all agree, on
+    // the catalog's own config and through the same call path the app uses. So the
+    // complaint is about POSITIONS, not counts — pinned in the next test.
+    const cover = getCatalogEntry('decor.place-setting').defaultSize
+    const seats = seatsForEntry(entry, entry.defaultSize, seating(SEATS), chair)
+    const top = entry.footprint(entry.defaultSize).outline
+    expect(seats).toHaveLength(SEATS)
+    expect(seatItemTransforms(seats, chair, cover, spec.defaultOffset, top)).toHaveLength(SEATS)
+
+    // and the CHAIRS are not the problem either — none of them collides
+    const pitch = Math.min(
+      ...seats.map((a, i) =>
+        Math.min(
+          ...seats
+            .filter((_, j) => j !== i)
+            .map((b) => Math.hypot(b.position.x - a.position.x, b.position.y - a.position.y)),
+        ),
+      ),
+    )
+    expect(pitch).toBeGreaterThan(chair.width)
+  })
+
+  it('KNOWN OVERLAP, not a regression: the head settings merge into their neighbours', () => {
+    /**
+     * The real item 27, and the reason the user counts fewer than 22.
+     *
+     * The two kinds of cover lie at 90° to each other across the band. A FLANK
+     * cover has its 31.3 depth radial and sits 21.35 off the centre line, so it
+     * occupies [5.70, 37.00] across the 80 band — the 37.0 against a 40 half-band
+     * being the 3 cm edge inset, which is correct. A HEAD cover sits ON the centre
+     * line with its 36 WIDTH across the band, spanning [−18.00, +18.00]. The free
+     * corridor down the middle is 2 × 5.70 = 11.4 cm wide and the cover is 36, so
+     * the two always interpenetrate — by 12.18…15.43 cm, measured by separating
+     * axis. Four covers therefore sit ~20 cm apart and read as merged blobs.
+     *
+     * NOT FIXABLE IN THIS FILE, established rather than assumed. Sweeping the head
+     * cover along the band from −60 to +160 cm never clears: the only clear
+     * positions are ≥ 9.85 cm PAST the end cap, over the floor — which is the very
+     * defect PLAN-05 exists to remove — and inside the band the penetration never
+     * drops below 10.61 cm. Insetting the flank walk away from the caps clears only
+     * at a cost of three chairs (22 → 19) and a 1.48 cm chair gap. Both sweeps are
+     * tabulated in handoff/05-serpentine.md. A real fix has to come from
+     * seatItemLayout.ts (skip the heads) or from a much narrower cover.
+     *
+     * Measured nearest-neighbour centre distances, all 22 covers, sorted:
+     *   20.2 20.2 21.3 21.3 29.1 40.6 42.7 42.7 42.9 42.9 42.9
+     *   44.9 44.9 45.6 45.6 46.2 46.2 46.8 46.8 46.8 50.2 50.2
+     *
+     * Asserted as a bounded range plus the identity of the offenders rather than
+     * pinned to 20.19: the number is produced by seatItemLayout.ts, which another
+     * agent owns, and a frozen tally against someone else's file is what cost round
+     * 2 two rounds (BRIEF §1.7). The range still fails loudly if the overlap ever
+     * disappears — at which point delete this test — or materially worsens.
+     */
+    const cover = getCatalogEntry('decor.place-setting').defaultSize
+    const seats = seatsForEntry(entry, entry.defaultSize, seating(SEATS), chair)
+    const top = entry.footprint(entry.defaultSize).outline
+    const covers = seatItemTransforms(seats, chair, cover, spec.defaultOffset, top)
+
+    const nearest = covers.map((a, i) =>
+      Math.min(
+        ...covers
+          .filter((_, j) => j !== i)
+          .map((b) => Math.hypot(b.position.x - a.position.x, b.position.y - a.position.y)),
+      ),
+    )
+    const worst = Math.min(...nearest)
+    expect(worst).toBeLessThan(cover.width) // they really do interpenetrate
+    expect(worst).toBeGreaterThan(15) // …by about 16cm, not a total pile-up
+
+    // and it is the two heads with the flank cover at each end of the walk — the
+    // four the geometry above predicts, not four arbitrary positions
+    const tightest = nearest
+      .map((v, i) => ({ v, i }))
+      .sort((a, b) => a.v - b.v)
+      .slice(0, 4)
+      .map((o) => o.i)
+      .sort((a, b) => a - b)
+    expect(tightest).toEqual([0, FLANK_SEATS - 1, FLANK_SEATS, FLANK_SEATS + 1])
   })
 })
