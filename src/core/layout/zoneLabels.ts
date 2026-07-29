@@ -62,6 +62,20 @@ export function labelBoxesOverlap(a: ZoneLabelBox, b: ZoneLabelBox): boolean {
   return overlapArea(a, b) > 0
 }
 
+/**
+ * cm — the narrowest box worth writing a name in, as a multiple of the drawn
+ * font size. The two 120 cm `saviv` strips beside the pool leave an 88 cm box,
+ * and `ellipsis` turned "סביב הבריכה" into a bare "…" floating on the plan. A
+ * chip could get away with that; ink on a drawing cannot, so a zone whose tag
+ * cannot hold a word simply goes unnamed.
+ */
+export const LABEL_MIN_WIDTH_EMS = 3
+
+/** Is there room to write in this box at all, at the size it will be drawn? */
+export function labelFits(box: ZoneLabelBox, fontSize: number): boolean {
+  return box.w >= fontSize * LABEL_MIN_WIDTH_EMS && box.h >= fontSize
+}
+
 /** Tag size for one zone, before it is placed. Never larger than the zone itself. */
 function labelSize(zone: RestrictedZone): { w: number; h: number; inset: number } {
   // A 40 cm wide zone cannot afford a 16 cm inset on both sides; quartering keeps

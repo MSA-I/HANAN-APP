@@ -1,15 +1,38 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { parseVenueSection } from './venueSection'
+import { parseVenueSection, SECTION_KINDS } from './venueSection'
 import { VENUE_PACKS } from './venuePacks'
 
 describe('parseVenueSection', () => {
   it('keeps a well-formed line', () => {
-    const s = parseVenueSection({ lines: [{ closed: true, pts: [[0, 0], [10, 0], [10, 5]] }] })
+    const s = parseVenueSection({ lines: [{ kind: 'wall', closed: true, pts: [[0, 0], [10, 0], [10, 5]] }] })
     expect(s?.lines).toHaveLength(1)
     expect(s?.lines[0].closed).toBe(true)
+    expect(s?.lines[0].kind).toBe('wall')
     expect(s?.lines[0].pts).toEqual([[0, 0], [10, 0], [10, 5]])
+  })
+
+  it('carries every kind the extractor can emit', () => {
+    const s = parseVenueSection({
+      lines: SECTION_KINDS.map((kind) => ({ kind, pts: [[0, 0], [10, 0]] })),
+    })
+    expect(s?.lines.map((l) => l.kind)).toEqual([...SECTION_KINDS])
+  })
+
+  it('falls back to the pre-classification drawing for a kind it does not know', () => {
+    // an unrecognised value is data this build cannot draw, and guessing would
+    // put an invented class on the plan. closed→wall / open→opening reproduces
+    // exactly what the layer did before `kind` existed.
+    const s = parseVenueSection({
+      lines: [
+        { kind: 'door', closed: true, pts: [[0, 0], [10, 0], [10, 5]] },
+        { kind: 42, pts: [[0, 0], [10, 0]] },
+        { closed: true, pts: [[0, 0], [10, 0], [10, 5]] },
+        { pts: [[0, 0], [10, 0]] },
+      ],
+    })
+    expect(s?.lines.map((l) => l.kind)).toEqual(['wall', 'opening', 'wall', 'opening'])
   })
 
   it('returns null for anything that is not a section', () => {
@@ -54,6 +77,27 @@ describe('the resort section asset', () => {
     // would mean the cut plane missed the walls
     expect(section!.lines.length).toBeGreaterThan(50)
     expect(section!.lines.some((l) => l.closed)).toBe(true)
+  })
+
+  it('is classified, and the hall has enough wall left to be a building', () => {
+    // PLAN-06 gate 2: if the classified cut came back with a single-digit number
+    // of `wall` runs, the resort would be genuinely open and "draw the walls"
+    // would be the wrong answer to the whole plan. Counted from the asset, not
+    // transcribed from handoff/01-section.md, so a re-cut that loses the walls
+    // fails here instead of at the next screenshot.
+    const raw = JSON.parse(
+      readFileSync(fileURLToPath(new URL(`../../public${pack.section}`, import.meta.url)), 'utf8'),
+    )
+    const lines = parseVenueSection(raw)!.lines
+    const count = (k: string) => lines.filter((l) => l.kind === k).length
+    expect(count('wall')).toBeGreaterThanOrEqual(10)
+    expect(count('glazing')).toBeGreaterThan(0)
+    // every line carries a kind this build knows how to draw
+    expect(lines.every((l) => (SECTION_KINDS as readonly string[]).includes(l.kind))).toBe(true)
+    // …and the classification is not the old closed/open flag under a new name:
+    // some closed runs are glazing (stroked, not poché) and some are columns
+    expect(lines.some((l) => l.closed && l.kind === 'glazing')).toBe(true)
+    expect(lines.some((l) => l.closed && l.kind === 'column')).toBe(true)
   })
 
   it('every line reaches the pack rectangle', () => {

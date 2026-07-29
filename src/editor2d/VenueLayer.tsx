@@ -14,15 +14,28 @@
  * handoff document still describes the hatch version — read the code, not it.
  */
 import { Fragment, useEffect, useState } from 'react'
-import { Group, Layer, Line, Rect, Text } from 'react-konva'
+import { Circle, Group, Layer, Line, Rect, Text } from 'react-konva'
 import { useShallow } from 'zustand/react/shallow'
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import { isZoneInside, isZoneOccupied } from '../core/layout/zoneOccupancy'
-import { formatElevation, LABEL_ELEVATION_HEIGHT, zoneLabelBoxes, type ZoneLabelBox } from '../core/layout/zoneLabels'
+import {
+  formatElevation,
+  LABEL_ELEVATION_HEIGHT,
+  labelFits,
+  LTR_ISOLATE,
+  POP_ISOLATE,
+  zoneLabelBoxes,
+  type ZoneLabelBox,
+} from '../core/layout/zoneLabels'
 import type { Vec2 } from '../core/model/types'
 import { venueOutline } from '../core/venueOutline'
 import { getVenuePack, type RestrictedZone } from '../core/venuePacks'
-import { cachedVenueSection, loadVenueSection, type VenueSection } from '../core/venueSection'
+import {
+  cachedVenueSection,
+  loadVenueSection,
+  type SectionKind,
+  type VenueSection,
+} from '../core/venueSection'
 import { isObjectVisible } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { strings } from '../ui/strings'
@@ -31,8 +44,46 @@ const PAPER = '#ffffff'
 const WALL = '#2b2724'
 const FLOOR_AREA_STROKE = '#cfc9c1'
 const LABEL_TEXT = '#4a443e'
-const LABEL_BG = 'rgba(255,255,255,0.82)'
 const LEVEL_TEXT = '#6b635a'
+
+/**
+ * LINE WEIGHT IS THE INFORMATION. On an architectural plan you know what a line
+ * is before you read any label, because the weight says how the cut plane met
+ * it: the heaviest ink is what the plane went THROUGH, the lightest is what it
+ * merely passed over. Everything in this layer picks one of these four, and
+ * nothing invents a fifth.
+ *
+ *   poché + edge   cut and solid      walls, columns
+ *   medium         cut but see-through glazing
+ *   fine           cut, class unknown  an unclassified run (see SectionLines)
+ *   floor / level  BELOW the plane     floor edge, change of level
+ *
+ * Widths are SCREEN px (`strokeScaleEnabled={false}`), not world cm. That is
+ * what a drawing does: print it at 1:200 and the wall gets thinner but its
+ * outline does not vanish. The one thing that must stay in world units is the
+ * poché itself — its width IS the wall's width — so the fill carries the
+ * thickness and the stroke only keeps a 5 cm wall from disappearing at
+ * fit-the-venue zoom, where 5 cm is one and a half pixels.
+ */
+const INK_GLAZING = '#5a6b74'
+/** `kind: 'opening'` means UNCLASSIFIED, and 45 of the resort's 47 are a seam in
+ *  the extractor rather than a hole in the building (handoff/01-section.md §6).
+ *  Drawing them in wall ink is what produced the "scattered black stumps"; they
+ *  get the lightest ink there is, which says "the plane met something here" and
+ *  claims nothing else. */
+const INK_UNCLASSED = '#9a938a'
+/** the floor's edge once the real walls are drawn: the placement limit, not a wall */
+const INK_FLOOR_EDGE = '#7d746a'
+const INK_NOTE = '#57504a'
+
+const INK_LEVEL = '#6b635a'
+
+const W_POCHE_EDGE = 0.75
+const W_GLAZING = 1.8
+const W_UNCLASSED = 0.9
+const W_FLOOR_EDGE = 1.6
+const W_LEVEL = 2.2
+const W_NOTE = 1.3
 
 /**
  * cm. Only for a pack with NO `section` asset: the contour is stroked as if it
@@ -45,11 +96,16 @@ const LEVEL_TEXT = '#6b635a'
  */
 const FALLBACK_WALL_THICKNESS = 20
 
-/** the floor's edge once the real walls are drawn: the placement limit, not a wall */
-const OUTLINE_HAIRLINE = '#b6afa7'
-
 const LABEL_FONT_SIZE = 44
 const LEVEL_FONT_SIZE = 30
+
+/** cm the sheet furniture keeps off the paper's edge. */
+const SHEET_INSET = 60
+/** metres. The longest bar that still fits across 45% of the sheet — a 6 m room
+ *  gets a 2 m bar instead of one that runs off the paper. */
+const BAR_METRES = [10, 5, 2]
+const NOTE_FONT_SIZE = 46
+const TITLE_FONT_SIZE = 72
 
 /** dimmed side of the hall/reception toggle (source doc §18). ObjectsLayer dims
  *  the furniture standing on the far side to the same value — one number. */
@@ -98,28 +154,257 @@ const ZONE_TINT: Record<string, ZoneTint> = {
 const FALLBACK_TINT: ZoneTint = { fill: '#f0eff4', stroke: '#c0bcc8' }
 
 /**
- * The building, cut. `closed` runs are wall cross-sections and are FILLED — that
- * is the poché, and it is why an opening reads as an opening: there is simply no
- * loop across it. Open runs are surfaces the plane clipped without going around,
- * mostly glazing, and are hairlines.
+ * One drawing convention per `SectionKind`.
  *
- * Hairline, i.e. `strokeScaleEnabled={false}`, on the open runs only. The filled
- * loops need no stroke at all — their width IS the wall's width in world cm, so
- * they thin out as you zoom out exactly as a drawing does. Giving them a world
- * stroke as well would fatten every wall by the stroke.
+ * `fill` is what separates the two things the cut plane can go through. A wall
+ * and a column are SOLID, so the loop is filled and that is the poché. Glass is
+ * not: the resort's glazing runs are 1.0–1.2 cm thick, and filling them made a
+ * frameless glass wall into a thin black smear indistinguishable from a chopped
+ * wall. Stroking the loop instead gives the double line a plan uses for glass —
+ * both faces at high zoom, collapsing to one line as you pull back, which is
+ * exactly how it should degrade.
+ *
+ * ⚠ `railing` has ZERO instances in the resort asset, and that is measured, not
+ * broken: `Glass Railing Color` exists in the GLB but only between 0.60–0.75 m
+ * and 1.46–1.50 m, and the hall is cut at 1.00 m — straight through the gap
+ * where the infill glass (material `'Glass'`) lives instead. The convention is
+ * here so that lowering the cut needs no code, and the one real railing in the
+ * building — 3.03 m of it, two glass panels at planX 617…913 on the south edge —
+ * currently arrives as `glazing`, which is what it physically is at 1.00 m.
+ *
+ * ⚠ `dash` is in WORLD cm, unlike every width here: Konva has no
+ * `dashScaleEnabled`. 24/16 cm reads as a dash across the useful zoom range.
+ */
+interface SectionPen {
+  ink: string
+  width: number
+  fill: boolean
+  dash?: number[]
+}
+
+const SECTION_PENS: Record<SectionKind, SectionPen> = {
+  wall: { ink: WALL, width: W_POCHE_EDGE, fill: true },
+  // poché too — a cut column is solid, same as a cut wall — but with a heavier
+  // edge, which is what stops the six 50×50 columns along the south wall from
+  // reading as loose black squares next to the wall band they touch.
+  column: { ink: WALL, width: W_POCHE_EDGE * 2.4, fill: true },
+  glazing: { ink: INK_GLAZING, width: W_GLAZING, fill: false },
+  railing: { ink: INK_GLAZING, width: W_GLAZING * 0.8, fill: false, dash: [24, 16] },
+  opening: { ink: INK_UNCLASSED, width: W_UNCLASSED, fill: false },
+}
+
+/**
+ * Painting order, lightest first. The file's own order is the order the chainer
+ * happened to finish runs in, so without this a 4 cm unclassified fragment can
+ * land on top of the wall it was chopped off, and 45 of them do exactly that
+ * along x = 4423.
+ */
+const KIND_ORDER: SectionKind[] = ['opening', 'railing', 'glazing', 'wall', 'column']
+
+/**
+ * The building, cut.
+ *
+ * ⚠ The poché used to carry NO stroke, on the reasoning that its width IS the
+ * wall's width and a stroke would fatten it. That is right for a WORLD stroke
+ * and wrong for a screen one: 22 of the resort's 74 wall runs are 5 cm thick and
+ * at fit-the-venue zoom (0.28 px/cm) they are a pixel and a half of grey. The
+ * screen-space edge is what keeps a thin wall a wall when you zoom out, and it
+ * adds a constant fraction of a pixel rather than centimetres.
  */
 function SectionLines({ section }: { section: VenueSection }) {
   return (
     <Fragment>
-      {section.lines.map((line, i) =>
-        line.closed ? (
-          <Line key={`sc${i}`} points={line.pts.flat()} closed fill={WALL} listening={false} />
-        ) : (
-          <Line
-            key={`so${i}`}
-            points={line.pts.flat()}
-            stroke={WALL}
-            strokeWidth={1}
+      {KIND_ORDER.map((kind) => {
+        const pen = SECTION_PENS[kind]
+        return section.lines.map((line, i) =>
+          line.kind !== kind ? null : (
+            <Line
+              key={`s${i}`}
+              points={line.pts.flat()}
+              closed={line.closed}
+              fill={pen.fill && line.closed ? pen.ink : undefined}
+              stroke={pen.ink}
+              strokeWidth={pen.width}
+              dash={pen.dash}
+              strokeScaleEnabled={false}
+              listening={false}
+            />
+          ),
+        )
+      })}
+    </Fragment>
+  )
+}
+
+/**
+ * Sheet furniture: the drawing's title, where north is, and how long a metre is.
+ *
+ * ⚠ IT LIVES IN THE VENUE LAYER, AND THAT IS NOT A STYLE CHOICE. The PNG export
+ * (`Stage2D.tsx:211-250`) hides layers 1/3/4/5 and frames exactly
+ * `0,0 → size.width,size.depth`. A north point drawn in any other layer, or one
+ * millimetre outside that rectangle, is simply not in the drawing the user
+ * exports. Layer 0, inside the rectangle, is the only place it can be.
+ *
+ * ⚠ North is −y. That is not this file's guess: `model/types.ts:129` defines
+ * `sunAzimuth` as "degrees clockwise from plan north (−y)" and the 3D sun runs
+ * on it, so the app has already committed to that frame and the arrow agrees
+ * with the shadows.
+ *
+ * ponytail: fixed to the sheet's top-right corner, and the ceiling that comes
+ * with that is that ObjectsLayer draws OVER it — a chandelier the sample layout
+ * drops at (5592, 227) covers part of the north point. A real title block
+ * belongs in a margin and this export has none, so the upgrade is a margin on
+ * the capture rectangle (Stage2D, not this file — FOUND-06.md §1), not a
+ * cleverer corner.
+ */
+function SheetAnnotations({ width }: { width: number }) {
+  const right = width - SHEET_INSET
+  const barM = BAR_METRES.find((m) => m * 100 <= width * 0.45) ?? BAR_METRES[BAR_METRES.length - 1]
+  const bar = barM * 100
+  const barLeft = right - bar
+  const barY = SHEET_INSET + 520
+  const barH = 24
+  const seg = bar / 5
+  const nx = right - 110
+  const ny = SHEET_INSET + 220
+  // digits on a canvas that inherits dir="rtl" come out reversed unless the run
+  // is isolated — same failure formatElevation() documents, same fix.
+  const num = (v: number) => `${LTR_ISOLATE}${v}${POP_ISOLATE}`
+
+  return (
+    <Fragment>
+      <Text
+        x={right - 1400}
+        y={SHEET_INSET}
+        width={1400}
+        text={strings.plan.title}
+        fontSize={TITLE_FONT_SIZE}
+        fontFamily="Assistant, sans-serif"
+        fontStyle="600"
+        fill={INK_NOTE}
+        align="right"
+      />
+      {/* north point: outlined disc, solid kite */}
+      <Line
+        points={[nx, ny - 84, nx - 34, ny + 76, nx, ny + 36, nx + 34, ny + 76]}
+        closed
+        fill={INK_NOTE}
+        listening={false}
+      />
+      <Circle
+        x={nx}
+        y={ny}
+        radius={100}
+        stroke={INK_NOTE}
+        strokeWidth={W_NOTE}
+        strokeScaleEnabled={false}
+        listening={false}
+      />
+      <Text
+        x={nx - 200}
+        y={ny + 116}
+        width={400}
+        text={strings.plan.north}
+        fontSize={NOTE_FONT_SIZE}
+        fontFamily="Assistant, sans-serif"
+        fill={INK_NOTE}
+        align="center"
+      />
+      {/* graphic scale: five equal parts, alternately solid, so it stays readable
+          at any zoom and survives being printed at an unknown size */}
+      <Text
+        x={barLeft}
+        y={barY - 74}
+        width={bar}
+        text={strings.plan.scale}
+        fontSize={NOTE_FONT_SIZE}
+        fontFamily="Assistant, sans-serif"
+        fill={INK_NOTE}
+        align="right"
+      />
+      {[0, 1, 2, 3, 4].map((i) => (
+        <Rect
+          key={`sb${i}`}
+          x={barLeft + i * seg}
+          y={barY}
+          width={seg}
+          height={barH}
+          fill={i % 2 === 0 ? INK_NOTE : PAPER}
+          stroke={INK_NOTE}
+          strokeWidth={W_NOTE}
+          strokeScaleEnabled={false}
+        />
+      ))}
+      {[0, 0.5, 1].map((t) => (
+        <Text
+          key={`sl${t}`}
+          x={barLeft + t * bar - 150}
+          y={barY + barH + 12}
+          width={300}
+          text={num(Math.round(t * barM))}
+          fontSize={NOTE_FONT_SIZE * 0.8}
+          fontFamily="Assistant, sans-serif"
+          fill={INK_NOTE}
+          align="center"
+        />
+      ))}
+    </Fragment>
+  )
+}
+
+const zoneKey = (z: RestrictedZone) => `${z.kind}-${z.x}-${z.y}`
+
+function ZoneFill({ zone }: { zone: RestrictedZone }) {
+  const tint = ZONE_TINT[zone.kind ?? ''] ?? FALLBACK_TINT
+  // a raised zone's edge is drawn by LevelChanges instead, at the weight a step
+  // in the floor deserves — stroking it here as well doubles the line
+  const raised = zone.elevation !== undefined
+  return (
+    <Rect
+      x={zone.x}
+      y={zone.y}
+      width={zone.width}
+      height={zone.depth}
+      fill={tint.fill}
+      stroke={raised ? undefined : tint.stroke}
+      strokeWidth={1.2}
+      strokeScaleEnabled={false}
+    />
+  )
+}
+
+/**
+ * Where the floor steps. The reception deck stands at +4.70 m and the plan said
+ * so in one line of grey text under its name and in no other way — no edge, no
+ * mark, nothing that reads as "there is a four-and-a-half-metre drop here".
+ *
+ * A change of level is seen BELOW the cut plane, so it is not poché and it is
+ * not glazing; it is the heaviest of the "below" weights, above the floor
+ * contour, and it is drawn under the walls because a wall standing on the step
+ * sits over it.
+ *
+ * ⚠ Drawn OUTSIDE the two opacity groups, like the section itself. The
+ * hall/reception toggle dims what STANDS in a zone; a step in the ground is
+ * building, and the deck's own glass edge (drawn from the cut) is already
+ * undimmed — dimming the step would put the two at different strengths along
+ * the same line.
+ *
+ * ⚠ The 470 comes from `venuePacks.ts` and is read, never written: that file
+ * belongs to PLAN-01.
+ */
+function LevelChanges({ zones }: { zones: readonly RestrictedZone[] }) {
+  return (
+    <Fragment>
+      {zones.map((z, i) =>
+        z.elevation === undefined ? null : (
+          <Rect
+            key={`lv${i}`}
+            x={z.x}
+            y={z.y}
+            width={z.width}
+            height={z.depth}
+            stroke={INK_LEVEL}
+            strokeWidth={W_LEVEL}
             strokeScaleEnabled={false}
             listening={false}
           />
@@ -129,21 +414,43 @@ function SectionLines({ section }: { section: VenueSection }) {
   )
 }
 
-const zoneKey = (z: RestrictedZone) => `${z.kind}-${z.x}-${z.y}`
+/** cm — the spot-level disc, and the width the value is centred in beside it. */
+const LEVEL_MARK_R = 19
+const LEVEL_MARK_GAP = 12
+const LEVEL_VALUE_WIDTH = 150
 
-function ZoneFill({ zone }: { zone: RestrictedZone }) {
-  const tint = ZONE_TINT[zone.kind ?? ''] ?? FALLBACK_TINT
+/**
+ * The spot level as a plan writes it: a small disc quartered by a cross, with
+ * the value beside it. It replaces a bare line of text, which is what a UI does
+ * and not what a drawing does.
+ *
+ * The disc is a fixed size in plan cm rather than a share of the row, so the
+ * mark means the same thing on a 17 m deck and on a 4 m chuppah.
+ */
+function LevelMark({ x, y, w, h, cm }: { x: number; y: number; w: number; h: number; cm: number }) {
+  const r = Math.min(LEVEL_MARK_R, h / 2)
+  const total = r * 2 + LEVEL_MARK_GAP + LEVEL_VALUE_WIDTH
+  const left = x + (w - total) / 2
+  const cx = left + r
+  const cy = y + h / 2
   return (
-    <Rect
-      x={zone.x}
-      y={zone.y}
-      width={zone.width}
-      height={zone.depth}
-      fill={tint.fill}
-      stroke={tint.stroke}
-      strokeWidth={1.2}
-      strokeScaleEnabled={false}
-    />
+    <Fragment>
+      <Circle x={cx} y={cy} radius={r} stroke={LEVEL_TEXT} strokeWidth={W_NOTE} strokeScaleEnabled={false} />
+      <Line points={[cx - r, cy, cx + r, cy]} stroke={LEVEL_TEXT} strokeWidth={W_NOTE} strokeScaleEnabled={false} />
+      <Line points={[cx, cy - r, cx, cy + r]} stroke={LEVEL_TEXT} strokeWidth={W_NOTE} strokeScaleEnabled={false} />
+      <Text
+        x={left + r * 2 + LEVEL_MARK_GAP}
+        y={y}
+        width={LEVEL_VALUE_WIDTH}
+        height={h}
+        text={formatElevation(cm)}
+        fontSize={LEVEL_FONT_SIZE}
+        fontFamily="Assistant, sans-serif"
+        fill={LEVEL_TEXT}
+        align="center"
+        verticalAlign="middle"
+      />
+    </Fragment>
   )
 }
 
@@ -151,11 +458,15 @@ function ZoneLabel({ zone, box }: { zone: RestrictedZone; box: ZoneLabelBox }) {
   // strings.ts is the dictionary; the pack's own label stays as the fallback for
   // a zone kind that has no entry there yet.
   const label = strings.zones[zone.kind ?? ''] ?? zone.label
-  if (!label) return null
+  if (!label || !labelFits(box, LABEL_FONT_SIZE)) return null
   const levelH = zone.elevation === undefined ? 0 : Math.min(LABEL_ELEVATION_HEIGHT, box.h / 2)
   return (
     <Fragment>
-      <Rect x={box.x} y={box.y} width={box.w} height={box.h} fill={LABEL_BG} cornerRadius={4} />
+      {/* No card behind the words. A rounded white box with a drop of text in it
+          is a UI chip, and it was the single loudest reason the drawing read as
+          an interface rather than a plan (source doc §28). An annotation on a
+          plan is ink on the paper; the zone tints are pale enough by design
+          (see ZONE_TINT) that plain text sits on them and stays legible. */}
       <Text
         x={box.x}
         y={box.y}
@@ -174,17 +485,12 @@ function ZoneLabel({ zone, box }: { zone: RestrictedZone; box: ZoneLabelBox }) {
         ellipsis
       />
       {levelH > 0 && (
-        <Text
+        <LevelMark
           x={box.x}
           y={box.y + box.h - levelH}
-          width={box.w}
-          height={levelH}
-          text={formatElevation(zone.elevation ?? 0)}
-          fontSize={LEVEL_FONT_SIZE}
-          fontFamily="Assistant, sans-serif"
-          fill={LEVEL_TEXT}
-          align="center"
-          verticalAlign="middle"
+          w={box.w}
+          h={levelH}
+          cm={zone.elevation ?? 0}
         />
       )}
     </Fragment>
@@ -280,14 +586,22 @@ export function VenueLayer() {
             sits on; the walls come from the cut below, at their real thickness and
             with their real openings. Where it does not, the contour doubles as a
             wall band, which is the pre-section behaviour and all a pack without a
-            model can offer. */}
+            model can offer.
+
+            ⚠ With a section this contour used to be a #b6afa7 hairline, and at
+            the resort that was the whole reason the drawing had no edges: the
+            hall's west side has ZERO geometry in the cut and its north side is
+            seven piers with 2.4 m gaps between them (measured on section.json),
+            so the contour is the ONLY thing that closes the building on three
+            sides. It is still not a wall — it is where the floor stops — so it
+            takes the floor-edge weight and not the poché. */}
         {outline ? (
           <Line
             points={outline.flat()}
             closed
             fill={PAPER}
-            stroke={section ? OUTLINE_HAIRLINE : WALL}
-            strokeWidth={section ? 1 : FALLBACK_WALL_THICKNESS}
+            stroke={section ? INK_FLOOR_EDGE : WALL}
+            strokeWidth={section ? W_FLOOR_EDGE : FALLBACK_WALL_THICKNESS}
             strokeScaleEnabled={!section}
             lineJoin="miter"
           />
@@ -298,8 +612,8 @@ export function VenueLayer() {
             width={venueSize.width}
             height={venueSize.depth}
             fill={PAPER}
-            stroke={section ? OUTLINE_HAIRLINE : WALL}
-            strokeWidth={section ? 1 : FALLBACK_WALL_THICKNESS}
+            stroke={section ? INK_FLOOR_EDGE : WALL}
+            strokeWidth={section ? W_FLOOR_EDGE : FALLBACK_WALL_THICKNESS}
             strokeScaleEnabled={!section}
             lineJoin="miter"
           />
@@ -319,11 +633,15 @@ export function VenueLayer() {
         {zoneNodes(hallZones)}
       </Group>
       <Group opacity={receptionOpacity}>{zoneNodes(receptionZones)}</Group>
+      {/* The ground before the building on it: a wall standing on the deck sits
+          over the step, not under it. */}
+      <LevelChanges zones={zones} />
       {/* The building itself, last: a cut wall sits OVER the floor it encloses,
           and over the zone tints, which are markings on that floor. Not inside
           either opacity group — the hall/reception toggle dims what stands in a
           zone, and the building is not standing in one. */}
       {section ? <SectionLines section={section} /> : null}
+      <SheetAnnotations width={venueSize.width} />
     </Layer>
   )
 }

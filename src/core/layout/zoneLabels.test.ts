@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   formatElevation,
   labelBoxesOverlap,
+  labelFits,
   LABEL_BASE_HEIGHT,
   LABEL_ELEVATION_HEIGHT,
   LTR_ISOLATE,
@@ -163,5 +164,32 @@ describe('formatElevation', () => {
     const chuppah = zones.find((z) => z.kind === 'chuppah')!
     expect(bare(formatElevation(kabalat.elevation!))).toBe('+4.70')
     expect(bare(formatElevation(chuppah.elevation!))).toBe('+0.50')
+  })
+})
+
+describe('labelFits', () => {
+  const box = (w: number, h: number): ZoneLabelBox => ({ kind: 'x', x: 0, y: 0, w, h })
+
+  it('refuses a box too narrow to hold a word', () => {
+    // a 44 cm tag needs 132 cm of width before it is worth drawing
+    expect(labelFits(box(131, 60), 44)).toBe(false)
+    expect(labelFits(box(132, 60), 44)).toBe(true)
+    expect(labelFits(box(400, 43), 44)).toBe(false)
+  })
+
+  it('rejects exactly the pool-side strips that used to print a bare ellipsis', () => {
+    // the failure: two 120 cm `saviv` rectangles flank the pool, their tag boxes
+    // come out ~88 cm wide, and Konva's `ellipsis` rendered "…" on the drawing
+    const boxes = zoneLabelBoxes(zones)
+    const narrow = zones
+      .map((z, i) => ({ z, box: boxes[i] }))
+      .filter(({ box }) => !labelFits(box, 44))
+    expect(narrow.length).toBeGreaterThan(0)
+    for (const { box } of narrow) expect(box.w).toBeLessThan(132)
+    // …and the rooms that matter keep their names
+    for (const kind of ['pool', 'dancefloor', 'kabalatPanim']) {
+      const i = zones.findIndex((z) => z.kind === kind)
+      expect(labelFits(boxes[i], 44)).toBe(true)
+    }
   })
 })
