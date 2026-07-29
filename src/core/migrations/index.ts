@@ -678,6 +678,11 @@ const sceneSettings = z.object({
       sunAzimuth: z.number(),
       sunElevation: z.number(),
       sunIntensity: z.number(),
+      // Needs no schema bump — it is optional, so old files parse and new files
+      // load anywhere. It DOES need to be listed: this is a plain z.object, so
+      // an unlisted key is stripped on every load and the setting would appear
+      // to reset itself (the same trap that eats `stackedOn`, :319).
+      shadowSharpness: z.enum(['soft', 'medium', 'sharp']).optional(),
     })
     .optional(),
 })

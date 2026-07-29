@@ -548,7 +548,21 @@ export default function Scene3D() {
       <GLErrorBoundary fallback={<Fallback />}>
         <Canvas
           frameloop="demand"
-          shadows
+          /* PCF, named explicitly. Do NOT simplify this back to a bare
+             `shadows`, and do NOT "upgrade" it to shadows="soft" — both map to
+             THREE.PCFSoftShadowMap, which three 0.182 no longer implements.
+             Its shadowMapTypeDefines table holds PCF and VSM only and anything
+             else falls through to SHADOWMAP_TYPE_BASIC, so the bare boolean was
+             silently rendering BASIC: measured on the unmodified tree,
+             gl.shadowMap.type read 2. Worse, WebGLShadowMap gives the depth
+             texture NearestFilter with compareFunction null for every type
+             EXCEPT PCFShadowMap, so it was one unfiltered, texel-quantised tap.
+             That is the staircase in the user's photo.
+             "percentage" is R3F's name for THREE.PCFShadowMap and is the only
+             value that buys both the 5-sample Vogel disk and a bilinear
+             hardware-compare sampler. It is also what makes LightingRig's
+             SHADOW_RADIUS mean anything — the BASIC branch never reads it. */
+          shadows="percentage"
           dpr={[1, 1.75]}
           gl={{ antialias: true, toneMappingExposure: 0.9 }}
           camera={{ fov: 45, near: 0.1, far: 4000, position: [10, 16, 28] }}

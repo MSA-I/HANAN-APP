@@ -1,25 +1,42 @@
 /**
- * Fits the sun's shadow camera to what is actually placed in the hall.
+ * Fits the sun's shadow camera to the hall, plus anything placed outside it.
  *
  * The rig used to aim a SYMMETRIC orthographic box of `max(W, D) * 0.9` at the
  * venue centre. On the resort (60.51 x 25.44 m) that is a 109 m box rendered
  * into a 2048 map — 5.3 cm per texel, while a chair leg is 4 cm across. Every
  * leg's shadow fell between texels and dissolved into stair-steps, which is the
- * "jagged, low quality, imprecise" the user reported (source doc §46). Nothing
- * about the light or the filter was wrong; the box was.
+ * "jagged, low quality, imprecise" the user reported (source doc §46). This
+ * note used to end "nothing about the light or the FILTER was wrong; the box
+ * was" — R3 measured that and it is false. The renderer was running BASIC
+ * shadows, one unfiltered nearest tap, the whole time (see Scene3D's `shadows`
+ * prop). The box was one of two causes, and the smaller one.
  *
  * An orthographic camera takes left/right/top/bottom INDEPENDENTLY, so the box
- * does not have to stay centred on the light's axis: projecting the content AABB
- * into the light's own view space gives four numbers that wrap it exactly. A
- * full hall then costs ~60 x 32 m instead of 109 x 109 — a sixth of the area for
- * the same map — and a half-empty one costs far less again.
+ * does not have to stay centred on the light's axis: projecting an AABB into the
+ * light's own view space gives four numbers that wrap it exactly. The hall then
+ * costs ~60 x 32 m instead of 109 x 109 — a sixth of the area for the same map.
+ *
+ * WHAT goes into that AABB is `shadowContent()`, and in R3 it changed: the box
+ * is the VENUE unioned with the placed objects, where it used to be the placed
+ * objects ALONE. Objects-alone is a trap. Cluster the furniture into one corner
+ * and the box shrinks onto the cluster, so the truss, the pergola, the columns
+ * and the far half of the floor fall OUTSIDE the shadow frustum and receive no
+ * sun shadow at all — that is the "bug with the shadow and the sun in certain
+ * areas of the hall, especially at the edges" half of the report. (The other
+ * half is texel size, which shadowFit.test.ts measures.)
+ *
+ * The price is one direction of texel size, and it is smaller than it looks: an
+ * EMPTY hall already fitted the venue box, so every scene now pays what the
+ * emptiest one always paid, and nothing more. A wall-to-wall hall is unchanged,
+ * because its content already spanned the venue.
  *
  * Two things must NOT be tightened along with it:
  * - `near` stays fitted to the VENUE, not to the content. Anything between the
  *   sun and the box still has to cast into it; clipping the near plane down to
  *   the furniture would delete the roof structure's shadows on the floor.
- * - The box never shrinks below `minHalfExtent`. One chair in an empty hall
- *   would otherwise fit a 2 m box and the rest of the venue would go unshadowed.
+ * - The box never shrinks below `minHalfExtent`. With the venue always in the
+ *   union this floor no longer bites on a real pack, but it is still what keeps
+ *   a tiny procedural room from fitting a 2 m box around one chair.
  */
 import * as THREE from 'three'
 import type { SceneState } from '../core/model/types'
@@ -117,6 +134,20 @@ export function clampBounds(box: Bounds3, limit: Bounds3): Bounds3 {
   const [y0, y1] = axis(1)
   const [z0, z1] = axis(2)
   return { min: [x0, y0, z0], max: [x1, y1, z1] }
+}
+
+/**
+ * The lateral AABB the sun's shadow box must cover for `scene`: the venue,
+ * unioned with whatever is placed (clipped to `limit`, so malformed coordinates
+ * cannot blow the box back out to the whole desert).
+ *
+ * `venue` is unconditional — see the module header. `limit` is expected to be
+ * the venue plus a margin, since objects legitimately stand on zone platforms
+ * and rise above the wall height.
+ */
+export function shadowContent(scene: SceneState, venue: Bounds3, limit: Bounds3): Bounds3 {
+  const found = contentBounds(scene)
+  return found ? unionBounds(clampBounds(found, limit), venue) : venue
 }
 
 /**
