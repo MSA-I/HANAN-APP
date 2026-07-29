@@ -259,14 +259,19 @@ export const VENUE_PACKS: VenuePack[] = [
     // from. This is source-doc item 9a, and it explains item 8: a hung item snapped
     // 15cm off the tube it was supposed to hang on.
     //
-    // ⛔ `axis: 'x'` IS NOT A BEAM FAMILY. Those 4 values are the rows of those same
-    // 36 fixtures, measured to under 0.5cm — accurate, but not tubes. Whether they
-    // should keep being drawn and snapped to as beams is a product call, not a
-    // measurement, and it is open: see Plans/R3/handoff/BLOCKED-01-A2.md. Left as
-    // it was rather than guessed at, because five code paths enforce this grid.
+    // ⚠ `axis: 'x'` DOES NOT COME FROM THE MODEL — it cannot, the cross runs were
+    // never built there. It is the real truss, given by the venue owner on
+    // 2026-07-29: three runs, 6.02 m apart, the outer two 1.02 m off the wall.
+    // The arithmetic closes on the roofed bay and is symmetric either way you
+    // measure it: 102 + 602 + 602 + 102 = 1408, which is exactly where the roofed
+    // hall ends and the open pool deck begins. It used to hold 190/550/904/1270 —
+    // those are the 4 rows of the 36 hanging fixtures, measured off the GLB to
+    // under 0.5cm, accurate but not tubes. They are kept in the manifest note, not
+    // here, because this array is a SNAP GRID enforced on five code paths, and a
+    // fixture must land on something a clamp can actually grip.
     ceilingBeams: [
       { axis: 'y', positions: [158, 563, 968, 1373, 1778, 2183, 2588, 2993, 3398, 3803, 4208], height: 910 },
-      { axis: 'x', positions: [190, 550, 904, 1270], height: 910 },
+      { axis: 'x', positions: [102, 704, 1306], height: 910 },
     ],
     // Roof-truss metal, off the venue.glb material `H08_Emerald_Abyss` (no texture —
     // the factor IS the colour). glTF stores baseColorFactor LINEAR, [0.725, 0.635,

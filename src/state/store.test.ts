@@ -991,10 +991,17 @@ describe('hall designs', () => {
     // is pulled onto the truss grid, not just kept inside the venue.
     newProject({ name: 'resort', venuePackId: 'resort' })
     const beams = getVenuePack('resort')!.ceilingBeams!
-    const id = addObject('lamp.chandelier-diamond', { x: 1000, y: 200 })
+    const xs = beams.find((b) => b.axis === 'y')!.positions
+    const ys = beams.find((b) => b.axis === 'x')!.positions
+    // A hair off a real crossing on BOTH axes — inside CROSSING_SNAP either way, so
+    // the drop is pulled onto the crossing instead of sliding along one beam. The
+    // literal (1000, 200) this used to drop at only landed on a crossing because
+    // the old x family had a row at 190; it now has three rows at 102/704/1306 and
+    // the same point legitimately slides. Probe from the grid, never at it.
+    const id = addObject('lamp.chandelier-diamond', { x: xs[2] + 8, y: ys[1] + 10 })
     const { x, y } = scene().objects[id].transform.position
-    expect(beams.find((b) => b.axis === 'y')!.positions).toContain(x)
-    expect(beams.find((b) => b.axis === 'x')!.positions).toContain(y)
+    expect(xs).toContain(x)
+    expect(ys).toContain(y)
   })
 })
 

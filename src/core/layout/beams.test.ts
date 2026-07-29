@@ -45,8 +45,10 @@ describe('snapToBeam', () => {
   it('still lands on a crossing where the two snap regions meet', () => {
     // 32 cm off one family and 10 off the other — both inside CROSSING_SNAP (35)
     expect(snapToBeam({ x: XS[2] + 32, y: YS[0] + 10 }, beams)).toEqual({ x: XS[2], y: YS[0] })
-    // 20 and 30, approached from the other side of each member
-    expect(snapToBeam({ x: XS[9] + 20, y: YS[3] - 30 }, beams)).toEqual({ x: XS[9], y: YS[3] })
+    // 20 and 30, approached from the other side of each member. The far member is
+    // `lastY`, not YS[3]: the x family went from four rows to three on 2026-07-29,
+    // and a frozen index is the same mistake as a frozen number (AGENT-BRIEF §1.7).
+    expect(snapToBeam({ x: XS[9] + 20, y: lastY - 30 }, beams)).toEqual({ x: XS[9], y: lastY })
   })
 
   it('reads `axis` as the run direction, not as the constrained coordinate', () => {
@@ -88,7 +90,7 @@ describe('snapToBeam', () => {
   /**
    * Where a fixture may end up is the TRUSS rectangle, which is smaller than the
    * hall: the resort measures 6051 × 2544 but its truss spans x 158…4208 and
-   * y 190…1270. The reception deck (x from 4432) has no beams over it, so nothing
+   * y 102…1306. The reception deck (x from 4432) has no beams over it, so nothing
    * can hang there — that was true of the crossing snap too, and sliding must not
    * quietly change it in either direction. The margin narrowed on 2026-07-29: the
    * outermost real tube is at 4208, 224 cm short of the deck, where the old
