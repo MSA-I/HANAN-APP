@@ -65,6 +65,17 @@ export const strings = {
     saveFailed: 'השמירה נכשלה — מנסים שוב',
     loadFailed: 'טעינת הפריסות נכשלה',
     /**
+     * PLAN-09 item 15. `rotateObjectsBy` is all-or-nothing by design (`poseAllowed`,
+     * actions.ts:210-216 · :1801-1811) and today refuses in complete silence, which
+     * from the outside is indistinguishable from a rotation that is stuck on
+     * detents — which is very likely part of what the user reported. The plan
+     * changes the FEEDBACK, not the semantics; this is that feedback.
+     */
+    rotationRefused: (n: number) =>
+      n === 1
+        ? 'פריט אחד לא הסתובב — אין לו מקום חוקי בזווית הזו'
+        : `${n} פריטים לא הסתובבו — אין להם מקום חוקי בזווית הזו`,
+    /**
      * Why a placement was refused (core/layout/collision.ts `Violation`). `{…}`
      * placeholders are filled by StatusBar: numbers from the violation itself,
      * zone names from the venue pack's own Hebrew labels.
@@ -130,6 +141,16 @@ export const strings = {
       plant: 'צמחייה 1',
       plant2: 'צמחייה 2',
       divider: 'מחיצה',
+      /**
+       * The user asked for "דמות אדם" — a human figure, so a render has something
+       * to give it scale, and placeable anywhere including where nothing else may
+       * go (source doc §17/§29). One model exists for it: `דמות אישה.glb`, a single
+       * woman. REAL-INVENTORY PRINCIPLE (BRIEF §1.1) — one catalog item is one thing
+       * that exists — so the label names the model that is actually on disk rather
+       * than the category it stands in for. A man's figure would need a file nobody
+       * has; PLAN-02 gate 1 is exactly that question.
+       */
+      humanFigure: 'דמות אישה',
       // ceiling-hung — the height in each entry IS the drop from the ceiling
       lampPendant: 'מנורה תלויה',
       lampPendantCluster: 'מקבץ מנורות גיאומטרי',
@@ -150,10 +171,15 @@ export const strings = {
       decorVaseFlowersB: 'ואזת פרחים',
       // the labelKey stays `fabricFolded` — a stable id; only the label changed
       decorFabricFolded: 'מפית מקופלת',
-      // laid flat on the place setting rather than standing (see the entry's own
-      // description in entries/tableDecor.ts), and one per cover once PLAN-03
-      // routes it through `napkin()` — so singular, and distinct from the standing one
-      decorNapkinFolded: 'מפית שטוחה',
+      // ⚠ CHANGED VALUE, not a new key (round 3 item 12, PLAN-05). The user renamed
+      // it: the fold is ROLLED, and 'מפית שטוחה' described the wrong thing — it read
+      // as a napkin lying flat. One per cover, laid on the place setting; the KEY and
+      // the catalog id `decor.napkin-folded` are deliberately unchanged, because
+      // renaming either needs a migration and breaks saved projects for nothing.
+      // No test asserts this string — the tests key off ids (BRIEF §1.7).
+      // `entries/tableDecor.ts:138` still carries 'מפית שטוחה' in a comment; that
+      // file is PLAN-05's, so it is logged as a stale comment rather than edited here.
+      decorNapkinFolded: 'קיפול מפית מגולגל',
       decorCandleholdersGlass: 'מחזיקי נר זכוכית',
       decorCandelabrumGold: 'קנדלברום זהב',
       decorCandlestickGold: 'פמוט זהב',
@@ -214,6 +240,23 @@ export const strings = {
       pot: 'עציץ',
       foliage: 'עלווה',
       panel: 'פאנל',
+      /** PLAN-02/A2: the figure's single material slot */
+      figure: 'דמות',
+      /**
+       * PLAN-05 item 28. The place setting is being re-imported segmented, so what
+       * was one material becomes several, and the metal one becomes glass. These
+       * are the parts the segmentation is expected to expose. Unlike `categories`
+       * above this lookup is guarded (`?? editableSlot.name`, `InspectorPanel.tsx:357`)
+       * so a wrong guess degrades to the raw slot name instead of breaking — but a
+       * present key is still the difference between a Hebrew label and an English one.
+       */
+      plate: 'צלחת',
+      cutlery: 'סכו״ם',
+      glass: 'זכוכית',
+      glasses: 'כוסות',
+      metal: 'מתכת',
+      /** PLAN-05 item 14: the texture set is "צבעי מפות ומפיות" — cloths and napkins */
+      napkin: 'מפית',
     },
   },
   library: {
@@ -287,6 +330,37 @@ export const strings = {
     bakeDone: (count: number) => `${count} אלמנטים נכתבו ל-venueFixtures.ts`,
     bakeFailed: 'הקיבוע נכשל',
     bakeEmpty: 'אין אלמנטים לקיבוע',
+    /**
+     * PLAN-04/G2 — item 7. The button already exists and always did; the user could
+     * not find it because he searched for "שמירת מיקום אלמנטים" and the label said
+     * "קיבוע". This is a discovery fix, not a feature: `bake` above stays so nothing
+     * breaks mid-round, and PLAN-04 switches the button to `bakeSaveElements`.
+     */
+    bakeSaveElements: 'שמירת מיקום האלמנטים (פיתוח)',
+    bakeHint: 'כותב את מיקומי האלמנטים לתוך קוד המקור — לפיתוח בלבד',
+    /**
+     * The POST sends TOP-LEVEL objects only. A user who reads "שמירת מיקום
+     * אלמנטים" will reasonably expect chairs and centrepieces to be saved too, and
+     * they are not — so the panel should say so rather than let him find out.
+     */
+    bakeTopLevelOnly: 'נשמרים אלמנטים ראשיים בלבד — כסאות וקישוטי שולחן אינם נכללים',
+    /**
+     * PLAN-04 item 22: "אם אני לוחץ על פריסות אולם צריך שייפתח תפריט… שממנו אני
+     * יכול לשנות עיצובים וסוג כסאות לאותה פריסה". Clicking a card applies it on the
+     * spot today (`PresetsSection.tsx:611`, and the file header states it as a rule);
+     * the card now opens this panel instead, and applying is a second, explicit step.
+     * `layoutApplyNow` keeps the old one-click path available.
+     */
+    layoutOptions: 'הגדרות הפריסה',
+    layoutOptionsHint: 'בחרו עיצוב וסוג כסאות, ואז החילו את הפריסה',
+    layoutDesign: 'עיצוב השולחנות',
+    layoutDesignNone: 'ללא עיצוב',
+    layoutChairType: 'סוג כסאות',
+    /** each preset already carries a chair baked into its id (`presets.ts:65-79`) */
+    layoutChairDefault: 'הכסא של הפריסה',
+    layoutApply: 'החלת הפריסה',
+    layoutApplyNow: 'החלה מיידית',
+    layoutBack: 'חזרה לפריסות',
     frozenNotice: 'אלמנט קבוע של האולם — לא ניתן להזיז, לשנות או למחוק',
     autoFill: 'מילוי אוטומטי',
     choose: 'בחרו…',
@@ -331,6 +405,24 @@ export const strings = {
     sunAzimuth: 'כיוון השמש',
     sunElevation: 'גובה השמש',
     sunIntensity: 'עוצמת השמש',
+    /**
+     * PLAN-03 item 5: "להוסיף בתפריט מצד שמאל אופציה לשלוט בחדות הצל" — the left
+     * menu is `InspectorPanel` (BRIEF §1.6 flips the sides under dir="rtl"), and
+     * the natural home is `LightingSection`, which is where the other four sun
+     * controls already live.
+     *
+     * ⚠ "חדות" must map to something the user actually sees: the shadow map's
+     * resolution and/or the `ContactShadows` resolution. NOT `SHADOW_BIAS` — bias
+     * controls acne, not sharpness, and moving it reads as a bug.
+     */
+    shadows: 'צללים',
+    shadowSharpness: 'חדות הצל',
+    shadowSharpnessHint: 'מפת צל גדולה יותר — קצוות חדים יותר, ומעט יותר עומס על כרטיס המסך',
+    shadowSharpnessLow: 'רכה',
+    shadowSharpnessMedium: 'בינונית',
+    shadowSharpnessHigh: 'חדה',
+    /** the shadow map is a GPU resource and is disposed and rebuilt when this moves */
+    shadowUpdating: 'מעדכן צללים…',
   },
   inspector: {
     projectTitle: 'פרויקט ואולם',
@@ -388,6 +480,28 @@ export const strings = {
     // points in the whole hall and is what made a chandelier feel locked — this
     // hint outlived that behaviour by one wave.
     hangHint: 'הנברשת נתלית על קורת התקרה ומחליקה לאורכה',
+    /**
+     * PLAN-09 items 24–25: Ctrl+A selects everything, and then this narrows it
+     * down. The categorisation is the one `LayersSection` already uses — catalog
+     * category — because that is the grouping the user has already learnt; PLAN-09
+     * gate 1 is open on whether he meant per-table or per-layer instead.
+     * ⚠ `selection` is an `Id[]` and lives OUTSIDE the undo zone (`store.ts:23, 58`).
+     */
+    selectionFilter: 'מסנן בחירה',
+    selectionFilterHint: 'סמנו קטגוריות כדי לצמצם את הבחירה',
+    selectionFilterAll: 'הכול',
+    selectionFilterNone: 'ניקוי הסימון',
+    selectionFilterApply: 'צמצום הבחירה',
+    /** `itemsSelected` above is the bare noun; this one is the assembled sentence */
+    selectedCount: (n: number) => `${n} פריטים נבחרו`,
+    selectAll: 'בחירת הכול',
+    /**
+     * PLAN-05 item 14 — the 22 cloth/napkin textures, if they get a picker. The
+     * loading machinery already exists and is unused (`slotTextures.ts:36, 51-90`),
+     * so whether this becomes visible UI is PLAN-05's call.
+     */
+    texture: 'טקסטורה',
+    textureNone: 'ללא טקסטורה',
   },
   statusBar: {
     tables: 'שולחנות',
@@ -417,6 +531,23 @@ export const strings = {
     title: 'עריכת עיצוב השולחן',
     exit: 'יציאה ממצב עריכה',
     hint: 'גררו את הקישוטים למקומם · Esc ליציאה',
+    /**
+     * PLAN-09 item 10 — the user's own words: "ואז יהיה לי כפתור של שמור וצא".
+     * ⚠ The app already autosaves (`App.tsx:44` · `startAutosave`), and today there
+     * is an exit (X) and no save on purpose. So this is a LABEL and an intent on
+     * `exitDesignEdit()`, not a second save path — building one would race the
+     * autosave. `autosaveHint` is there so the promise the button makes is honest.
+     */
+    saveAndExit: 'שמור וצא',
+    autosaveHint: 'השינויים נשמרים אוטומטית',
+    /**
+     * PLAN-09 item 11: "אסור שיהיה אפשר לערוך ערכות סכום". Today every
+     * `attachment.kind === 'surface'` child is editable, which catches the place
+     * setting and the napkins along with the centrepieces.
+     * ⚠ The exclusion has to land in BOTH views — `ObjectNode.tsx:158-159` and
+     * `ObjectGroup.tsx:497-499` — or 2D and 3D disagree.
+     */
+    placeSettingLocked: 'ערכת הסכו״ם אינה ניתנת להזזה',
   },
   help: {
     title: 'קיצורי מקלדת',
@@ -468,6 +599,27 @@ export const strings = {
       ['Delete / Backspace', 'מחיקת הנבחרים'],
       ['Ctrl+Z / Ctrl+Y', 'ביטול / ביצוע מחדש'],
     ],
+    /**
+     * ⚠ PLAN-09/G1 removes the 5° snap ALTOGETHER — Shift will stop snapping too.
+     * The moment it lands, the two rotation rows in `rows` above are wrong for the
+     * THIRD time (round 2 wave 1 fixed a line claiming 15°; wave 3 then inverted
+     * the behaviour it had just been corrected to describe; `0aabc1f` fixed it
+     * again). `rows` is a frozen array and PLAN-09 may not write to this file, so
+     * the corrected row is seeded here: swap it in for 'סיבוב בגיזמו' and DROP the
+     * 'Shift בסיבוב' row when the snap comes out.
+     */
+    rotationFreeRow: ['סיבוב בגיזמו', 'זווית חופשית — אין הצמדה'],
+    /**
+     * PLAN-09 items 16 and 24. `KeyR` and `Ctrl+A` both already exist and both are
+     * 2D-only, because the 3D branch of `useEditorShortcuts` returns early
+     * (`:47-83`) after handling Ctrl+Z/Y/D, Slash, Delete and Escape. When that
+     * branch is widened these two belong in the 3D list — which is likewise a
+     * frozen array PLAN-09 cannot append to.
+     */
+    rows3dExtra: [
+      ['R / Shift+R', 'סיבוב 90° עם/נגד כיוון השעון'],
+      ['Ctrl+A', 'בחירת הכול'],
+    ],
   },
   menu: {
     duplicate: 'שכפול',
@@ -490,6 +642,55 @@ export const strings = {
     deleteChair: 'מחיקת כיסא',
   },
   /**
+   * The 2D drawing read as an ARCHITECTURAL PLAN (PLAN-06, item 18b). These name
+   * the parts of the cut and the annotations around it, and they are deliberately
+   * not part of `zones` below: a zone is a rule about where things may be put, a
+   * section kind is a piece of the building. The `kind` values are the ones
+   * PLAN-01/A3 re-emits into `section.json` — wall | glazing | railing | opening |
+   * column — which today does not classify at all (`extract-section.mjs:43-46`
+   * records the explicit decision not to, and PLAN-01 reverses it).
+   *
+   * ⚠ Levels are NOT here. `formatElevation()` (`layout/zoneLabels.ts:168`) already
+   * turns 470 into `+4.70` with the bidi isolates that keep the sign on the left,
+   * and that belongs next to the value, not in a dictionary.
+   */
+  plan: {
+    title: 'תוכנית רצפה',
+    legend: 'מקרא',
+    wall: 'קיר',
+    /** the section kind is `glazing`; the user's word for what he sees is "חלון" */
+    glazing: 'חלון',
+    window: 'חלון',
+    railing: 'מעקה',
+    /**
+     * ⚠ Deliberately NOT 'דלת'. There is no door material in `venue.glb` (only
+     * 'Glass' and 'Glass Railing Color'), so a gap in the cut cannot be told from a
+     * doorway — PLAN-06 gate 1. An unmarked opening is honest; a drawn door leaf is
+     * a lie. `door` is seeded for the day the user paints the doors in SketchUp.
+     */
+    opening: 'פתח',
+    door: 'דלת',
+    column: 'עמוד',
+    stairs: 'מדרגות',
+    /** the arrow along a flight of stairs always points up, and says so */
+    stairsUp: 'מעלה',
+    level: 'מפלס',
+    dimensions: 'מידות',
+    north: 'צפון',
+    scale: 'קנה מידה',
+    /**
+     * PLAN-08. `BeamLayer` is the only place in the whole app where beams are
+     * actually drawn — in 3D they are baked geometry inside `venue.glb`, and the
+     * `ceilingBeams` array is an abstract snap grid. `beamBraces` is seeded because
+     * `14.PNG` shows diagonal bracing in the truss shadow that the 9+4 straight
+     * beams have no representation for; whether it survives depends on PLAN-01/A2's
+     * measurement.
+     */
+    beams: 'קורות',
+    beamCrossings: 'הצטלבויות',
+    beamBraces: 'חיזוקים אלכסוניים',
+  },
+  /**
    * Venue-zone names drawn on the plan. These used to be inline Hebrew in
    * venuePacks.ts, which that file still carries as documentation and as the
    * fallback for a pack whose `kind` has no entry here.
@@ -508,5 +709,20 @@ export const strings = {
     kabalatPanim: 'קבלת פנים',
     /** the ring of deck the user drew around the pool — PLAN-01 adds the zone itself */
     saviv: 'סביב הבריכה',
+    /**
+     * PLAN-01 item 20: "וגם הוספתי ZONE של ריצוף ששייך רק לקבלת פנים". There is no
+     * paving marker in `extract-zones.mjs` today (8 markers, none of them this), so
+     * PLAN-01/A1 both adds the marker and names the `kind`.
+     *
+     * ⚠ The `kind` is what this object is keyed by (`VenueLayer.tsx:153`,
+     * `strings.zones[zone.kind ?? '']`), and the existing keys are not consistent
+     * about language — `pool`/`bar`/`dj` are English, `saviv`/`kabalatPanim` are
+     * transliterated Hebrew. Both spellings are seeded so whichever PLAN-01 picks
+     * resolves; the lookup falls back to `zone.label` anyway, so the cost of the
+     * spare is one dead line and the cost of guessing wrong is an unnamed zone on
+     * the drawing. Same reason `corridor`/`passage` are both here.
+     */
+    flooring: 'ריצוף',
+    ritzuf: 'ריצוף',
   } as Record<string, string>,
 } as const

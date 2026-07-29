@@ -3,7 +3,7 @@ import { CATEGORY_ORDER, getCatalogEntry } from '../core/catalog/registry'
 import type { Category } from '../core/catalog/types'
 import { hangRange } from '../core/layout/beams'
 import { createProject } from '../core/model/factory'
-import { SCHEMA_VERSION, migrateAndValidate, runMigrations } from '../core/migrations'
+import { SCHEMA_VERSION, migrateAndValidate, migrations, runMigrations } from '../core/migrations'
 import { getVenuePack } from '../core/venuePacks'
 import { isLayerHidden, isLayerLocked } from '../state/selectors'
 import type { ProjectFile } from './types'
@@ -570,7 +570,16 @@ describe('v8 → v9 new categories, stacked napkins, hang re-clamp', () => {
     const revived = migrateAndValidate(v8FileWithStackedNapkin())
     expect(revived.schemaVersion).toBe(SCHEMA_VERSION)
     expect(revived.project.schemaVersion).toBe(SCHEMA_VERSION)
-    expect(SCHEMA_VERSION).toBe(10)
+  })
+
+  it('leaves no gap in the migration chain', () => {
+    // This replaces an `expect(SCHEMA_VERSION).toBe(10)` that stood here and had to
+    // be edited on the v11 bump — a frozen number is not a property, it is a
+    // reminder that fires late (BRIEF §1.7). The property it was reaching for is
+    // that the chain is UNBROKEN: `runMigrations` stops silently at the first
+    // version with no function registered, so a bump with a missing step would
+    // leave every stored file a version behind and still "pass" a load.
+    for (let v = 1; v < SCHEMA_VERSION; v++) expect(migrations[v]).toBeTypeOf('function')
   })
 
   it('adds the three new categories to the catalog order', () => {
@@ -789,8 +798,25 @@ describe('v9 → v10 bar.straight retires, dj.booth resizes', () => {
   })
 
   it('resizes the stored DJ booth for the model swap', () => {
+    // `migrateAndValidate` drives the WHOLE chain, so this lands on the catalogue's
+    // size of today, not on v10's — v10 set the GLB's full bounds and v10→v11 then
+    // took them to 0.7. Reading `defaultSize` rather than writing the number is what
+    // keeps that true across both steps and the next one (BRIEF §1.7).
     const objects = migrateAndValidate(savedResortProject()).project.scene.objects
     expect(objects.d1.size).toEqual(getCatalogEntry('dj.booth').defaultSize)
+  })
+
+  it('the v9 → v10 step alone already un-squashes the booth', () => {
+    // Stated without a literal, and separately from the chain assertion above: once
+    // v10→v11 exists, the full chain would land on the catalogue size even if this
+    // step did nothing, so the step needs its own witness. What it exists to prevent
+    // is the stored 208 × 91 × 143 reaching propModel, which drew the re-modelled
+    // GLB squashed to 0.37 on depth.
+    const stored = { width: 208, depth: 91, height: 143 }
+    const stepped = migrations[9](savedResortProject()) as {
+      project: { scene: { objects: Record<string, { size: Record<string, number> }> } }
+    }
+    expect(stepped.project.scene.objects.d1.size).not.toEqual(stored)
   })
 
   it('leaves objectOrder in step with objects, and no bar.straight anywhere', () => {
@@ -851,6 +877,100 @@ describe('v9 → v10 bar.straight retires, dj.booth resizes', () => {
     const objects = migrateAndValidate(file).project.scene.objects
     expect(objects.b1).toBeUndefined()
     expect(objects.c1).toBeUndefined()
+  })
+})
+
+/**
+ * v10 → v11: the DJ booth is catalogued at 0.7 of the model's own size, so every
+ * stored `dj.booth` is rewritten to the smaller size.
+ *
+ * A v10 file holds the booth at the GLB's full bounds — that is what v9→v10 wrote
+ * and what a project saved between the two migrations carries.
+ */
+function v10File(objects: Record<string, unknown>, order: string[]): unknown {
+  const pack = getVenuePack('resort')!
+  return {
+    schemaVersion: 10,
+    app: 'hanan-app',
+    savedAt: new Date().toISOString(),
+    project: {
+      id: 'p10',
+      schemaVersion: 10,
+      name: 'v10',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      scene: {
+        venue: {
+          size: { ...pack.size },
+          wallHeight: pack.wallHeight,
+          floor: { color: '#efebe4' },
+          elements: [],
+          venuePackId: 'resort',
+        },
+        objects,
+        objectOrder: order,
+        settings: { gridSize: 10, snapEnabled: true, showGrid: true, showLabels: true, layers: {} },
+      },
+    },
+  }
+}
+
+describe('v10 → v11 dj.booth shrinks to 0.7', () => {
+  /** the size v9→v10 wrote: the GLB's own bounds, read off the entry that states them */
+  const modelSize = () => getCatalogEntry('dj.booth').modelSize!
+
+  const savedV10Project = () =>
+    v10File(
+      {
+        d1: storedObject('d1', 'dj.booth', { ...modelSize() }, 2400, 1500),
+        t1: storedObject('t1', 'table.round', { ...getCatalogEntry('table.round').defaultSize }, 800, 800),
+      },
+      ['d1', 't1'],
+    )
+
+  it('rewrites a stored booth to the catalogued size', () => {
+    const objects = migrateAndValidate(savedV10Project()).project.scene.objects
+    expect(objects.d1.size).toEqual(getCatalogEntry('dj.booth').defaultSize)
+  })
+
+  it('and that size really is smaller than the model the loader fits', () => {
+    // The silent trap this pair guards: `defaultSize` shrank, so the entry MUST also
+    // state `modelSize` — the loader fits by `size / (modelSize ?? defaultSize)`, and
+    // without it the ratio falls back to 1 and the stand stays full size in 3D while
+    // 2D draws it at 0.7. `modelSize!` above throws if it is ever dropped; this says
+    // the catalogued size is a genuine reduction of it.
+    const { width, depth, height } = getCatalogEntry('dj.booth').defaultSize
+    expect(width).toBeLessThan(modelSize().width)
+    expect(depth).toBeLessThan(modelSize().depth)
+    expect(height).toBeLessThan(modelSize().height)
+  })
+
+  it('advances both version fields to the current one', () => {
+    const revived = migrateAndValidate(savedV10Project())
+    expect(revived.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(revived.project.schemaVersion).toBe(SCHEMA_VERSION)
+  })
+
+  it('leaves objects of every other catalog id alone', () => {
+    const before = getCatalogEntry('table.round').defaultSize
+    const scene = migrateAndValidate(savedV10Project()).project.scene
+    expect(scene.objects.t1.size).toEqual(before)
+    expect(scene.objects.t1.transform.position).toEqual({ x: 800, y: 800 })
+    expect(new Set(scene.objectOrder)).toEqual(new Set(Object.keys(scene.objects)))
+  })
+
+  it('does not move the booth — it only shrinks it', () => {
+    // no re-clamp is owed: the booth only ever lives in ZONE_DJ, it only shrinks,
+    // and a smaller box inside a rectangle it already fitted still fits it
+    const objects = migrateAndValidate(savedV10Project()).project.scene.objects
+    expect(objects.d1.transform.position).toEqual({ x: 2400, y: 1500 })
+    expect(objects.d1.transform.rotation).toBe(0)
+  })
+
+  it('is idempotent — a booth already at the new size is unchanged', () => {
+    const file = v10File({ d1: storedObject('d1', 'dj.booth', { ...getCatalogEntry('dj.booth').defaultSize }) }, ['d1'])
+    const objects = migrateAndValidate(file).project.scene.objects
+    expect(objects.d1.size).toEqual(getCatalogEntry('dj.booth').defaultSize)
   })
 })
 

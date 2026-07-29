@@ -82,12 +82,15 @@ function ceilingProp(
   shape: 'round' | 'rect' = 'round',
   /** fraction of the drop occupied by the fixture body — the rest is cord/chain */
   bodyFraction = 0.35,
+  /** where in the hall this fixture may hang; absent = anywhere over the floor */
+  siting?: Pick<CatalogEntry, 'allowedZones'>,
 ): CatalogEntry {
   return {
     id,
     category: 'lighting',
     labelKey,
     promptFragment,
+    ...siting,
     defaultSize: scaled(modelSize),
     resizable: [],
     minSize: {},
@@ -140,7 +143,19 @@ export const hangingEntries: CatalogEntry[] = [
   // lattice drums on staggered cords (verified by render, 2026-07-20) — which is
   // why it is 42.6 deep in the file. The longest cord defines the drop: 60 cm
   // modelled, 150 catalogued.
-  ceilingProp('lamp.pendant-cluster', 'lampPendantCluster', 'a cluster of four lattice drum pendant lamps on staggered cords', P('decor-pendant-geometric.glb'), { width: 18.1, depth: 42.6, height: 60 }, '#d4c5aa', 'rect'),
+  //
+  // Source doc §29: "in the lighting layouts, lamp clusters can only be placed
+  // above the bar." `within: 0` is the bar rectangle itself, touching included —
+  // the zone IS the rule, so no clearance is invented. It is the only one of the
+  // five fixtures that is sited; the rest hang anywhere over the floor.
+  //
+  // ⚠ `allowedZones` and NOT `zoneKind`, and the difference is invisible until it
+  // bites. `clampToVenue`'s home-zone branch (state/actions.ts:379-415) ends in a
+  // `continue`, BEFORE the ceiling branch that pins a fixture to the truss
+  // lattice (:422). Give a ceiling entry a `zoneKind` and it stops snapping to
+  // the beams, silently, and hangs in mid-air between them — there is no ceiling
+  // entry with a `zoneKind` today, which is why nothing catches it.
+  ceilingProp('lamp.pendant-cluster', 'lampPendantCluster', 'a cluster of four lattice drum pendant lamps on staggered cords', P('decor-pendant-geometric.glb'), { width: 18.1, depth: 42.6, height: 60 }, '#d4c5aa', 'rect', 0.35, { allowedZones: [{ kind: 'bar', within: 0 }] }),
   // --- chandeliers (2026-07-20) ---
   // Beaded crystal rhombus on a bare cord. 42% of the drop is cord (measured),
   // so the catalogued 225 cm hangs a ~130 cm diamond, 120 cm across, about a

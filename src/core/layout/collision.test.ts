@@ -19,6 +19,7 @@ import { getCatalogEntry } from '../catalog/registry'
 import { getVenuePack } from '../venuePacks'
 import type { SceneState, Vec2 } from '../model/types'
 import { composeTransform } from '../space'
+import { beamGrid, snapToBeam } from './beams'
 import { holeRadius } from './bounds'
 import {
   addObject,
@@ -260,10 +261,101 @@ describe("the catalog's own siting rules", () => {
    * asserted nothing.
    */
   it('lets vegetation 2 stand anywhere, wall or no wall (round-2 §4 reverses §15)', () => {
-    expect(getCatalogEntry('plant.potted-2').nearWall).toBeUndefined()
+    const veg2 = getCatalogEntry('plant.potted-2')
+    expect(veg2.nearWall).toBeUndefined()
     // out in the open, and against the hall's north wall along y = 0 — both fine
     expect(checkPlacement(scene(), ghost('plant.potted-2', { x: 500, y: 700 }))).toEqual([])
     expect(checkPlacement(scene(), ghost('plant.potted-2', { x: 500, y: 40 }))).toEqual([])
+    // round 3 re-verified §6 ("vegetation 2 can go wherever you want") and found
+    // nothing left to build: no wall rule, no zone list, no `zoneKind`. What it is
+    // NOT is `placeAnywhere` — the pool is still water and still refuses it, the
+    // same as it refuses a table. "No siting rule of its own" and "exempt from the
+    // room's" are different claims, and only the first one was ever made.
+    expect(veg2.allowedZones).toBeUndefined()
+    expect(veg2.zoneKind).toBeUndefined()
+    expect(veg2.placeAnywhere).toBeUndefined()
+    const overWater = { x: POOL.x + POOL.width / 2, y: POOL.y + POOL.depth / 2 }
+    expect(kinds(checkPlacement(scene(), ghost('plant.potted-2', overWater)))).toContain('forbiddenZone')
+  })
+
+  /**
+   * Source doc §17. The figure is the only entry that answers to nothing, so the
+   * cases are the four different rules it has to walk through: a no-go zone, the
+   * inverted reception deck, the venue outline, and another object's footprint.
+   */
+  describe('the human figure stands anywhere (§17)', () => {
+    const FIGURE = 'figure.woman'
+    const DECK = pack.restricted!.find((z) => z.kind === 'kabalatPanim')!
+
+    it('carries the flag rather than a zone rule', () => {
+      const entry = getCatalogEntry(FIGURE)
+      expect(entry.placeAnywhere).toBe(true)
+      // both of these would confine it instead of freeing it — see the flag's note
+      expect(entry.zoneKind).toBeUndefined()
+      expect(entry.allowedZones).toBeUndefined()
+    })
+
+    it('stands in the pool, on the reception deck, off the floor and inside a table', () => {
+      expect(
+        checkPlacement(scene(), ghost(FIGURE, { x: POOL.x + POOL.width / 2, y: POOL.y + POOL.depth / 2 })),
+      ).toEqual([])
+      expect(
+        checkPlacement(scene(), ghost(FIGURE, { x: DECK.x + DECK.width / 2, y: DECK.y + DECK.depth / 2 })),
+      ).toEqual([])
+      // past the venue edge: §17 says "including places other elements are not
+      // allowed", and the outline is one of those places
+      expect(checkPlacement(scene(), ghost(FIGURE, { x: -200, y: -200 }))).toEqual([])
+      // standing where a table already is
+      addObject('table.round', { x: 800, y: 700 })
+      expect(checkPlacement(scene(), ghost(FIGURE, { x: 800, y: 700 }))).toEqual([])
+    })
+
+    it('is on the deck whitelist, so the clamp settles it there instead of ejecting it', () => {
+      expect(allowedOnDeck(getCatalogEntry(FIGURE))).toBe(true)
+    })
+  })
+
+  /**
+   * Source doc §29 — and the reason it needs cases of its own is that the rule
+   * lives on a CEILING entry, whose exemption from the floor rules used to
+   * swallow `allowedZones` whole before it was ever read.
+   */
+  describe('the lamp cluster hangs over the bar and nowhere else (§29)', () => {
+    const CLUSTER = 'lamp.pendant-cluster'
+    const BAR = pack.restricted!.find((z) => z.kind === 'bar')!
+    const overBar = { x: BAR.x + BAR.width / 2, y: BAR.y + BAR.depth / 2 }
+
+    it('names the bar zone with `allowedZones`, never with `zoneKind`', () => {
+      const entry = getCatalogEntry(CLUSTER)
+      expect(entry.allowedZones).toEqual([{ kind: 'bar', within: 0 }])
+      // a `zoneKind` here would make clampToVenue's home-zone branch `continue`
+      // before the ceiling branch that snaps to the truss (state/actions.ts:379-422),
+      // and the cluster would hang between beams with nothing failing
+      expect(entry.zoneKind).toBeUndefined()
+    })
+
+    it('accepts a drop over the bar and refuses one over the dance floor', () => {
+      expect(checkPlacement(scene(), ghost(CLUSTER, overBar))).toEqual([])
+      const dance = pack.restricted!.find((z) => z.kind === 'dancefloor')!
+      const v = checkPlacement(scene(), ghost(CLUSTER, { x: dance.x + dance.width / 2, y: dance.y + dance.depth / 2 }))
+      expect(kinds(v)).toEqual(['wrongZone'])
+      expect(v[0]).toMatchObject({ allowed: ['bar'] })
+    })
+
+    it('leaves the other four fixtures hanging wherever they like', () => {
+      const free = pack.restricted!.find((z) => z.kind === 'dancefloor')!
+      const centre = { x: free.x + free.width / 2, y: free.y + free.depth / 2 }
+      for (const id of ['lamp.pendant', 'lamp.chandelier-diamond', 'lamp.chandelier-basket', 'lamp.chandelier-candelabra']) {
+        expect(checkPlacement(scene(), ghost(id, centre)), id).toEqual([])
+      }
+    })
+
+    it('still snaps to the ceiling beams — the whole point of not using `zoneKind`', () => {
+      const id = addObject(CLUSTER, overBar)
+      const placed = scene().objects[id].transform.position
+      const grid = beamGrid(pack, scene().venue.size)
+      expect(placed).toEqual(snapToBeam(placed, grid))
+    })
   })
 
   it('refuses a napkin with no place setting under it, and accepts one with (§27)', () => {

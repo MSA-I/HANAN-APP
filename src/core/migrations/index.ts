@@ -483,6 +483,57 @@ function retireBarStraight(raw: unknown): unknown {
 }
 
 /**
+ * v10 → v11: the DJ booth is catalogued at 0.7 of the model's own size.
+ *
+ * The user asked for the stand to be shrunk (round-3 correction §1), so
+ * `dj.booth` now states 216.9 × 170 × 128.7 where v10 stated the GLB's full
+ * bounds of 309.9 × 242.9 × 183.8. The entry gained a `modelSize` in the same
+ * edit, which is what makes the loader draw the model at 0.7 rather than at 1.
+ *
+ * A stored object keeps the size it was saved with — nothing re-reads
+ * `defaultSize` for an object that already exists — so without this a project
+ * saved yesterday would go on showing a full-size booth beside a library that
+ * places small ones, and the two would disagree about the same physical stand.
+ * Same shape of fix as v9→v10's third clause, and for the same reason.
+ *
+ * What it does NOT do:
+ *
+ * 1. NO RE-CLAMP, and none is owed. The booth only ever lives inside ZONE_DJ
+ *    (`zoneKind: 'dj'`), the object only ever SHRINKS, and a smaller box inside
+ *    a rectangle it already fitted still fits it. The centre does not move, so
+ *    the stand stays where the user left it and simply occupies less of its
+ *    zone. In a procedural room there is no zone to satisfy at all.
+ *
+ * 2. NO ROTATION REWRITE. `clampToVenue` snaps a station to a quarter turn only
+ *    when its AABB is wider or deeper than its home zone (state/actions.ts:404).
+ *    At 309.9 × 242.9 against a 310 × 243 zone that branch sat one millimetre
+ *    from firing; at 216.9 × 170 it cannot fire at all. Nothing to migrate —
+ *    the note is here so the next reader does not go looking for it.
+ *
+ * The constants are frozen copies, like v5's, v9's and v10's: a later re-scale
+ * must not reach back and change what v11 meant. In particular this file must
+ * NOT import the catalogue — no migration does. A migration states what the
+ * world looked like at one moment in the past, and reading a live value would
+ * make every old file land wherever the catalogue happens to be today.
+ */
+const DJ_BOOTH_V11 = 'dj.booth'
+const DJ_BOOTH_SIZE_V11 = { width: 216.9, depth: 170, height: 128.7 }
+
+function shrinkDjBooth(raw: unknown): unknown {
+  const file = raw as {
+    project?: { scene?: { objects?: Record<string, { catalogId?: string; size?: unknown }> } }
+  }
+  const objects = file?.project?.scene?.objects
+  if (objects) {
+    // the whole map, not objectOrder — same exhaustiveness note v9→v10 carries
+    for (const obj of Object.values(objects)) {
+      if (obj.catalogId === DJ_BOOTH_V11) obj.size = { ...DJ_BOOTH_SIZE_V11 }
+    }
+  }
+  return { ...(raw as object), schemaVersion: 11, project: { ...file.project, schemaVersion: 11 } }
+}
+
+/**
  * Keyed by the SOURCE version each function upgrades FROM. `migrations[0]`
  * turns a v0 file into a v1 file (and must set `schemaVersion` to 1).
  */
@@ -496,6 +547,7 @@ export const migrations: Record<number, (raw: unknown) => unknown> = {
   7: splitLayoutTags,
   8: addCategoriesAndReclampHang,
   9: retireBarStraight,
+  10: shrinkDjBooth,
 }
 
 function schemaVersionOf(raw: unknown): number {

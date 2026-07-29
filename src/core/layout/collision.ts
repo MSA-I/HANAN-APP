@@ -419,6 +419,10 @@ function boxOverlapsZone(box: AABB, z: RestrictedZone): boolean {
  */
 export function allowedOnDeck(entry: CatalogEntry): boolean {
   return (
+    // "anywhere" includes up here, and saying so HERE is what carries the rule
+    // into the clamp: state/actions.ts reads this same function, so a figure
+    // dropped on the deck settles onto it instead of being shoved back down.
+    entry.placeAnywhere === true ||
     entry.zoneKind === 'chuppah' ||
     entry.category === 'seating' ||
     // Guest tables belong up there with the chairs. Round-2 corrections §27, in the
@@ -536,6 +540,35 @@ function siblingOverlaps(
   return out
 }
 
+/**
+ * "Around the pool", "only over the bar": a band `within` cm outside the named
+ * zone rectangle.
+ *
+ * Only the rules whose zone EXISTS in this venue are weighed. A rule naming a
+ * zone the pack does not have is not a rule the venue can fail — the same
+ * reading `zoneKind` states outright (catalog/types.ts: "Venues without a
+ * matching zone (procedural room) place it freely"), and the two mechanisms are
+ * the same idea seen from either end. Without it, `index.zones` being empty
+ * makes `inBand` false everywhere and vegetation 1 becomes unplaceable in every
+ * procedural room and in every future pack without a `saviv` rectangle.
+ *
+ * "There is no such zone here" and "the zone is here and the item is not in it"
+ * are different answers, and only the second is a `wrongZone`. One existing zone
+ * is enough to make the rule apply: `known` is what the item is then measured
+ * against, and what the refusal names — never a zone this hall does not have.
+ *
+ * It is a function of its own because BOTH storeys need it and they reach it by
+ * different routes — see the ceiling branch in `check`.
+ */
+function bandViolations(index: Index, entry: CatalogEntry, self: Shape): Violation[] {
+  const known = entry.allowedZones?.filter((rule) => index.zones.some((z) => z.kind === rule.kind))
+  if (!known?.length) return []
+  const inBand = known.some((rule) =>
+    index.zones.some((z) => z.kind === rule.kind && shapeGap(self, zoneShape(z)) <= rule.within),
+  )
+  return inBand ? [] : [{ kind: 'wrongZone', allowed: known.map((r) => r.kind) }]
+}
+
 function check(index: Index, candidate: PlacementCandidate): Violation[] {
   // NaN survives every comparison below — `box.minX < -0.01` and the SAT interval
   // tests are all false for it — so a non-finite pose would pass bounds AND
@@ -569,6 +602,18 @@ function check(index: Index, candidate: PlacementCandidate): Violation[] {
     if (blocker) return [{ kind: 'duplicate', unique: entry.unique }]
   }
 
+  // Source doc §17: the human figure stands wherever it is put, "including places
+  // other elements are not allowed". Everything from here down is a placement
+  // rule, and it answers to none of them — no zone, no clearance, not even the
+  // venue outline (see the flag's own note in catalog/types.ts).
+  //
+  // Below the two gates above rather than at the very top, and that is the whole
+  // of the ordering decision: a non-finite pose is corruption, not a placement,
+  // and `unique` is a statement about how many of a thing the scene may hold,
+  // which is not a question about WHERE. Both would still hold for a future
+  // entry that carried them alongside this flag.
+  if (entry.placeAnywhere) return []
+
   // A table-top item lives in its parent's local space: the venue rules simply
   // do not apply to it. It answers to two rules of its own — its host must
   // already be on the same table, and it may not stand in another item there.
@@ -594,7 +639,14 @@ function check(index: Index, candidate: PlacementCandidate): Violation[] {
 
   // A hung fixture clears every floor rule below it — pushing chandeliers out of
   // the dance floor is exactly the bug the existing exemption fixed.
-  if (entry.placement === 'ceiling') return out
+  //
+  // ⚠ Its OWN siting rule is not a floor rule and does not clear. Source doc §29
+  // puts the lamp cluster over the bar and nowhere else, and until this line the
+  // exemption swallowed that too: `allowedZones` is read further down, so a
+  // ceiling entry that declared one returned here first and was legal over the
+  // whole hall, in silence and with nothing failing. The band is the one question
+  // asked of both storeys, so it is asked before the exemption rather than after.
+  if (entry.placement === 'ceiling') return [...out, ...bandViolations(index, entry, self)]
 
   // A fixed station never answers for the point it was dropped at: clampToVenue
   // snaps it into its home zone from anywhere, so the drop point is not where it
@@ -623,27 +675,8 @@ function check(index: Index, candidate: PlacementCandidate): Violation[] {
     out.push({ kind: 'forbiddenZone', zone: zone.kind ?? zone.label ?? '' })
   }
 
-  // "around the pool", not "in the pool": a band `within` cm outside the zone.
-  //
-  // Only the rules whose zone EXISTS in this venue are weighed. A rule naming a
-  // zone the pack does not have is not a rule the venue can fail — the same
-  // reading `zoneKind` states outright (catalog/types.ts:188-193: "Venues without
-  // a matching zone (procedural room) place it freely"), and the two mechanisms
-  // are the same idea seen from either end. Without it, `index.zones` being empty
-  // makes `inBand` false everywhere and vegetation 1 becomes unplaceable in every
-  // procedural room and in every future pack without a `saviv` rectangle.
-  //
-  // "There is no such zone here" and "the zone is here and the item is not in it"
-  // are different answers, and only the second is a `wrongZone`. One existing zone
-  // is enough to make the rule apply: `known` is what the item is then measured
-  // against, and what the refusal names — never a zone this hall does not have.
-  const known = entry.allowedZones?.filter((rule) => index.zones.some((z) => z.kind === rule.kind))
-  if (known?.length) {
-    const inBand = known.some((rule) =>
-      index.zones.some((z) => z.kind === rule.kind && shapeGap(self, zoneShape(z)) <= rule.within),
-    )
-    if (!inBand) out.push({ kind: 'wrongZone', allowed: known.map((r) => r.kind) })
-  }
+  // "around the pool", not "in the pool" — see `bandViolations`
+  out.push(...bandViolations(index, entry, self))
 
   if (entry.nearWall !== undefined) {
     const centre = { x: candidate.transform.position.x, y: candidate.transform.position.y }
