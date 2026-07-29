@@ -107,9 +107,18 @@ const BAR_METRES = [10, 5, 2]
 const NOTE_FONT_SIZE = 46
 const TITLE_FONT_SIZE = 72
 
-/** dimmed side of the hall/reception toggle (source doc §18). ObjectsLayer dims
- *  the furniture standing on the far side to the same value — one number. */
-export const ZONE_OFF_OPACITY = 0.28
+/**
+ * dimmed side of the hall/reception toggle (source doc §18). ObjectsLayer dims
+ * the furniture standing on the far side to the same value — one number.
+ *
+ * Raised from 0.28 on 2026-07-29 at the user's request. The zone tints above are
+ * already only a few percent off the paper, so a further ×0.28 left the whole
+ * hall reading as a blank sheet the moment you stepped onto the deck — and since
+ * the hall is most of the drawing, the plan looked erased rather than backgrounded.
+ * The number has to be low enough that the active side clearly wins and high
+ * enough that the other side is still context you can navigate by.
+ */
+export const ZONE_OFF_OPACITY = 0.45
 
 interface ZoneTint {
   fill: string
