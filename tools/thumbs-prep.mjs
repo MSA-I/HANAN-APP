@@ -83,7 +83,9 @@ const MAPPING = [
   { id: 'bar.back-wall', src: 'קיר מאחורי הבר.png' },
   // §36 of the corrections document: the user replaced the DJ reference. DJ2.png of
   // the four DJ*.png at the GPT root is the one they named. Only the SOURCE moves —
-  // the output is still dj-booth.webp, so entries/bars.ts:70 needs no edit.
+  // the output is still dj-booth.webp, so `djBooth.thumbnail` in entries/bars.ts
+  // needs no edit. (Named, not numbered: that pointer said ":70" and the field has
+  // since moved twice.)
   { id: 'dj.booth', src: 'DJ2.png' },
   { id: 'plant.potted', src: 'צמחייה 1.png' },
   { id: 'plant.potted-2', src: 'צמחייה 2.png' },
