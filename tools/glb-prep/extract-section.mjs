@@ -35,15 +35,34 @@
  *                       the pack rectangle. Whole polylines, never partial: a
  *                       clipped wall loop would stop being a loop and would draw
  *                       as a line instead of poché.
+ *   --column-max <cm>   a closed run this size or smaller in BOTH directions may
+ *                       be a column. default 120
+ *   --column-ratio <r>  …and only if its bbox is that compact. default 1.6
  *
- * The output is polylines, not triangles: `{ closed, pts: [[x,y], …] }`. A slice
- * through a wall closes on itself and is drawn filled (that is the poché); a
- * slice through a sheet of glazing does not and is drawn as a line. Deciding
- * that here rather than in the renderer keeps the drawing code dumb.
+ * The output is polylines, not triangles:
+ * `{ kind, closed, material, pts: [[x,y], …] }`. A slice through a wall closes on
+ * itself and is drawn filled (that is the poché); a slice through a sheet of
+ * glazing does not and is drawn as a line. Deciding that here rather than in the
+ * renderer keeps the drawing code dumb.
  *
- * ponytail: no per-material line weights. Everything comes back as one class and
- * the renderer decides. If the plan ever needs "glazing thinner than wall", the
- * honest fix is to emit the material name per polyline, not to guess by size.
+ * `kind` is 'wall' | 'glazing' | 'railing' | 'opening' | 'column'. It replaces
+ * the note that used to stand here saying no per-material class was emitted and
+ * that the honest fix would be to emit the material name per polyline. This is
+ * that fix. Glazing and railing come from the material name and are therefore
+ * facts; column comes from the shape of the loop and is a measured rule stated at
+ * `classify()`; `opening` means UNCLASSIFIED and nothing more. There is no door
+ * material anywhere in the resort model, so a door is not classifiable at all and
+ * nothing in here should ever be read as one.
+ *
+ * How a polyline gets one material when the chain crosses several: segments are
+ * chained exactly as before — across materials — and each polyline records how
+ * many segments each material contributed, then takes the commonest. The
+ * alternative, chaining per material, was rejected because it changes topology:
+ * a wall whose two faces carry different materials would stop closing and would
+ * draw as two hairlines instead of one poché, which is the very failure this
+ * script exists to avoid. The cost is that a genuinely mixed run gets a single
+ * label; `--verbose` prints how pure the runs actually are so the cost stays
+ * measured rather than assumed.
  */
 import { NodeIO } from '@gltf-transform/core'
 import { KHRDracoMeshCompression } from '@gltf-transform/extensions'
@@ -69,6 +88,9 @@ const SNAP = Number(flag('--snap', 2))
 const MIN_LENGTH = Number(flag('--min-length', 25))
 const KEEP = flagAll('--keep-material')
 const DROP = flagAll('--drop-material')
+const COLUMN_MAX = Number(flag('--column-max', 120))
+const COLUMN_RATIO = Number(flag('--column-ratio', 1.6))
+const VERBOSE = argv.includes('--verbose')
 
 /** `1@0..4423` → { y: 1, x0: 0, x1: 4423 }; a bare `1` spans everything. */
 function parseCut(spec) {
@@ -146,6 +168,19 @@ const planY = (z) => (z - fz) * 100
 const EPS = 1e-9
 const segments = cuts.map(() => [])
 const contributors = new Map()
+// Segments carry an INDEX into this table rather than the name itself: there are
+// a few hundred thousand of them and a string per segment is pure garbage.
+const materials = []
+const materialIndex = new Map()
+const materialId = (name) => {
+  let i = materialIndex.get(name)
+  if (i === undefined) {
+    i = materials.length
+    materials.push(name)
+    materialIndex.set(name, i)
+  }
+  return i
+}
 
 for (const node of doc.getRoot().listNodes()) {
   const mesh = node.getMesh()
@@ -160,6 +195,7 @@ for (const node of doc.getRoot().listNodes()) {
 
     const pos = prim.getAttribute('POSITION')
     if (!pos) continue
+    const mat = materialId(name)
     const p = pos.getArray()
     const idx = prim.getIndices()?.getArray()
     const count = idx ? idx.length : p.length / 3
@@ -203,7 +239,7 @@ for (const node of doc.getRoot().listNodes()) {
         const { x0, x1 } = cuts[c]
         if (a[0] < x0 && b[0] < x0) continue
         if (a[0] > x1 && b[0] > x1) continue
-        segments[c].push([a[0], a[1], b[0], b[1]])
+        segments[c].push([a[0], a[1], b[0], b[1], mat])
         contributors.set(name, (contributors.get(name) ?? 0) + 1)
       }
     }
@@ -217,6 +253,7 @@ for (const node of doc.getRoot().listNodes()) {
 // against "two walls 2 cm apart merge into one".
 const key = (x, y) => `${Math.round(x / SNAP)},${Math.round(y / SNAP)}`
 
+/** → `{ pts, mats }`, `mats` counting segments contributed per material index. */
 function chain(segs) {
   const ends = new Map()
   const used = new Array(segs.length).fill(false)
@@ -236,8 +273,9 @@ function chain(segs) {
   for (let i = 0; i < segs.length; i++) {
     if (used[i]) continue
     used[i] = true
-    const [ax, ay, bx, by] = segs[i]
+    const [ax, ay, bx, by, mat] = segs[i]
     const pts = [[ax, ay], [bx, by]]
+    const mats = new Map([[mat, 1]])
 
     // grow from the tail, then from the head, so a chain found from its middle
     // still comes out as one polyline
@@ -249,11 +287,13 @@ function chain(segs) {
         if (next === undefined) break
         used[next] = true
         const pt = take(k, next)
+        const nm = segs[next][4]
+        mats.set(nm, (mats.get(nm) ?? 0) + 1)
         if (dir === 0) pts.push(pt)
         else pts.unshift(pt)
       }
     }
-    polylines.push(pts)
+    polylines.push({ pts, mats })
   }
   return polylines
 }
@@ -298,23 +338,81 @@ const touchesClip = (pts) => {
   return x1 >= cx0 && x0 <= cx1 && y1 >= cy0 && y0 <= cy1
 }
 
+// --- classify ----------------------------------------------------------------
+// SketchUp material names arrive with whatever punctuation the modeller typed —
+// the glazing in this model is literally named `'Glass'`, quotes included — so
+// compare on a stripped, lower-cased name rather than on the raw string.
+const norm = (s) => s.replace(/^['"\s]+|['"\s]+$/g, '').toLowerCase()
+const MATERIAL_KIND = new Map([
+  ['glass', 'glazing'],
+  ['glass railing color', 'railing'],
+])
+
+const bbox = (pts) => {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const [x, y] of pts) {
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x)
+    y0 = Math.min(y0, y); y1 = Math.max(y1, y)
+  }
+  return [x1 - x0, y1 - y0]
+}
+
+/**
+ * Material first, because it is evidence; shape only where no material says
+ * anything.
+ *
+ * The column test is COMPACTNESS, not spatial isolation. The obvious rule —
+ * "a small closed loop with nothing near it" — was tried against the data and
+ * rejected: the six 50×50 columns along the resort's south wall sit 1 cm from
+ * the wall run they stand in (the wall polyline ends at x=564, the column starts
+ * at x=565), so an isolation test throws away the real columns. What actually
+ * separates them from the wall stubs is that a column's cross-section is close
+ * to square while a wall stub is a slab — the north facade's mullion stubs are
+ * all 10 cm deep and 4…44 cm wide, i.e. ratios of 2.2 upwards, and the tightest
+ * true column measures 30.6×35.1 at ratio 1.15. COLUMN_RATIO sits between them.
+ *
+ * Everything else that closed is a wall cross-section, which is exactly what the
+ * poché fill has always assumed. Everything that did not close is `opening`, and
+ * `opening` states only that this run was not classified. It is NOT a door: the
+ * model has no door material, so no door is identifiable from it at all.
+ */
+function classify(pts, closed, material) {
+  const kind = MATERIAL_KIND.get(norm(material))
+  if (kind) return kind
+  if (!closed) return 'opening'
+  const [w, h] = bbox(pts)
+  const long = Math.max(w, h)
+  const short = Math.min(w, h)
+  if (long <= COLUMN_MAX && short > 0 && long / short <= COLUMN_RATIO) return 'column'
+  return 'wall'
+}
+
 const lines = []
 let dropped = 0
+let mixed = 0
 segments.forEach((segs, c) => {
   const joined = chain(segs)
-    .map((pts) => simplify(pts))
-    .filter((pts) => length(pts) >= MIN_LENGTH)
-    .filter((pts) => {
-      if (touchesClip(pts)) return true
+    .map((pl) => ({ ...pl, pts: simplify(pl.pts) }))
+    .filter((pl) => length(pl.pts) >= MIN_LENGTH)
+    .filter((pl) => {
+      if (touchesClip(pl.pts)) return true
       dropped++
       return false
     })
-  for (const pts of joined) {
+  for (const { pts, mats } of joined) {
     const closed = pts.length > 3 && key(pts[0][0], pts[0][1]) === key(pts[pts.length - 1][0], pts[pts.length - 1][1])
-    lines.push({
+    const ranked = [...mats.entries()].sort((a, b) => b[1] - a[1])
+    const total = ranked.reduce((n, [, k]) => n + k, 0)
+    const material = materials[ranked[0][0]]
+    if (ranked.length > 1) mixed++
+    const line = {
+      kind: classify(pts, closed, material),
       closed,
+      material,
       pts: (closed ? pts.slice(0, -1) : pts).map(([x, y]) => [Math.round(x * 10) / 10, Math.round(y * 10) / 10]),
-    })
+    }
+    if (VERBOSE) line.purity = Math.round((ranked[0][1] / total) * 100) / 100
+    lines.push(line)
   }
   console.log(`cut ${cuts[c].y}m: ${segs.length} segments → ${joined.length} polylines`)
 })
@@ -324,12 +422,43 @@ const payload = {
   cuts: cuts.map((c) => ({ height: c.y, x0: c.x0 === -Infinity ? null : c.x0, x1: c.x1 === Infinity ? null : c.x1 })),
   snap: SNAP,
   minLength: MIN_LENGTH,
+  columnMax: COLUMN_MAX,
+  columnRatio: COLUMN_RATIO,
   lines,
 }
 writeFileSync(OUT, JSON.stringify(payload))
 
 const top = [...contributors.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12)
 console.log('\nmaterials that crossed a cut plane (top 12):')
-for (const [name, n] of top) console.log(`  ${String(n).padStart(7)}  ${name}`)
+for (const [name, n] of top) console.log(`  ${String(n).padStart(7)}  ${JSON.stringify(name)}`)
 if (clip) console.log(`\nclip ${clipArg}: dropped ${dropped} polylines lying wholly outside`)
+
+console.log('\nkind          total   closed     open')
+for (const k of ['wall', 'glazing', 'railing', 'column', 'opening']) {
+  const sub = lines.filter((l) => l.kind === k)
+  if (!sub.length) { console.log(`  ${k.padEnd(10)} ${String(0).padStart(6)}`); continue }
+  console.log(
+    `  ${k.padEnd(10)} ${String(sub.length).padStart(6)}   ${String(sub.filter((l) => l.closed).length).padStart(6)}   ${String(sub.filter((l) => !l.closed).length).padStart(6)}`,
+  )
+}
 console.log(`\n${lines.length} polylines (${lines.filter((l) => l.closed).length} closed) → ${OUT}`)
+console.log(`${mixed} of them were chained across more than one material (dominant material wins)`)
+
+if (VERBOSE) {
+  console.log('\nper-kind source materials:')
+  const byKind = new Map()
+  for (const l of lines) {
+    if (!byKind.has(l.kind)) byKind.set(l.kind, new Map())
+    const m = byKind.get(l.kind)
+    m.set(l.material, (m.get(l.material) ?? 0) + 1)
+  }
+  for (const [k, m] of byKind) {
+    console.log(`  ${k}:`)
+    for (const [name, n] of [...m.entries()].sort((a, b) => b[1] - a[1])) {
+      console.log(`    ${String(n).padStart(5)}  ${JSON.stringify(name)}`)
+    }
+  }
+  const impure = lines.filter((l) => l.purity < 1)
+  console.log(`\n${impure.length} polylines are not single-material; lowest purity ${
+    impure.length ? Math.min(...impure.map((l) => l.purity)) : 1}`)
+}

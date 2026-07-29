@@ -165,7 +165,14 @@ describe('fillHallSlots', () => {
 describe('ceilingAreas', () => {
   it('adds the covered zones to the free floor but never the pool or corridor', () => {
     const rings = ceilingAreas(resort, { size: resort.size })
-    expect(rings.length).toBe(resort.floorAreas!.length + 3) // dancefloor, bar, chuppah
+    // One ring per COVERED zone, counted off the pack. `CEILING_OVER` is private
+    // to fillHall.ts, so the kinds are still pinned here — but the COUNT must not
+    // be: a re-import can add a rectangle to any of them, and 2026-07-29 added a
+    // second chuppah on the reception deck. The frozen `+ 3` this replaces turned
+    // that venue change into what read as a ceilingAreas bug.
+    const COVERED = ['dancefloor', 'bar', 'chuppah']
+    const covered = resort.restricted!.filter((z) => COVERED.includes(z.kind ?? ''))
+    expect(rings.length).toBe(resort.floorAreas!.length + covered.length)
 
     // Open water. NB the chuppah and DJ rectangles sit INSIDE the pool rectangle
     // in this pack (a chuppah over the water), so a pool point must be sampled
