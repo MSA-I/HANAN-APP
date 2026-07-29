@@ -223,22 +223,27 @@ export const tableDecorEntries: CatalogEntry[] = [
   //
   // Height 18.73 → 15.0 is the wine glass, the tallest of the model's 9 meshes.
   //
-  // ⚠ THE MODEL IS DELIBERATELY THE MERGED FILE, not the re-segmented one. Source
-  // doc §28 asks for glass on the two drinking vessels, which needs a re-imported
-  // model whose parts can be addressed separately; that file is prepped and
-  // shipped as `decor-place-setting-segmented.glb`, and the catalog does NOT point
-  // at it. Its 81 Tripo parts are all named `Material_tripo_part_<n>` and are
-  // byte-for-byte identical (metallic 1, rough 1, OPAQUE, and none of the 81
-  // carries transmission/volume/ior), so NOTHING in the file says which parts are
-  // the glasses. Swapping it in without that answer costs 81 draw calls per cover
-  // — 1,782 on a 22-seat table, since propModel emits a mesh per part and props
-  // are not instanced — for an identical picture: same 94,352 triangles, same
-  // textures, same 45.00 × 39.14 × 18.73 bounds as the merged file, which is why
-  // `modelSize` below is unchanged either way. Gate 2 of the plan says not to
-  // guess which; the candidate part lists and the exact implementation are in
-  // Plans/R3/handoff/BLOCKED-05-A3.md, awaiting the user's word.
+  // ⚠ THE SEGMENTED FILE, and that is the whole point of source doc §28: glass on
+  // the two drinking vessels needs parts that can be addressed separately, and the
+  // merged file this replaced was one mesh with one material.
+  //
+  // Nothing in a Tripo export says which parts are the glasses — all 81 are named
+  // `Material_tripo_part_<n>` and declare the same opaque metal. They are found by
+  // geometry and renamed by `tools/glb-prep/mark-glass.mjs` (38 fragments of a
+  // wine glass, 32 of a water glass), and propModel merges parts that share a
+  // name, so the cost is 13 draw calls per cover and not 81 — 286 on a 22-seat
+  // table rather than 1,782. It was 1 before, which is the price of the feature.
+  //
+  // ⚠ RE-PREP WITH `--yaw 180`. The re-import comes out of Tripo turned half a
+  // circle from the file it replaces — measured on the same feature, the glass rim,
+  // at (−7.898, +14.211) against (+7.899, −14.211). Without the yaw every saved
+  // place setting spins 180° and STACK_OFFSETS flips sign:
+  //   node glb-prep.mjs "…/ערכת סכום-ריזורט.glb" ../../public/props/decor-place-setting-segmented.glb --mode prop --diameter 45 --yaw 180
+  //   node mark-glass.mjs ../../public/props/decor-place-setting-segmented.glb
+  // Same 94,352 triangles and the same 45.00 × 39.14 × 18.73 bounds as the merged
+  // file, so `modelSize` below is unchanged and no migration is owed.
   {
-    ...surfaceProp('decor.place-setting', 'decorPlaceSetting', 'a full place setting: charger, plate, cutlery and a wine glass', P('decor-place-setting.glb'), { width: 36, depth: 31.3, height: 15 }, '#d9d4cb', 'rect'),
+    ...surfaceProp('decor.place-setting', 'decorPlaceSetting', 'a full place setting: charger, plate, cutlery and a wine glass', P('decor-place-setting-segmented.glb'), { width: 36, depth: 31.3, height: 15 }, '#d9d4cb', 'rect'),
     category: 'tableware',
     placement: 'seat',
     surfaceAnchor: 'free', // one per cover — never the centre

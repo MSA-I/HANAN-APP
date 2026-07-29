@@ -742,6 +742,39 @@ function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
  * material in `propModel.partCache` is never touched, so no cache key has to
  * carry the texture (BRIEF §1.8).
  */
+/**
+ * Which parts are glass, and what glass looks like.
+ *
+ * The marker is the material NAME, written into the GLB by
+ * `tools/glb-prep/mark-glass.mjs`. Nothing in a Tripo export says "glass": the 81
+ * parts of a place setting are all called `Material_tripo_part_<n>` and all
+ * declare the same opaque metal (Plans/R3/handoff/BLOCKED-05-A3.md). The prep
+ * step finds the two vessels by their geometry and renames them, which is a
+ * marking that survives re-prepping the same source — an index list would not.
+ *
+ * `transmission` costs a second render pass per frame, which is why this is
+ * built only for the parts that need it and never as a default.
+ */
+const isGlassPart = (material: THREE.Material) => material.name.startsWith('glass')
+
+/**
+ * ONE material for every glass on every table — glass carries no per-object state
+ * (no tint, no texture, no size), so a second instance would be a second shader
+ * upload for an identical surface. A 22-cover table alone would otherwise build
+ * 44. It is never disposed, which is why the cleanup below has to skip it.
+ */
+let sharedGlass: THREE.MeshPhysicalMaterial | null = null
+const glassMaterial = () =>
+  (sharedGlass ??= new THREE.MeshPhysicalMaterial({
+    color: '#ffffff',
+    metalness: 0,
+    roughness: 0.05,
+    transmission: 0.95,
+    thickness: 0.5,
+    ior: 1.5,
+    transparent: true,
+  }))
+
 function ModelParts({
   catalogId,
   url,
@@ -758,10 +791,18 @@ function ModelParts({
   const parts = useModelParts(catalogId, url, size)
   const invalidate = useThree((s) => s.invalidate)
   const map = useSlotTexture(slotTextureUrl(catalogId, slot))
+  const hasGlass = useMemo(() => parts.some((p) => isGlassPart(p.material)), [parts])
   const overriddenMaterials = useMemo(
     () =>
-      color || map
+      color || map || hasGlass
         ? parts.map(({ material }) => {
+            // A drinking vessel is not a tint of the mesh it was cut from — it is a
+            // different material class. The baked one is `metalness 1, roughness 1,
+            // OPAQUE`, and cloning it can never become glass: `transmission` lives on
+            // MeshPhysicalMaterial and the clone is Standard. So this one is BUILT,
+            // and the part's own baked texture is dropped on purpose — a transmissive
+            // surface has nothing to show it on.
+            if (isGlassPart(material)) return glassMaterial()
             const clone = material.clone()
             const tintable = clone as THREE.Material & {
               color?: THREE.Color
@@ -775,15 +816,18 @@ function ModelParts({
             return clone
           })
         : null,
-    [color, map, parts],
+    [color, map, hasGlass, parts],
   )
   // frameloop is "demand": a texture that arrives after the object was drawn has
   // to ask for the frame that shows it
   useEffect(() => invalidate(), [overriddenMaterials, invalidate])
   useEffect(
     () => () => {
-      // the clones are ours; the texture is shared per URL and outlives them
-      overriddenMaterials?.forEach((material) => material.dispose())
+      // the clones are ours; the texture is shared per URL and outlives them, and
+      // so does the one glass material every table's glasses point at
+      overriddenMaterials?.forEach((material) => {
+        if (material !== sharedGlass) material.dispose()
+      })
     },
     [overriddenMaterials],
   )
