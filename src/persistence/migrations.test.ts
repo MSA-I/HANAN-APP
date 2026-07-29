@@ -974,6 +974,142 @@ describe('v10 → v11 dj.booth shrinks to 0.7', () => {
   })
 })
 
+/**
+ * v11 → v12: the rolled napkin is catalogued at 0.62 of the model's own size, so
+ * every stored `decor.napkin-folded` is rewritten to the smaller size.
+ *
+ * A v11 file holds the napkin at the GLB's full bounds — that is what the entry
+ * declared from the day it was catalogued until this round, so it is what every
+ * project saved before the fix carries.
+ *
+ * The napkin is a CHILD of a place setting, which is itself a child of a table,
+ * so these files are built with the parent chain intact: the migration walks the
+ * objects map rather than objectOrder precisely because a napkin never appears in
+ * objectOrder, and a test on a top-level napkin would not prove that.
+ */
+function v11File(objects: Record<string, unknown>, order: string[]): unknown {
+  const pack = getVenuePack('resort')!
+  return {
+    schemaVersion: 11,
+    app: 'hanan-app',
+    savedAt: new Date().toISOString(),
+    project: {
+      id: 'p11',
+      schemaVersion: 11,
+      name: 'v11',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      scene: {
+        venue: {
+          size: { ...pack.size },
+          wallHeight: pack.wallHeight,
+          floor: { color: '#efebe4' },
+          elements: [],
+          venuePackId: 'resort',
+        },
+        objects,
+        objectOrder: order,
+        settings: { gridSize: 10, snapEnabled: true, showGrid: true, showLabels: true, layers: {} },
+      },
+    },
+  }
+}
+
+describe('v11 → v12 the rolled napkin shrinks onto the plate', () => {
+  const NAPKIN = 'decor.napkin-folded'
+  const SETTING = 'decor.place-setting'
+  /** the size a v11 file holds: the GLB's own bounds, read off the entry that states them */
+  const modelSize = () => getCatalogEntry(NAPKIN).modelSize!
+
+  const savedV11Project = () => {
+    const table = {
+      ...storedObject('t1', 'table.round', { ...getCatalogEntry('table.round').defaultSize }, 800, 800),
+    }
+    const cover = {
+      ...storedObject('c1', SETTING, { ...getCatalogEntry(SETTING).defaultSize }, 0, -60),
+      parentId: 't1',
+      attachment: { kind: 'surface' },
+    }
+    const napkin = {
+      ...storedObject('n1', NAPKIN, { ...modelSize() }, 0, -60),
+      parentId: 't1',
+      attachment: { kind: 'surface', stackedOn: 'c1' },
+    }
+    // the other two napkins did NOT change size, and one of them is here to say so
+    const other = {
+      ...storedObject('n2', 'decor.napkin-white', { ...getCatalogEntry('decor.napkin-white').defaultSize }, 0, 60),
+      parentId: 't1',
+      attachment: { kind: 'surface', stackedOn: 'c1' },
+    }
+    return v11File({ t1: table, c1: cover, n1: napkin, n2: other }, ['t1'])
+  }
+
+  it('rewrites a stored napkin to the catalogued size', () => {
+    const objects = migrateAndValidate(savedV11Project()).project.scene.objects
+    expect(objects.n1.size).toEqual(getCatalogEntry(NAPKIN).defaultSize)
+  })
+
+  it('and that size really is smaller than the model the loader fits', () => {
+    // The silent trap this pair guards: `defaultSize` shrank, so the entry MUST
+    // also state `modelSize` — the loader fits by `size / (modelSize ??
+    // defaultSize)`, and without it the ratio falls back to 1, so 3D keeps
+    // drawing the 30.8 cm napkin while 2D draws the small one and nothing fails.
+    // `modelSize!` above throws if the field is ever dropped; this says the
+    // catalogued size is a genuine reduction of it.
+    const { width, depth, height } = getCatalogEntry(NAPKIN).defaultSize
+    expect(width).toBeLessThan(modelSize().width)
+    expect(depth).toBeLessThan(modelSize().depth)
+    expect(height).toBeLessThan(modelSize().height)
+  })
+
+  it('shrinks it UNIFORMLY, so the loader cannot squash the model', () => {
+    // a per-axis fit onto a non-uniform reduction would stretch the napkin out of
+    // shape in 3D while 2D drew a plausible rectangle — the same reason
+    // `decor.place-setting` is a uniform 0.8 of its own file
+    const size = getCatalogEntry(NAPKIN).defaultSize
+    const model = modelSize()
+    const s = size.width / model.width
+    expect(size.depth / model.depth).toBeCloseTo(s, 3)
+    expect(size.height / model.height).toBeCloseTo(s, 3)
+  })
+
+  it('advances both version fields to the current one', () => {
+    const revived = migrateAndValidate(savedV11Project())
+    expect(revived.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(revived.project.schemaVersion).toBe(SCHEMA_VERSION)
+  })
+
+  it('leaves the cover, the table and the other napkin alone', () => {
+    const scene = migrateAndValidate(savedV11Project()).project.scene
+    expect(scene.objects.t1.size).toEqual(getCatalogEntry('table.round').defaultSize)
+    expect(scene.objects.c1.size).toEqual(getCatalogEntry(SETTING).defaultSize)
+    expect(scene.objects.n2.size).toEqual(getCatalogEntry('decor.napkin-white').defaultSize)
+  })
+
+  it('keeps the napkin pinned to its cover — the link is what the size fix rides on', () => {
+    const objects = migrateAndValidate(savedV11Project()).project.scene.objects
+    expect(objects.n1.attachment).toEqual({ kind: 'surface', stackedOn: 'c1' })
+    expect(objects.n1.parentId).toBe('t1')
+  })
+
+  it('does not move the napkin — where it sits is derived, not stored', () => {
+    // `stackedPosition` re-pins it onto the plate on the first clamp after load,
+    // so a position written here would be a second copy of that rule
+    const objects = migrateAndValidate(savedV11Project()).project.scene.objects
+    expect(objects.n1.transform.position).toEqual({ x: 0, y: -60 })
+    expect(objects.n1.transform.rotation).toBe(0)
+  })
+
+  it('is idempotent — a napkin already at the new size is unchanged', () => {
+    const file = v11File(
+      { n1: storedObject('n1', NAPKIN, { ...getCatalogEntry(NAPKIN).defaultSize }) },
+      ['n1'],
+    )
+    const objects = migrateAndValidate(file).project.scene.objects
+    expect(objects.n1.size).toEqual(getCatalogEntry(NAPKIN).defaultSize)
+  })
+})
+
 describe('migrateAndValidate', () => {
   it('accepts a current-version ProjectFile round-trip', () => {
     const file = validFile()

@@ -135,13 +135,44 @@ export const tableDecorEntries: CatalogEntry[] = [
   // They are stable identifiers (stored projects and thumbnail filenames key off
   // them), so only the visible string changed.
   napkin(surfaceProp('decor.fabric-folded', 'decorFabricFolded', 'a folded fabric napkin standing on the place setting', P('decor-fabric-folded.glb'), { width: 6, depth: 10.8, height: 12 }, '#e8e2d8', 'rect')),
-  // 'מפית שטוחה' — source doc §14: the third napkin, which only ever got the
-  // colour slot bolted on and so stayed a centrepiece. It goes through napkin()
-  // like the other two, which is what makes it tableware, laid per cover on the
-  // place setting, and recolourable to anything.
+  // 'קיפול מפית מגולגל' — source doc §14: the third napkin, which only ever got
+  // the colour slot bolted on and so stayed a centrepiece. It goes through
+  // napkin() like the other two, which is what makes it tableware, laid per cover
+  // on the place setting, and recolourable to anything.
   // The id and the labelKey are STABLE IDENTIFIERS (stored projects and thumbnail
-  // filenames key off them) — only the visible string in ui/strings.ts changed.
-  napkin(surfaceProp('decor.napkin-folded', 'decorNapkinFolded', 'a folded napkin laid flat on the place setting', P('decor-napkin-folded.glb'), { width: 12.2, depth: 30.8, height: 10 }, '#f0ece4', 'rect')),
+  // filenames key off them) — only the visible string in ui/strings.ts changed,
+  // which is why an id and a labelKey that both read "folded" now name a ROLLED
+  // napkin. The promptFragment is not an identifier and does track the item.
+  //
+  // SIZE (round-3 correction §13). This entry used to state the GLB's own bounds,
+  // 12.2 × 30.78 × 10, and a 30.8 cm napkin cannot be laid on a ⌀23 cm plate: it
+  // overhung the cover by 8-11 cm, which IS the "the napkins are not laid on the
+  // plate" report. `defaultSize` is now a UNIFORM 0.62 of the file, and
+  // `modelSize` states the file's own bbox — both halves in one edit, because
+  // shrinking `defaultSize` alone leaves the loader's fit ratio at 1 and 3D goes
+  // on drawing the old napkin while 2D draws the new one, silently
+  // (handoff/02-migration.md §6; catalog/types.ts:152-168).
+  //
+  // WHY 0.62, and against which circle. The napkin is laid ON the plate and keeps
+  // a rotation of its own once laid (state/actions.ts, `stackedPosition`), so the
+  // circle it must fit is its own CIRCUMcircle — its footprint diagonal — not its
+  // length. Measured on public/props/decor-place-setting.glb, 2026-07-29: the
+  // plate's flat rim is an annulus at r = 12.97…14.39 file cm, i.e. ⌀20.75 inside
+  // and ⌀23.03 outside once the cover's uniform 0.8 fit is applied. 0.62 puts the
+  // diagonal at hypot(7.56, 19.08) = 20.52, inside the INNER circle: the napkin
+  // spans the plate's well and its corners come down on the rim band at every
+  // rotation, never on the outer lip. Fitting the OUTER circle instead would
+  // allow 0.69, at which a corner reaches the very edge of the plate.
+  //
+  // The other two napkins need nothing, measured rather than assumed: their GLBs
+  // are 5.95 × 10.85 × 12 and 8.64 × 5.45 × 8, so their entries already state the
+  // file's own bounds, and their diagonals (12.35 and 10.15) are well inside
+  // ⌀20.75. Only this one was longer than the plate.
+  {
+    ...napkin(surfaceProp('decor.napkin-folded', 'decorNapkinFolded', 'a rolled napkin laid on the place setting', P('decor-napkin-folded.glb'), { width: 7.56, depth: 19.08, height: 6.2 }, '#f0ece4', 'rect')),
+    // measured on the shipped GLB, 2026-07-29 (min [-6.1, 0, -15.39], max [6.1, 10, 15.39])
+    modelSize: { width: 12.2, depth: 30.78, height: 10 },
+  },
   surfaceProp('decor.candleholders-glass', 'decorCandleholdersGlass', 'a row of small glass tealight holders', P('decor-candleholders-glass.glb'), { width: 5.4, depth: 29.4, height: 20 }, '#ccd6da', 'rect'),
   surfaceProp('decor.candelabrum-gold', 'decorCandelabrumGold', 'a gold candelabrum', P('decor-candelabrum-gold.glb'), { width: 30.3, depth: 36.8, height: 55 }, '#c9a86a'),
   surfaceProp('decor.candlestick-gold', 'decorCandlestickGold', 'a slim gold candlestick', P('decor-candlestick-gold.glb'), { width: 6.1, depth: 12.5, height: 40 }, '#c9a86a'),
@@ -191,6 +222,21 @@ export const tableDecorEntries: CatalogEntry[] = [
   // is not a size problem at all — see handoff/FOUND-03.md.
   //
   // Height 18.73 → 15.0 is the wine glass, the tallest of the model's 9 meshes.
+  //
+  // ⚠ THE MODEL IS DELIBERATELY THE MERGED FILE, not the re-segmented one. Source
+  // doc §28 asks for glass on the two drinking vessels, which needs a re-imported
+  // model whose parts can be addressed separately; that file is prepped and
+  // shipped as `decor-place-setting-segmented.glb`, and the catalog does NOT point
+  // at it. Its 81 Tripo parts are all named `Material_tripo_part_<n>` and are
+  // byte-for-byte identical (metallic 1, rough 1, OPAQUE, and none of the 81
+  // carries transmission/volume/ior), so NOTHING in the file says which parts are
+  // the glasses. Swapping it in without that answer costs 81 draw calls per cover
+  // — 1,782 on a 22-seat table, since propModel emits a mesh per part and props
+  // are not instanced — for an identical picture: same 94,352 triangles, same
+  // textures, same 45.00 × 39.14 × 18.73 bounds as the merged file, which is why
+  // `modelSize` below is unchanged either way. Gate 2 of the plan says not to
+  // guess which; the candidate part lists and the exact implementation are in
+  // Plans/R3/handoff/BLOCKED-05-A3.md, awaiting the user's word.
   {
     ...surfaceProp('decor.place-setting', 'decorPlaceSetting', 'a full place setting: charger, plate, cutlery and a wine glass', P('decor-place-setting.glb'), { width: 36, depth: 31.3, height: 15 }, '#d9d4cb', 'rect'),
     category: 'tableware',

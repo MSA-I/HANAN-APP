@@ -432,6 +432,31 @@ function capacities(seating: SeatingConfig, chair: Size3D): number[] {
  * The two flanks never reach here: `edgeLength` walks the two long edges of the
  * band and stops at the caps, which is why the heads have to be added rather
  * than falling out of the walk.
+ *
+ * ⚠ KNOWN CONSEQUENCE, MEASURED — the head CHAIRS are fine, the head PLACE
+ * SETTINGS are not. This is the whole of corrections-document item 27, which reads
+ * as "there are not 22 there like the number of chairs". There ARE 22: chairs,
+ * settings and the entry's declared count all agree (serpentine.test.ts asserts all
+ * three). What the eye counts short is two settings that have merged into their
+ * neighbours.
+ *
+ * Why, in one line: the two kinds of cover lie at 90° to each other across the
+ * band. A flank setting has its depth radial and sits 21.35 cm off the centre line,
+ * occupying [5.70, 37.00] across the 80 cm band; a head setting sits ON the centre
+ * line with its 36 cm WIDTH across it, spanning [−18.00, +18.00]. The free corridor
+ * down the middle is 11.4 cm wide, so they interpenetrate by 12.18…15.43 cm.
+ *
+ * NOT FIXABLE HERE, and that was established before it was accepted. Sweeping the
+ * head setting along the band from −60 to +160 cm never clears it: inside the band
+ * the penetration never falls below 10.61 cm, and the only clear positions are
+ * ≥ 9.85 cm PAST the cap — hanging over the floor, which is the defect the same
+ * round exists to remove. Insetting the flank walk away from the caps clears only
+ * by dropping three chairs (22 → 19) and squeezing the rest to a 1.48 cm gap.
+ * Both sweeps are tabulated in Plans/R3/handoff/05-serpentine.md.
+ *
+ * ponytail: the fix belongs to whoever owns the setting layout — either skip the
+ * head seats when laying settings on this table, or give it a cover narrow enough
+ * (≤ 11.4 cm across the band) to pass down the middle. Neither is a number here.
  */
 const HEAD_SEATS = 2
 

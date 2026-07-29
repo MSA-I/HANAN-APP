@@ -75,6 +75,71 @@ describe('the ring table has a real opening', () => {
   })
 })
 
+/**
+ * Source doc §26: "the circle that sits inside must cover the whole hole, there
+ * must be no GAP". `ring.table` was ⌀149.7 — the raw bounds of its GLB — against a
+ * ⌀156 opening, so 3 cm of floor showed all the way round. It is sized to the
+ * OPENING now, and both numbers are read from the catalog here so neither can move
+ * without the other (BRIEF §1.7).
+ *
+ * ⚠ The gap closes with no inner disc, and that is deliberate: the 2D layer draws a
+ * real `Ring` with the floor showing through it (viewer2d/footprintShapes.tsx —
+ * "a hole is a real hole"). Filling the hole in would have hidden a ⌀380 with
+ * nothing in it. What closes the gap is the two radii being equal.
+ */
+describe('§26 — the ring-centre table covers the whole opening', () => {
+  const RING_TABLE = 'ring.table'
+  const radiusOf = (catalogId: string) => {
+    const o = outlineOf(catalogId)
+    return o.kind === 'circle' ? o.r : Math.max(o.w, o.h) / 2
+  }
+
+  it('is exactly as wide as the hole it fills — no floor left showing', () => {
+    expect(radiusOf(RING_TABLE)).toBeCloseTo(R_INNER(), 6)
+    // and the 2D shape really is a filled disc of that radius, not an annulus
+    const e = getCatalogEntry(RING_TABLE)
+    const parts = e.footprint(e.defaultSize).parts
+    expect(parts).toHaveLength(1)
+    expect(parts[0]).toMatchObject({ kind: 'circle', r: R_INNER() })
+    expect(holeRadius(outlineOf(RING_TABLE))).toBe(0)
+  })
+
+  it('stands flush with the ⌀380 it sits in', () => {
+    expect(getCatalogEntry(RING_TABLE).defaultSize.height).toBe(
+      getCatalogEntry(RING).defaultSize.height,
+    )
+  })
+
+  /**
+   * ⚠ THE SILENT TRAP (handoff/02-migration.md §6). The 3D loader fits a model by
+   * `size / (modelSize ?? defaultSize)`. `ring.table` used to carry no `modelSize`,
+   * so that ratio was 1 whatever the entry declared: growing `defaultSize` alone
+   * would have left 3D rendering the old ⌀149.7 table inside a ⌀156 footprint —
+   * the gap gone from the plan, still there in the viewport, and nothing failing.
+   * This is the guard that makes deleting the field loud instead of silent.
+   */
+  it('states its FILE size too, so 3D grows the model instead of ignoring the change', () => {
+    const { defaultSize, modelSize } = getCatalogEntry(RING_TABLE)
+    if (!modelSize) throw new Error(`${RING_TABLE}: an entry sized to the hole must state its file's own size`)
+    // it is genuinely a rescale — equal sizes would mean the field is decorative
+    expect(modelSize.width).not.toBeCloseTo(defaultSize.width, 1)
+    expect(defaultSize.width / modelSize.width).toBeGreaterThan(1)
+    expect(defaultSize.height / modelSize.height).toBeLessThan(1)
+  })
+
+  it('drops into the well and covers it there too', () => {
+    const table = addObject(RING, { x: 1000, y: 700 })
+    const child = addObjectToSurface(RING_TABLE, table, { x: 1000, y: 700 })!
+    const obj = scene().objects[child]
+    // centred in the opening, standing on the floor through it
+    expect(obj.transform.position).toEqual({ x: 0, y: 0 })
+    expect(obj.transform.elevation).toBe(0)
+    // and the placed instance is still hole-wide, so the gap cannot come back via
+    // a resize the inspector allowed
+    expect(Math.max(obj.size.width, obj.size.depth) / 2).toBeGreaterThanOrEqual(R_INNER())
+  })
+})
+
 describe('a hand-placed centrepiece', () => {
   it('stands on the floor through the opening of a ring table', () => {
     const table = addObject(RING, { x: 1000, y: 700 })
