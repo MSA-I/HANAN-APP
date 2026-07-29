@@ -30,7 +30,12 @@ import {
 import type { Vec2 } from '../core/model/types'
 import { venueOutline } from '../core/venueOutline'
 import { getVenuePack, type RestrictedZone } from '../core/venuePacks'
-import { cachedVenueSection, loadVenueSection, type VenueSection } from '../core/venueSection'
+import {
+  cachedVenueSection,
+  loadVenueSection,
+  type SectionKind,
+  type VenueSection,
+} from '../core/venueSection'
 import { isObjectVisible } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { strings } from '../ui/strings'
@@ -60,6 +65,7 @@ const LEVEL_TEXT = '#6b635a'
  * thickness and the stroke only keeps a 5 cm wall from disappearing at
  * fit-the-venue zoom, where 5 cm is one and a half pixels.
  */
+const INK_GLAZING = '#5a6b74'
 /** `kind: 'opening'` means UNCLASSIFIED, and 45 of the resort's 47 are a seam in
  *  the extractor rather than a hole in the building (handoff/01-section.md §6).
  *  Drawing them in wall ink is what produced the "scattered black stumps"; they
@@ -71,6 +77,7 @@ const INK_FLOOR_EDGE = '#7d746a'
 const INK_NOTE = '#57504a'
 
 const W_POCHE_EDGE = 0.75
+const W_GLAZING = 1.8
 const W_UNCLASSED = 0.9
 const W_FLOOR_EDGE = 1.6
 const W_NOTE = 1.3
@@ -144,43 +151,84 @@ const ZONE_TINT: Record<string, ZoneTint> = {
 const FALLBACK_TINT: ZoneTint = { fill: '#f0eff4', stroke: '#c0bcc8' }
 
 /**
- * The building, cut. `closed` runs are wall cross-sections and are FILLED — that
- * is the poché, and it is why an opening reads as an opening: there is simply no
- * loop across it. Open runs are surfaces the plane clipped without going around.
+ * One drawing convention per `SectionKind`.
+ *
+ * `fill` is what separates the two things the cut plane can go through. A wall
+ * and a column are SOLID, so the loop is filled and that is the poché. Glass is
+ * not: the resort's glazing runs are 1.0–1.2 cm thick, and filling them made a
+ * frameless glass wall into a thin black smear indistinguishable from a chopped
+ * wall. Stroking the loop instead gives the double line a plan uses for glass —
+ * both faces at high zoom, collapsing to one line as you pull back, which is
+ * exactly how it should degrade.
+ *
+ * ⚠ `railing` has ZERO instances in the resort asset, and that is measured, not
+ * broken: `Glass Railing Color` exists in the GLB but only between 0.60–0.75 m
+ * and 1.46–1.50 m, and the hall is cut at 1.00 m — straight through the gap
+ * where the infill glass (material `'Glass'`) lives instead. The convention is
+ * here so that lowering the cut needs no code, and the one real railing in the
+ * building — 3.03 m of it, two glass panels at planX 617…913 on the south edge —
+ * currently arrives as `glazing`, which is what it physically is at 1.00 m.
+ *
+ * ⚠ `dash` is in WORLD cm, unlike every width here: Konva has no
+ * `dashScaleEnabled`. 24/16 cm reads as a dash across the useful zoom range.
+ */
+interface SectionPen {
+  ink: string
+  width: number
+  fill: boolean
+  dash?: number[]
+}
+
+const SECTION_PENS: Record<SectionKind, SectionPen> = {
+  wall: { ink: WALL, width: W_POCHE_EDGE, fill: true },
+  // poché too — a cut column is solid, same as a cut wall — but with a heavier
+  // edge, which is what stops the six 50×50 columns along the south wall from
+  // reading as loose black squares next to the wall band they touch.
+  column: { ink: WALL, width: W_POCHE_EDGE * 2.4, fill: true },
+  glazing: { ink: INK_GLAZING, width: W_GLAZING, fill: false },
+  railing: { ink: INK_GLAZING, width: W_GLAZING * 0.8, fill: false, dash: [24, 16] },
+  opening: { ink: INK_UNCLASSED, width: W_UNCLASSED, fill: false },
+}
+
+/**
+ * Painting order, lightest first. The file's own order is the order the chainer
+ * happened to finish runs in, so without this a 4 cm unclassified fragment can
+ * land on top of the wall it was chopped off, and 45 of them do exactly that
+ * along x = 4423.
+ */
+const KIND_ORDER: SectionKind[] = ['opening', 'railing', 'glazing', 'wall', 'column']
+
+/**
+ * The building, cut.
  *
  * ⚠ The poché used to carry NO stroke, on the reasoning that its width IS the
  * wall's width and a stroke would fatten it. That is right for a WORLD stroke
  * and wrong for a screen one: 22 of the resort's 74 wall runs are 5 cm thick and
  * at fit-the-venue zoom (0.28 px/cm) they are a pixel and a half of grey. The
- * screen-space edge below is what keeps a thin wall a wall when you zoom out,
- * and it adds a constant fraction of a pixel rather than centimetres.
+ * screen-space edge is what keeps a thin wall a wall when you zoom out, and it
+ * adds a constant fraction of a pixel rather than centimetres.
  */
 function SectionLines({ section }: { section: VenueSection }) {
   return (
     <Fragment>
-      {section.lines.map((line, i) =>
-        line.closed ? (
-          <Line
-            key={`sc${i}`}
-            points={line.pts.flat()}
-            closed
-            fill={WALL}
-            stroke={WALL}
-            strokeWidth={W_POCHE_EDGE}
-            strokeScaleEnabled={false}
-            listening={false}
-          />
-        ) : (
-          <Line
-            key={`so${i}`}
-            points={line.pts.flat()}
-            stroke={INK_UNCLASSED}
-            strokeWidth={W_UNCLASSED}
-            strokeScaleEnabled={false}
-            listening={false}
-          />
-        ),
-      )}
+      {KIND_ORDER.map((kind) => {
+        const pen = SECTION_PENS[kind]
+        return section.lines.map((line, i) =>
+          line.kind !== kind ? null : (
+            <Line
+              key={`s${i}`}
+              points={line.pts.flat()}
+              closed={line.closed}
+              fill={pen.fill && line.closed ? pen.ink : undefined}
+              stroke={pen.ink}
+              strokeWidth={pen.width}
+              dash={pen.dash}
+              strokeScaleEnabled={false}
+              listening={false}
+            />
+          ),
+        )
+      })}
     </Fragment>
   )
 }
