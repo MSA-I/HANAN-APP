@@ -54,14 +54,63 @@ describe('beamCrossings', () => {
 })
 
 describe('beamSpans', () => {
+  const xs = beams.find((b) => b.axis === 'y')!.positions
+  const ys = beams.find((b) => b.axis === 'x')!.positions
+
   it('draws an `axis: y` family as vertical lines and an `axis: x` family as horizontal ones', () => {
     const spans = beamSpans(beams, resort.size)
     const runsY = spans.filter((s) => s.axis === 'y')
     const runsX = spans.filter((s) => s.axis === 'x')
-    expect(runsY.every((s) => s.x1 === s.x2 && s.y1 === 0 && s.y2 === resort.size.depth)).toBe(true)
-    expect(runsX.every((s) => s.y1 === s.y2 && s.x1 === 0 && s.x2 === resort.size.width)).toBe(true)
-    expect(runsY.map((s) => s.x1)).toEqual(beams.find((b) => b.axis === 'y')!.positions)
-    expect(runsX.map((s) => s.y1)).toEqual(beams.find((b) => b.axis === 'x')!.positions)
+    expect(runsY.every((s) => s.x1 === s.x2)).toBe(true)
+    expect(runsX.every((s) => s.y1 === s.y2)).toBe(true)
+    expect(runsY.map((s) => s.x1)).toEqual(xs)
+    expect(runsX.map((s) => s.y1)).toEqual(ys)
+  })
+
+  /**
+   * The drawing and the snap have to describe the same rectangle, because they
+   * are the same promise made twice: a line says "a fixture can hang here" and
+   * `snapToBeam` decides whether one actually can.
+   *
+   * ⚠ They did not agree before 2026-07-29. The spans were stretched across the
+   * PACK rectangle, so on the resort the three cross-runs were drawn from x 0 to
+   * x 6051 — 1.8 m past the outermost tube and straight over the open reception
+   * deck, where there is no roof, no truss, and no reachable position at all.
+   */
+  it('draws each beam over exactly the stretch a fixture can slide along', () => {
+    const spans = beamSpans(beams, resort.size)
+    for (const s of spans.filter((v) => v.axis === 'y')) {
+      // the far end of a vertical beam is bounded by the outermost cross-run …
+      expect([s.y1, s.y2]).toEqual([Math.min(...ys), Math.max(...ys)])
+      // … which is where the snap holds a fixture sliding past either end
+      expect(snapToBeam({ x: s.x1, y: -9999 }, beams)).toEqual({ x: s.x1, y: s.y1 })
+      expect(snapToBeam({ x: s.x1, y: 9999 }, beams)).toEqual({ x: s.x1, y: s.y2 })
+    }
+    for (const s of spans.filter((v) => v.axis === 'x')) {
+      expect([s.x1, s.x2]).toEqual([Math.min(...xs), Math.max(...xs)])
+      expect(snapToBeam({ x: -9999, y: s.y1 }, beams)).toEqual({ x: s.x1, y: s.y1 })
+      expect(snapToBeam({ x: 9999, y: s.y1 }, beams)).toEqual({ x: s.x2, y: s.y1 })
+    }
+  })
+
+  it('never draws a beam over the reception deck, which has no truss', () => {
+    // the deck floor starts at x 4432 (venuePacks floorAreas / zones); the last
+    // real tube is at 4208, so nothing drawn may reach past it
+    const deckStart = 4432
+    expect(Math.max(...xs)).toBeLessThan(deckStart)
+    for (const s of beamSpans(beams, resort.size)) {
+      expect(Math.max(s.x1, s.x2)).toBeLessThan(deckStart)
+    }
+    // and the pack really is wider than that, so this is not vacuous
+    expect(resort.size.width).toBeGreaterThan(deckStart)
+  })
+
+  it('follows a lone family across the room, since nothing bounds it', () => {
+    const lone = [{ axis: 'y' as const, positions: [100, 200], height: 900 }]
+    const spans = beamSpans(lone, { width: 1000, depth: 600 })
+    expect(spans.every((s) => s.y1 === 0 && s.y2 === 600)).toBe(true)
+    // matching snapToBeam, which leaves an unbounded axis exactly where it was
+    expect(snapToBeam({ x: 260, y: 577 }, lone)).toEqual({ x: 200, y: 577 })
   })
 
   it('puts every crossing on exactly one span of each direction', () => {

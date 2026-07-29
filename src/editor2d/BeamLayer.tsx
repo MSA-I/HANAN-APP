@@ -24,13 +24,20 @@ const VEIL = 'rgba(255,255,255,0.62)'
 
 /**
  * The lighting-planning overlay: the warp-and-weft of the ceiling truss drawn in
- * dashes over a dimmed plan, with a dot on every crossing.
+ * dashes over a dimmed plan, with a dot on every crossing. This is the ONLY place
+ * in the app where beams are drawn at all — the 3D view shows the truss baked
+ * into `venue.glb` and never reads `ceilingBeams` (AGENT-BRIEF §8.4), so the two
+ * are independent representations of one truss and this one has to earn its
+ * agreement with the other.
  *
- * The dots are the point of the mode. `snapToBeam` pins a fixture to a CROSSING
- * and not to the nearest beam (core/layout/beams.ts), and the same snap runs on
- * the drop, on every 2D drag and on paste (state/actions.ts) — so without them
- * the chandelier looks like it jumps for no reason. On the resort grid there are
- * 9 × 4 = 36 of them.
+ * ⚠ The lines are the point of the mode, not the dots. `snapToBeam` pins a
+ * fixture to the nearest BEAM and lets it slide along that beam; it has not
+ * snapped to a crossing since PLAN-05 (core/layout/beams.ts, and the string in
+ * ui/strings.ts was corrected in 0aabc1f while this comment was not). The dots
+ * mark where both families hold the fixture and both axes snap at once — 11 × 3 =
+ * 33 of them on the resort grid, not the 9 × 4 = 36 quoted before the 2026-07-29
+ * re-extraction. The same snap runs on the drop, on every 2D drag and on paste
+ * (state/actions.ts), so the lines are what explain where a chandelier will go.
  *
  * ⚠ Stroke widths and dashes here are in SCREEN pixels, not world cm, because
  * `strokeScaleEnabled={false}` makes Konva stroke under an identity transform —
