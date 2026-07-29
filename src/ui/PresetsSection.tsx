@@ -820,6 +820,10 @@ export function ScenePresetsSection() {
 
   return (
     <>
+      {/* FIRST, not last: this section renders immediately below HallLayoutsSection,
+          so the dev button lands right under "פריסות אישיות" — the neighbour the
+          user named when he reported it missing. See BakeFixturesSection. */}
+      <BakeFixturesSection />
       <Section title={T.autoFill}>
         <Picker value={presetId} onChange={setPresetId} options={TABLE_PRESETS} />
         <button
@@ -866,7 +870,6 @@ export function ScenePresetsSection() {
         )}
       </Section>
       <LightingLayoutsSection />
-      <BakeFixturesSection />
     </>
   )
 }
@@ -876,19 +879,39 @@ export function ScenePresetsSection() {
  * on screen into `src/core/venueFixtures.ts`, the file every new project is
  * seeded from.
  *
- * It lives HERE, under the layout pickers, because that is where the user went
- * looking for it: *"יש כפתור של פריסות אישיות אבל אין כפתור לשמירת אלמנטים כמו
- * שביקשתי"*. The button did exist — as an unlabelled pin between the select and
- * hand tools in the toolbar, which is not a place anyone would find it.
+ * ── WHAT IT WRITES ────────────────────────────────────────────────────────────
+ * POST /__bake → tools/bake-plugin.ts, which rewrites `src/core/venueFixtures.ts`
+ * wholesale. Everything in that file is re-seeded into every NEW project and
+ * carries `flags.frozen`, so it can no longer be moved or deleted from the UI.
+ * A second bake rewrites the first — frozen fixtures are posted back rather than
+ * skipped — so this is idempotent, not additive.
  *
- * DEV ONLY, twice over: `import.meta.env.DEV` here and `apply: 'serve'` in
- * tools/bake-plugin.ts, so it neither renders nor has an endpoint to call in a
- * production build ("זמנית … עבור הפיתוח"). Removing it later needs no other
- * change — the baked file stays, the factory keeps seeding it, and
- * `flags.frozen` keeps the roots put.
+ * ── WHY DEV ONLY ──────────────────────────────────────────────────────────────
+ * Gated twice: `import.meta.env.DEV` here, and `apply: 'serve'` on the Vite
+ * plugin, so in a production build it neither renders nor has an endpoint to
+ * call. It writes to the SOURCE TREE — there is no such thing as doing that from
+ * a deployed app ("זמנית … עבור הפיתוח"). Deleting it later needs no other
+ * change: the baked file stays, the factory keeps seeding it, `flags.frozen`
+ * keeps the roots put.
+ *
+ * ── WHY THE USER COULD NOT FIND IT (PLAN-04/G2) ───────────────────────────────
+ * The button has existed since round 2 and the report was still *"אין כפתור
+ * לשמירת אלמנטים כמו שביקשתי"*. Three causes, all fixed here, none of them a
+ * missing feature:
+ *   1. NAME — it said `'קיבוע האלמנטים'`; he searched for "שמירת מיקום אלמנטים".
+ *      Now `strings.presets.bakeSaveElements`, his own words.
+ *   2. PLACE — last child of the LAST section in the inspector, below auto-fill,
+ *      hall design and lighting layouts. It is now the FIRST thing under the
+ *      layout pickers, i.e. directly beneath "פריסות אישיות" — the section he
+ *      said he could see while looking for this one.
+ *   3. SILENCE — the only feedback was a StatusBar line at the far bottom of the
+ *      window, four seconds long. The result now also stays put next to the
+ *      button that produced it.
+ * (The `venueId` gate was never the cause: it is set for every pack project.)
  */
 function BakeFixturesSection() {
   const venueId = useEditorStore((s) => s.scene.venue.venuePackId)
+  const [status, setStatus] = useState('')
   if (!import.meta.env.DEV || !venueId) return null
 
   const bake = async () => {
@@ -906,6 +929,7 @@ function BakeFixturesSection() {
     // rewrites the first one instead of deleting what it produced
     if (!objects.length) {
       notify(T.bakeEmpty)
+      setStatus('')
       return
     }
     if (!window.confirm(T.bakeConfirm(objects.length))) return
@@ -917,18 +941,19 @@ function BakeFixturesSection() {
       })
       if (!res.ok) throw new Error(`bake failed: ${res.status}`)
       notify(T.bakeDone(objects.length))
+      setStatus(T.bakeDone(objects.length))
     } catch (err) {
       console.error('bake failed', err)
       notify(T.bakeFailed)
+      setStatus(T.bakeFailed)
     }
   }
 
-  // A titleless section: `strings.presets.bake` already says what the button
-  // does, and `strings.ts` is not this plan's file to add a heading to (BRIEF
-  // §1.2), so a <Section> here would print the same sentence twice. The wrapper
+  // A titleless section: the button's own label already says what it does, so a
+  // <Section> heading here would print the same sentence twice. The wrapper
   // carries Section's own padding and rule so it sits in the panel like one.
   return (
-    <div className="border-b border-line px-4 py-3.5">
+    <div className="grid gap-1.5 border-b border-line px-4 py-3.5">
       <button
         type="button"
         data-bake-fixtures
@@ -936,8 +961,18 @@ function BakeFixturesSection() {
         onClick={() => void bake()}
       >
         <Pin size={15} />
-        {T.bake}
+        {T.bakeSaveElements}
       </button>
+      <p className="text-[13px] text-ink-soft">{T.bakeHint}</p>
+      {/* The POST carries top-level objects only — chairs and table decor are
+          NOT baked. The new label invites exactly that expectation, so the
+          caveat ships with it rather than being discovered afterwards. */}
+      <p className="text-[13px] text-warning">{T.bakeTopLevelOnly}</p>
+      {status && (
+        <p role="status" className="text-[13px] text-success">
+          {status}
+        </p>
+      )}
     </div>
   )
 }
