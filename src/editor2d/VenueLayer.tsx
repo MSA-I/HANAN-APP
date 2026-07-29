@@ -17,7 +17,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { Group, Layer, Line, Rect, Text } from 'react-konva'
 import { useShallow } from 'zustand/react/shallow'
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
-import { isZoneOccupied } from '../core/layout/zoneOccupancy'
+import { isZoneInside, isZoneOccupied } from '../core/layout/zoneOccupancy'
 import { formatElevation, LABEL_ELEVATION_HEIGHT, zoneLabelBoxes, type ZoneLabelBox } from '../core/layout/zoneLabels'
 import type { Vec2 } from '../core/model/types'
 import { venueOutline } from '../core/venueOutline'
@@ -246,7 +246,15 @@ export function VenueLayer() {
 
   // source doc §18: the two work zones take turns. The one you are not in stays
   // visible — you still need its context — but drops back so the active one reads.
-  const isReception = (i: number) => zones[i].kind === 'kabalatPanim'
+  //
+  // ⚠ Membership is GEOMETRIC, not by `kind` — the same rule ObjectsLayer applies
+  // to furniture, for the same reason: this asks where a rectangle is drawn, not
+  // what it is. By kind, the deck's own chuppah (`kind: 'chuppah'`, +5.20, wholly
+  // inside `kabalatPanim`) counted as a hall zone and behaved backwards: lit while
+  // you worked in the hall, gone the moment you switched to reception.
+  const deck = zones.find((z) => z.kind === 'kabalatPanim')
+  const isReception = (i: number) =>
+    zones[i].kind === 'kabalatPanim' || (!!deck && isZoneInside(zones[i], deck))
   const hallOpacity = activeZone === 'kabalatPanim' ? ZONE_OFF_OPACITY : 1
   const receptionOpacity = activeZone === 'hall' ? ZONE_OFF_OPACITY : 1
   const hallZones = drawOrder.filter((i) => !isReception(i))

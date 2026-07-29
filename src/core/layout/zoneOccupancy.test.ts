@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { isPointInZone, isZoneOccupied, type ZoneRect } from './zoneOccupancy'
+import { getVenuePack } from '../venuePacks'
+import { isPointInZone, isZoneInside, isZoneOccupied, type ZoneRect } from './zoneOccupancy'
 
 // the real resort pool and bar, from venuePacks.ts
 const POOL: ZoneRect = { x: 766, y: 1408, width: 3196, depth: 1136 }
@@ -44,5 +45,28 @@ describe('isZoneOccupied', () => {
       { x: 2364, y: 1976 },
     ]
     expect(isZoneOccupied(POOL, centres)).toBe(true)
+  })
+})
+
+/**
+ * Read off the live pack, never off literals: this is the rule that decides which
+ * side of the hall/reception toggle a zone belongs to, and a frozen rectangle here
+ * would keep passing while the toggle went wrong on screen (AGENT-BRIEF §1.7).
+ */
+describe('isZoneInside', () => {
+  const zones = getVenuePack('resort')!.restricted!
+  const deck = zones.find((z) => z.kind === 'kabalatPanim')!
+
+  it('separates the two chuppah zones by where they are, not by their kind', () => {
+    const chuppahs = zones.filter((z) => z.kind === 'chuppah')
+    expect(chuppahs).toHaveLength(2)
+    // one stands on the reception deck (+5.20), one in the hall by the pool (+0.50)
+    expect(chuppahs.filter((z) => isZoneInside(z, deck))).toHaveLength(1)
+    expect(chuppahs.find((z) => isZoneInside(z, deck))!.elevation).toBe(520)
+  })
+
+  it('claims nothing else in the hall for the deck', () => {
+    const onDeck = zones.filter((z) => z.kind !== 'kabalatPanim' && isZoneInside(z, deck))
+    expect(onDeck.map((z) => z.kind)).toEqual(['chuppah'])
   })
 })

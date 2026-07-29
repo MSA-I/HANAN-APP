@@ -33,3 +33,19 @@ export function isPointInZone(point: Vec2, zone: ZoneRect): boolean {
 export function isZoneOccupied(zone: ZoneRect, centres: readonly Vec2[]): boolean {
   return centres.some((c) => isPointInZone(c, zone))
 }
+
+/**
+ * Is this zone sitting on top of that one? Same centre rule as everything else
+ * here, and deliberately the same question ObjectsLayer asks of an object:
+ * WHERE it is drawn, never what it IS.
+ *
+ * It exists because `kind` is the wrong answer to that question. The reception
+ * deck carries a chuppah of its own (`kind: 'chuppah'`, +5.20), and grouping the
+ * hall/reception toggle by kind put it with the HALL — so it showed at full
+ * strength while you were in the hall and vanished the moment you switched to
+ * reception, the exact inverse of "another chuppah zone, only when I turn the
+ * reception on" (source doc item 19).
+ */
+export function isZoneInside(inner: ZoneRect, outer: ZoneRect): boolean {
+  return isPointInZone({ x: inner.x + inner.width / 2, y: inner.y + inner.depth / 2 }, outer)
+}
