@@ -143,6 +143,15 @@ export function createObject(
   const ceiling = entry.placement === 'ceiling'
   const pack = getVenuePack(venue?.venuePackId)
   // top of the object meets the hang anchor; the seeded drop is the entry height
+  //
+  // ⚠ The 0 is not a stand-in for "nobody taught this the reception deck is at
+  // +4.70". `transform.elevation` is LOCAL to the ground under the object, and the
+  // ground is derived where the object is DRAWN — `groundHeightAt` in
+  // core/layout/groundHeight.ts — never stored; planTransform.ts adds the two.
+  // Seeding the deck height here would draw a chair up there at 9.40 m, and would
+  // make every project already saved with a 0 on the deck wrong, which is a
+  // migration. A chuppah has worked this way since round 1: it stores 0 and is
+  // drawn at +0.50.
   const elevation = ceiling
     ? (pack?.hangHeight ?? venue?.wallHeight ?? DEFAULT_WALL_HEIGHT) - entry.defaultSize.height
     : 0
