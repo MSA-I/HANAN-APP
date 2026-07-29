@@ -3,8 +3,17 @@
  *
  * Source doc §12: "all the chandeliers can only hang from the warp-and-weft
  * beams of the ceiling, they cannot be left floating in the air". The venue pack
- * carries the real grid in `ceilingBeams`, measured off the lighting truss in the
- * SketchUp model (see Plans/handoff/07-venue-data.md §1.5).
+ * carries the grid in `ceilingBeams`.
+ *
+ * ⚠ Where that grid comes from changed on 2026-07-29, and the old provenance is
+ * still quoted around the codebase. It was NOT measured off the truss: it was a
+ * hand transcription of 72 `HalfCoupler` clamps, and the clamps grip the tube
+ * from its +x side, so every one of the nine along-y values sat 11-22 cm east of
+ * the steel and two whole tubes were missing. The eleven along-y positions are
+ * now extracted from `venue.glb` itself (`tools/glb-prep/extract-beams.mjs`:
+ * ⌀7 cm tubes, x = 158 + 405k, band 909-916); the three along-x runs are the real
+ * truss as given by the venue owner, because nothing runs along x in the model at
+ * all. Full measurement and per-beam deltas: `Plans/R3/handoff/01-beams.md`.
  *
  * ⚠ `CeilingBeams.axis` is the axis a beam RUNS ALONG, so its `positions` are
  * coordinates on the PERPENDICULAR axis: an `axis: 'y'` family is a set of beams
@@ -62,13 +71,25 @@ function nearest(values: number[], v: number): number | null {
 
 /**
  * How close to a beam of the OTHER family the fixture has to be before it is
- * pulled onto the crossing as well. One beam width: the truss members measure up
- * to 35 cm across (Plans/R2/handoff/01-venue-data.md §6), so this is the region
- * where the fixture is genuinely over both members at once.
+ * pulled onto the crossing as well.
+ *
+ * ⚠ This used to be justified as "one beam width — the truss members measure up
+ * to 35 cm across". That is now measurably wrong: the tubes are ⌀7 cm
+ * (handoff/01-beams.md §2.1). The NUMBER is kept, because it was never really
+ * about the steel — it is the reach at which a user aiming at a crossing gets
+ * one, and 35 cm is about half the 55 cm body of the fixtures that actually hang
+ * up there. Treating it as a beam half-width and shrinking it to 3.5 cm would
+ * make crossings practically unhittable by hand.
  */
 const CROSSING_SNAP = 35
 
-/** The stretch of a beam that is really there: from the first perpendicular member to the last. */
+/**
+ * The stretch of a beam a fixture may use: from the first perpendicular member to
+ * the last. On the resort that is x 158…4208 and y 102…1306 — the truss
+ * rectangle, which is a good deal smaller than the 6051 × 2544 pack, because the
+ * reception deck from x 4432 is open to the sky. `beamSpans` draws exactly this
+ * range, so the plan and the snap describe the same rectangle.
+ */
 function withinSpan(positions: number[], v: number): number {
   if (!positions.length) return v
   return Math.min(Math.max(v, Math.min(...positions)), Math.max(...positions))
@@ -76,7 +97,7 @@ function withinSpan(positions: number[], v: number): number {
 
 /**
  * Snap to the nearest BEAM, sliding freely along it. The previous behaviour
- * snapped both axes at once — to a crossing — which on the resort grid is 36
+ * snapped both axes at once — to a crossing — which on the resort grid is 33
  * discrete points in the whole hall and reads to the user as "the chandelier is
  * locked" (source doc §32). The invariant it protected is kept: the fixture is
  * always on a beam, never floating mid-bay (source doc §12).
@@ -144,13 +165,22 @@ export function clampHang(
  * the seeded elevation — the GLB already models its own drop there — and grows as
  * the user pulls the fixture down.
  *
- * The anchor is `hangHeight` (895 in the resort) and NOT the beam geometry 15 cm
- * above it (910), even though the fixture's top and the beam are then not quite
- * touching. That was measured and photographed rather than assumed: bridging the
- * last 15 cm changes nothing a user can see, because the beam is up to 35 cm
- * across and hides everything directly beneath it (`Plans/R2/handoff/FOUND-05-A2.md`
- * §1, with the pixel diffs). Drawing a cord no camera can find is cost with no
- * picture attached.
+ * The anchor is `hangHeight` (895 in the resort) and NOT the beam geometry above
+ * it, so the fixture's top and the beam are not quite touching.
+ *
+ * ⚠ The reason that used to be fine no longer holds, and the fix is NOT here.
+ * Round 2 built the bridging cord, photographed it from six angles and reverted
+ * it, on the grounds that "the beam is up to 35 cm across and hides everything
+ * directly beneath it" (`Plans/R2/handoff/FOUND-05-A2.md` §1). The 2026-07-29
+ * extraction measured the tubes at **⌀7 cm**, underside 909, so a 7 cm tube is
+ * being asked to hide a 14 cm gap and cannot: the fixture reads as hanging in
+ * air just below the steel, which is the second half of source-doc item 8.
+ *
+ * Leaving it alone deliberately. The wrong number is `hangHeight` itself — 895
+ * predates the measurement and wants to be the 909 underside — and that lives in
+ * `venuePacks.ts`, which this plan does not own. Bridging the gap here instead
+ * would paper over it and then double up if the anchor is ever corrected.
+ * Written up in `Plans/R3/FOUND-08.md` §2.
  */
 export function cordLength(
   pack: Pick<VenuePack, 'hangHeight'> | undefined,

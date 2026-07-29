@@ -25,7 +25,8 @@ const lastY = YS[YS.length - 1]
 
 /**
  * These used to assert that both axes snap at once, i.e. that a fixture can only
- * ever sit on one of the 36 crossings of the resort grid. That IS what the code
+ * ever sit on one of the crossings of the resort grid — 36 of them then, 33 after
+ * the 2026-07-29 re-extraction (11 × 3). That IS what the code
  * did, and it is what the user reported as "I cannot move the chandeliers in 3D,
  * they look locked" (source doc §32). Sliding along the nearest beam is the fix,
  * so the assertions below move with it: one axis snaps, the other stays where the
