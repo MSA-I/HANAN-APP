@@ -210,8 +210,22 @@ describe('the serpentine, whose middle is not its origin', () => {
     // arrangement is a product decision and 6 cm of overhang on a 75 cm band is a
     // judgement about how the table should look, not a number to quietly change.
     // The design is fine on every other table; the serpentine is the narrow one.
-    const past5 = worst.filter((w) => w.by >= 5)
-    expect(past5.map((w) => `${w.design}/${w.item}`)).toEqual(['design.crystal-tall/decor.candleholders-glass'])
-    for (const d of over) expect(d).toBeLessThan(7) // nothing may drift further than the known one
+    // The full list, by name and to the centimetre. A bound alone would have been
+    // WEAKER than the tally it replaced: a new design overhanging 4.9 cm would slip
+    // through, and the old test would at least have noticed the count move. Pinning
+    // every entry keeps the strength and survives new layouts being authored — a
+    // legitimate addition shows up here as a line to review, not as a broken build
+    // with nothing to look at.
+    expect(worst.map((w) => `${w.design}/${w.item} ${w.by.toFixed(2)}`).sort()).toEqual([
+      'design.ceramic-low/decor.vase-striped 2.23',
+      'design.crystal-tall/decor.candleholders-glass 2.70',
+      'design.crystal-tall/decor.candleholders-glass 6.03',
+      'design.crystal/decor.candleholder-crystal-a 0.89',
+      'design.crystal/decor.candleholder-crystal-a 3.71',
+      'design.floral-pink/decor.vase-flowers-b 2.33',
+      'design.hurricane-glass/decor.candleholder-crystal-a 2.02',
+    ])
+    // and exactly one of them is outside the band's own wander
+    expect(worst.filter((w) => w.by >= 5)).toHaveLength(1)
   })
 })

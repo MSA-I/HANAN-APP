@@ -193,6 +193,44 @@ describe('table designs lay clear of themselves', () => {
     expectNoOverlaps(tableId)
   })
 
+  /**
+   * ⛔ THE ⌀380 IS BROKEN TODAY, AND THIS PINS IT SO A FIX IS NOTICED.
+   *
+   * The block below explains why it is excluded from the pass-case. Excluding it
+   * was right — it does not pass — but an exclusion is invisible: nothing then
+   * tells anyone whether the bug is still there, got worse, or was fixed. Round 2
+   * ended with this handed from PLAN-08 to PLAN-07 and PLAN-07 closing without it,
+   * so it now has no owner and would have had no safety net either.
+   *
+   * This asserts the CURRENT WRONG BEHAVIOUR on purpose. When `clampToSurface`
+   * learns what to do with a centre-anchored piece over a hole, this test fails —
+   * and failing is the message. Delete it then and move the table up into the
+   * pass-case above.
+   */
+  it('⌀380: every design still self-collides — recorded, not fixed', () => {
+    const offenders: string[] = []
+    for (const design of TABLE_DESIGNS) {
+      newProject({ name: 'ring-overlap', venuePackId: 'resort' })
+      const tableId = addObject('table.round-large', { x: 600, y: 600 })
+      expect(applyTableDesign(design.id, tableId).length).toBeGreaterThan(0)
+      const scene = useEditorStore.getState().scene
+      const hit = laidOnTop(tableId).some((child) =>
+        checkPlacement(scene, {
+          catalogId: child.catalogId,
+          transform: child.transform,
+          size: child.size,
+          excludeId: child.id,
+          parentId: tableId,
+          parentLocal: true,
+          inHole: child.attachment?.kind === 'surface' ? child.attachment.inHole : undefined,
+        }).some((v) => v.kind === 'overlapsSibling'),
+      )
+      if (hit) offenders.push(design.id)
+    }
+    // ALL of them, not some — the cause is the clamp, so it cannot be design-specific
+    expect(offenders).toEqual(TABLE_DESIGNS.map((d) => d.id))
+  })
+
   // ⚠ `table.round-large` is deliberately NOT here. Every design — the four that
   // shipped before this wave included — self-collides on it, and the cause is in
   // `clampToSurface`, not in any design: the ⌀156 opening pushes a non-`inHole`
