@@ -21,10 +21,13 @@
     "note3": "planSizeCm.width runs to 6051 because the raised reception deck (ZONE_KABALAT_PANIM, x 4432…6051, +470cm) shares this plan space. The hall alone is 4423 wide."
   },
   "ceilingBeams": {
-    "note": "Lighting-truss grid, read off the 72 HalfCoupler clamps in the SKP (72 = 36 crossings × 2 = 9 × 4 × 2). The 19:47 SKP still carries 288 HalfCoupler nodes — the same 72 clamps × 4 parts (Bolt/Catch/M/Wingnut) — so the truss was not edited and the committed positions stand.",
+    "note": "Geometry-extracted 2026-07-29 by tools/glb-prep/extract-beams.mjs, replacing a hand transcription read off the HalfCoupler clamps. Eleven ⌀7cm tubes run along y at 405cm pitch, x = 158 + 405k, height 909–916cm. NOTHING runs along x at beam height. The 72 HalfCoupler clamps are 36 hand-placed hanging light fixtures (9 columns × 4 rows) clamped to those tubes; their centres sit ~17cm to the +x of the tube they hold, which is exactly where the previous numbers came from.",
     "heightCm": 910,
-    "alongYAtXCm": [578, 988, 1389, 1798, 2194, 2599, 3011, 3420, 3821],
+    "heightNote": "tube spans 909–916, centre 912.5; 910 is inside it",
+    "alongYAtXCm": [158, 563, 968, 1373, 1778, 2183, 2588, 2993, 3398, 3803, 4208],
     "alongXAtYCm": [190, 550, 904, 1270],
+    "alongXNote": "NOT beams — the 4 rows of hanging fixtures, measured to <0.5cm. Kept in venuePacks.ts pending the product decision in Plans/R3/handoff/BLOCKED-01-A2.md.",
+    "diagonals": "none in the model; 14.PNG shows them on the real truss but they were never modelled",
     "trussMaterial": "H08_Emerald_Abyss",
     "trussColorSrgb": "#ddd1c1",
     "trussColorLinear": "#b9a288",
