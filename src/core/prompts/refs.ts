@@ -37,6 +37,11 @@ export interface ExportRef {
  * and nothing else. It is first in the list and always present, including on the
  * two reception-deck angles, where it is the only cue to the resort's finishes
  * (the deck itself is modelled as bare slab).
+ *
+ * There are TWO of them and exactly one is sent, chosen by the angle: an
+ * eye-level photograph cannot show a floor an overhead frame is mostly made of.
+ * See `materialRefFor`. This is a SWAP, not an addition — the image budget in
+ * fragments.ts is unchanged.
  */
 export const HALL_MATERIAL_REF: ExportRef = {
   path: 'HANAN-APP-DOCS/טסטים/זווית מקורית.png',
@@ -44,6 +49,50 @@ export const HALL_MATERIAL_REF: ExportRef = {
   caption:
     'Reference for building materials only: floors, ceilings, metalwork, walls. ' +
     'Do not copy furniture or decor from this image.',
+}
+
+/** The same reference for an overhead angle: shot from above, so the floor reads. */
+export const HALL_MATERIAL_REF_ELEVATED: ExportRef = {
+  path: 'HANAN-APP-DOCS/טסטים/מבט על מקורית.png',
+  role: 'materials',
+  caption:
+    'Reference for building materials only, photographed from above: the stone floor and its ' +
+    'geometric inlay, plus ceilings, metalwork and walls. Take the floor pattern and its ' +
+    'proportions from this image. Do not copy furniture or decor from it.',
+}
+
+/**
+ * How far the eye must sit ABOVE what it is aimed at before an angle counts as
+ * overhead. Measured against the resort pack's own seven cameras (metres of drop
+ * from `position[1]` to `target[1]`):
+ *
+ *   s1 0.07 · s2 0.19 · s3 0.20 · k1 0.01 · k2 0.46   ← level, or as good as
+ *   s5 2.63 · s4 6.19                                 ← the two labelled "(מוגבה)"
+ *
+ * Anything between 0.46 and 2.63 separates them, so 1 metre sits in open ground
+ * rather than on a boundary. Deliberately GEOMETRIC and not a list of ids or a
+ * match on the Hebrew label: a camera that is moved changes bucket by itself, and
+ * a new overhead angle needs no edit here. The two deck cameras are the reason a
+ * plain height test would not do — they stand 6.3 m up, on a terrace, looking
+ * level across it.
+ */
+const ELEVATED_EYE_DROP_M = 1
+
+/** True when this angle looks DOWN at the room rather than across it. */
+export function isElevatedAngle(camera: SealedCamera | null): boolean {
+  return !!camera && camera.position[1] - camera.target[1] >= ELEVATED_EYE_DROP_M
+}
+
+/**
+ * The one materials photograph this angle should carry.
+ *
+ * An overhead frame is mostly floor, and the eye-level photograph shows the floor
+ * at a grazing angle where the chevron inlay is barely legible; the top-down one
+ * shows the pattern flat. With no sealed camera there is no angle to judge, so
+ * the eye-level shot stands as the default.
+ */
+export function materialRefFor(camera: SealedCamera | null): ExportRef {
+  return isElevatedAngle(camera) ? HALL_MATERIAL_REF_ELEVATED : HALL_MATERIAL_REF
 }
 
 /**
@@ -251,6 +300,9 @@ function productRef(group: DesignGroup, role: 'fixed' | 'design'): ExportRef {
  * The two fixed shots — hall materials, then the site's landscape — then the
  * hall's own fittings, then the event's design items, each in priority order.
  *
+ * The materials shot is whichever of the two suits this angle (`materialRefFor`);
+ * it is one slot either way, so the sixteen-image budget is untouched.
+ *
  * §26's defect was one of PRIORITY, not of framing: `objectsInFrame` already
  * honours "as long as they appear in the same view", but CATEGORY_PRIORITY ranks
  * `bars` seventh and `decor` last, so the bar, the DJ booth and the planters
@@ -299,7 +351,7 @@ export function selectRefs(scene: SceneState, camera: SealedCamera | null): RefS
   }
 
   return {
-    refs: [HALL_MATERIAL_REF, BACKGROUND_REF, ...fixedRefs, ...designRefs],
+    refs: [materialRefFor(camera), BACKGROUND_REF, ...fixedRefs, ...designRefs],
     groups,
     warnings,
   }

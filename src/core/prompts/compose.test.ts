@@ -14,7 +14,15 @@ import {
   pluralize,
   quantityWord,
 } from './fragments'
-import { BACKGROUND_REF, HALL_MATERIAL_REF, objectsInFrame, selectRefs } from './refs'
+import {
+  BACKGROUND_REF,
+  HALL_MATERIAL_REF,
+  HALL_MATERIAL_REF_ELEVATED,
+  isElevatedAngle,
+  materialRefFor,
+  objectsInFrame,
+  selectRefs,
+} from './refs'
 import { listAngleTemplates, templateFor } from './templates'
 
 const PACK = 'resort'
@@ -372,6 +380,50 @@ describe('the hall material reference (§46)', () => {
     expect(composeExport(sceneWith(), 'k1').refs[0]).toEqual(HALL_MATERIAL_REF)
   })
 
+  /**
+   * The user's rule: the top-down photograph goes with an elevated angle, the
+   * eye-level one with every other angle. It is a SWAP of the one materials slot,
+   * so nothing here may change the number of references.
+   */
+  describe('and which of the two it is, by angle', () => {
+    // pinned by id on purpose: `isElevatedAngle` is geometric, and this is the
+    // assertion that catches a camera being moved across the threshold
+    const ELEVATED = ['s4', 's5']
+    const LEVEL = ['s1', 's2', 's3', 'k1', 'k2']
+
+    it.each(ELEVATED)('%s looks down, so it gets the top-down photograph', (id) => {
+      expect(isElevatedAngle(cam(id))).toBe(true)
+      expect(composeExport(sceneWith(), id).refs[0]).toEqual(HALL_MATERIAL_REF_ELEVATED)
+    })
+
+    it.each(LEVEL)('%s looks across, so it keeps the eye-level photograph', (id) => {
+      expect(isElevatedAngle(cam(id))).toBe(false)
+      expect(composeExport(sceneWith(), id).refs[0]).toEqual(HALL_MATERIAL_REF)
+    })
+
+    it('covers every sealed camera between them', () => {
+      expect([...ELEVATED, ...LEVEL].sort()).toEqual(cameras.map((c) => c.id).sort())
+    })
+
+    it('is one slot either way — the swap costs no images', () => {
+      const level = composeExport(sceneWith(...everyCentrepiece()), 's1')
+      const high = composeExport(sceneWith(...everyCentrepiece()), 's4')
+      expect(high.refs).toHaveLength(level.refs.length)
+      expect(high.refs.filter((r) => r.role === 'materials')).toHaveLength(1)
+      expect(1 + high.refs.length).toBeLessThanOrEqual(MAX_INPUT_IMAGES)
+    })
+
+    it('falls back to the eye-level shot when there is no sealed camera', () => {
+      expect(isElevatedAngle(null)).toBe(false)
+      expect(composeExport(sceneWith(), 'no-such-angle').refs[0]).toEqual(HALL_MATERIAL_REF)
+    })
+
+    it('names a different file for each, so the package is never ambiguous', () => {
+      expect(HALL_MATERIAL_REF_ELEVATED.path).not.toBe(HALL_MATERIAL_REF.path)
+      expect(HALL_MATERIAL_REF_ELEVATED.role).toBe('materials')
+    })
+  })
+
   it('tells the model to take only materials from it', () => {
     expect(HALL_MATERIAL_REF.caption).toMatch(/Do not copy furniture/i)
   })
@@ -386,7 +438,11 @@ describe('the background reference (§23)', () => {
   it('is second on every sealed angle, right after the materials shot', () => {
     for (const camera of cameras) {
       const pkg = composeExport(sceneWith(), camera.id)
-      expect(pkg.refs[0], camera.id).toEqual(HALL_MATERIAL_REF)
+      // by ROLE, not identity: which of the two materials photographs is sent
+      // depends on the angle (see materialRefFor), but there is always exactly
+      // one of them and the landscape always follows it
+      expect(pkg.refs[0].role, camera.id).toBe('materials')
+      expect(pkg.refs[0], camera.id).toEqual(materialRefFor(camera))
       expect(pkg.refs[1], camera.id).toEqual(BACKGROUND_REF)
     }
   })
