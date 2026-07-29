@@ -4,8 +4,11 @@ import { useShallow } from 'zustand/react/shallow'
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import { slotColor, type Outline } from '../core/catalog/types'
 import { childSortKey, type Id } from '../core/model/types'
+import { notify } from '../state/notice'
 import {
   designEditTable,
+  isArrangeableDecor,
+  isCover,
   isDesignEditMuted,
   isEffectivelyLocked,
   isObjectVisible,
@@ -151,13 +154,19 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
   // and its `listening`, so muting the group mutes the whole table at once.
   const muted = !isChild && isDesignEditMuted(editTableId, id)
   // Inside the edited table the decor IS the subject, so it is grabbable without
-  // drilling in first. Restricted to 'surface': the chairs stay on their drill-in
-  // path, or a stray press while arranging a centrepiece would drag a chair off
-  // its seat. `surface` is also what the place settings and napkins carry
-  // (actions.ts `laySeatItems`), which is exactly what §11 asks to be editable.
-  const editableDecor =
-    isChild && editTableId !== null && obj.parentId === editTableId && obj.attachment?.kind === 'surface'
-  const childGrabbable = childSelected || editableDecor
+  // drilling in first. Restricted to surface decor: the chairs stay on their
+  // drill-in path, or a stray press while arranging a centrepiece would drag a
+  // chair off its seat.
+  const inEditSession = isChild && editTableId !== null && obj.parentId === editTableId
+  // …with the COVER carved back out (source doc §11). `isArrangeableDecor` is the
+  // one home of that rule; viewer3d/ObjectGroup.tsx asks the same question of the
+  // same object, or a place setting would be locked here and draggable in 3D.
+  const editableDecor = inEditSession && isArrangeableDecor(obj)
+  // A cover refuses the grab by BOTH routes, not just the mode's. Double-clicking
+  // one opens the mode AND selects it (`onChildDblClick`), so `childSelected`
+  // alone would hand back the very drag the line above just took away.
+  const cover = isCover(obj)
+  const childGrabbable = !cover && (childSelected || editableDecor)
 
   return (
     <Group
@@ -169,7 +178,15 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
       opacity={muted ? DESIGN_EDIT_DIM : 1}
       listening={isChild ? true : muted ? false : !effectiveLocked}
       draggable={isChild ? childGrabbable : !muted && !effectiveLocked}
-      onMouseDown={(e) => (isChild ? onChildMouseDown(id, childGrabbable, e) : onObjectMouseDown(id, e))}
+      onMouseDown={(e) => {
+        if (!isChild) return onObjectMouseDown(id, e)
+        // Say why the press did nothing. Without this the cover is a dead spot on
+        // the very table the user opened to arrange; with it, the gesture still
+        // bubbles (onChildMouseDown returns early), so it behaves exactly like a
+        // press on a chair — it moves the table, not the china.
+        if (inEditSession && cover) notify(strings.editMode.placeSettingLocked)
+        onChildMouseDown(id, childGrabbable, e)
+      }}
       onClick={isChild ? undefined : (e) => onObjectClick(id, e)}
       onDblClick={(e) => (isChild ? onChildDblClick(id, e) : onObjectDblClick(id, e))}
       onDragStart={(e) => (isChild ? onChildDragStart(id, e) : onObjectDragStart(id, e))}

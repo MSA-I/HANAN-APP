@@ -32,8 +32,10 @@ import {
   setPosition,
   stackedPosition,
 } from '../../state/actions'
+import { useNoticeStore } from '../../state/notice'
 import { objectAABB } from '../../state/selectors'
 import { useEditorStore } from '../../state/store'
+import { strings } from '../../ui/strings'
 import { allowedOnDeck, checkPlacement, slideToLegal, TABLE_CLEARANCE, type Violation } from './collision'
 
 const scene = (): SceneState => useEditorStore.getState().scene
@@ -418,6 +420,35 @@ describe('the rules bite on real gestures', () => {
     const before = scene().objects[b].transform.rotation
     rotateObjectsBy([b], 90) // the 240-long side swings toward the neighbour
     expect(scene().objects[b].transform.rotation).toBe(before)
+  })
+
+  /**
+   * PLAN-09 item 15. The refusal above used to take the WHOLE selection down with
+   * it — one blocked member cancelled the rotation for everybody, and said nothing
+   * — which from the outside is indistinguishable from a gizmo stuck on detents.
+   * Now the group is judged member by member, and the ones that stayed put are
+   * counted out loud. `poseAllowed` is untouched: still all-or-nothing per object.
+   */
+  it('turns the members that can and leaves only the blocked one behind', () => {
+    const banquet = getCatalogEntry('table.banquet').defaultSize
+    addObject('table.banquet', { x: 1000, y: 1000 }) // the neighbour in the way
+    // exactly one clearance away, so the 240-long side cannot swing into it
+    const blocked = addObject('table.banquet', {
+      x: 1000,
+      y: 1000 + banquet.depth + TABLE_CLEARANCE.rect,
+    })
+    const free = [
+      addObject('table.banquet', { x: 3000, y: 600 }),
+      addObject('table.banquet', { x: 3000, y: 2400 }),
+    ]
+    useNoticeStore.setState({ message: '', seq: 0 })
+
+    rotateObjectsBy([...free, blocked], 90)
+
+    for (const id of free) expect(scene().objects[id].transform.rotation).toBe(90)
+    expect(scene().objects[blocked].transform.rotation).toBe(0)
+    // the half that makes a refusal readable rather than a rotation that "does nothing"
+    expect(useNoticeStore.getState().message).toBe(strings.status.rotationRefused(1))
   })
 
   it('publishes the reason so the status bar can show it', () => {

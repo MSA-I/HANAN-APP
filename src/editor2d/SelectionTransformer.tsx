@@ -4,7 +4,6 @@ import { Layer, Transformer } from 'react-konva'
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import { beginGesture, endGesture, setPosition, setRotation, setSize } from '../state/actions'
 import { useEditorStore } from '../state/store'
-import { useOverlayStore } from './overlayStore'
 
 const ACCENT = '#3056d3'
 
@@ -19,8 +18,6 @@ const ALL_ANCHORS = [
   'bottom-right',
 ]
 const CORNER_ANCHORS = ['top-left', 'top-right', 'bottom-left', 'bottom-right']
-/** Free rotation by default; Shift engages these 5° detents (source doc §25). */
-const SNAP_5 = Array.from({ length: 72 }, (_, i) => i * 5)
 
 /**
  * True when the gesture is a single object's rotation, which must NOT write a
@@ -48,7 +45,6 @@ export function SelectionTransformer({ stageRef }: Props) {
   const anchorRef = useRef<string | null>(null)
   const selection = useEditorStore((s) => s.selection)
   const objects = useEditorStore((s) => s.scene.objects)
-  const shiftHeld = useOverlayStore((s) => s.shiftHeld)
 
   const single = selection.length === 1 ? objects[selection[0]] : null
   const entry = single && hasCatalogEntry(single.catalogId) ? getCatalogEntry(single.catalogId) : null
@@ -81,9 +77,13 @@ export function SelectionTransformer({ stageRef }: Props) {
         ref={trRef}
         enabledAnchors={anchors}
         keepRatio={keepRatio}
+        // Free at EVERY angle, with or without Shift (PLAN-09/G1). Shift used to
+        // engage 5° detents; the user asked for the snap to go altogether, so the
+        // only quantised rotation left is the exact 90° of `R`. No `rotationSnaps`
+        // is the same rule Konva applies when the array is empty, but stating it
+        // by absence keeps it from being half-restored by one prop.
+        // Must mirror viewer3d/ObjectGroup.tsx `RotationHandle`.
         rotateEnabled
-        rotationSnaps={shiftHeld ? SNAP_5 : []}
-        rotationSnapTolerance={2.5}
         rotateAnchorOffset={26}
         borderStroke={ACCENT}
         anchorStroke={ACCENT}

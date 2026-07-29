@@ -7,12 +7,20 @@ import {
   AlignStartHorizontal,
   AlignStartVertical,
   AlignVerticalSpaceBetween,
+  Filter,
   Lock,
   RefreshCw,
   Trash2,
 } from 'lucide-react'
 import { useState } from 'react'
-import { getCatalogEntry, hasCatalogEntry, listByCategory, listCatalog } from '../core/catalog/registry'
+import {
+  CATEGORY_ORDER,
+  getCatalogEntry,
+  hasCatalogEntry,
+  listByCategory,
+  listCatalog,
+} from '../core/catalog/registry'
+import type { Category } from '../core/catalog/types'
 import { slotColor } from '../core/catalog/types'
 import { maxGapForSeats, maxSeatsForEntry } from '../core/layout/seatLayout'
 import type { LightingMode, SceneObject, ShadowSharpness } from '../core/model/types'
@@ -28,6 +36,7 @@ import {
   removeObjects,
   removeSeatItems,
   seatItems,
+  select,
   setAppearance,
   setElevation,
   setLocked,
@@ -39,7 +48,7 @@ import {
   setSeatingConfig,
   setSize,
 } from '../state/actions'
-import { isEffectivelyLocked, isFrozen, lightingOf, sceneCounts } from '../state/selectors'
+import { categoryOf, isEffectivelyLocked, isFrozen, lightingOf, sceneCounts } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { useShallow } from 'zustand/react/shallow'
 import { LIGHTING_MODES } from '../viewer3d/lightingModes'
@@ -573,6 +582,149 @@ function SingleInspector({ obj }: { obj: SceneObject }) {
   )
 }
 
+/**
+ * Selection ids that carry no catalog entry at all. Not a `Category`, so it can
+ * never collide with one.
+ */
+const UNCATEGORISED = '__uncategorised'
+
+/**
+ * How many of `ids` fall in each catalog category.
+ *
+ * An object whose `catalogId` is missing from the registry has NO category
+ * (`categoryOf` → null) and is counted under `UNCATEGORISED`, which deliberately
+ * gets no row: `strings.ts` has no label for it, and an unnamed checkbox is worse
+ * than no checkbox. Such objects are therefore always KEPT by the filter — it must
+ * never drop something the user was never shown a control for.
+ *
+ * Flat `Record<string, number>` on purpose: it is read through `useShallow`, and a
+ * nested snapshot would fail the shallow compare on every render and loop (same
+ * trap `PlaceSettingsSection` above documents).
+ */
+function countSelectionByCategory(
+  objects: Record<string, SceneObject>,
+  ids: string[],
+): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const id of ids) {
+    const obj = objects[id]
+    if (!obj) continue // selection can outlive an object for a render after a delete
+    const key = categoryOf(obj) ?? UNCATEGORISED
+    out[key] = (out[key] ?? 0) + 1
+  }
+  return out
+}
+
+/**
+ * Source doc §25 — Ctrl+A selects everything visible, which is almost never the set
+ * the user meant to act on. This narrows that selection by catalog CATEGORY: the
+ * same categorisation `LayersSection` shows, so the two panels can never disagree
+ * about what "a category" is.
+ *
+ * Rows come from the SELECTION, not from `CATEGORY_ORDER` whole — offering twelve
+ * categories to narrow a selection of three chairs is noise. Ticked means KEPT,
+ * which is what the seeded hint ("סמנו קטגוריות כדי לצמצם את הבחירה") describes,
+ * so the resting state is nothing ticked and Apply disabled.
+ *
+ * The ticked set is transient UI state: it is not part of the scene, so it is
+ * neither stored nor undoable. It resets by REMOUNT — `MultiInspector` keys this
+ * component off the selection — rather than by a `useEffect` synchronising a set
+ * against a prop.
+ */
+function SelectionFilter({ ids }: { ids: string[] }) {
+  const counts = useEditorStore(useShallow((s) => countSelectionByCategory(s.scene.objects, ids)))
+  const objects = useEditorStore((s) => s.scene.objects)
+  const [checked, setChecked] = useState<Set<Category>>(new Set())
+
+  const rows = CATEGORY_ORDER.filter((c) => (counts[c] ?? 0) > 0)
+  // Under two rows the filter is provably a no-op: uncategorised items are always
+  // kept, so ticking the single row yields the selection it started from.
+  if (rows.length < 2) return null
+
+  const toggle = (cat: Category) =>
+    setChecked((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(cat)) next.add(cat)
+      return next
+    })
+
+  const kept = ids.filter((id) => {
+    const obj = objects[id]
+    if (!obj) return false
+    const cat = categoryOf(obj)
+    return cat ? checked.has(cat) : true // uncategorised: kept, see countSelectionByCategory
+  })
+  // Two separate reasons, both of which would make the click pointless or harmful:
+  // nothing ticked is the resting state (and would empty the selection, unmounting
+  // this panel mid-click), and a selection that survives whole is a no-op.
+  const disabled = checked.size === 0 || kept.length === ids.length
+
+  const chip =
+    'min-h-9 flex-1 rounded-md border border-line px-2 py-1.5 text-[14px] text-ink-soft transition-colors hover:border-accent hover:text-accent'
+
+  return (
+    <Section title={T.selectionFilter}>
+      <div data-testid="selection-filter" className="flex flex-col gap-2.5">
+        <p className="text-[13px] text-ink-soft">{T.selectionFilterHint}</p>
+        <div className="flex flex-col gap-1.5">
+          {rows.map((cat) => (
+            <label
+              key={cat}
+              data-testid={`selection-filter-row-${cat}`}
+              className={
+                'flex min-h-9 cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-[14px] transition-colors ' +
+                (checked.has(cat)
+                  ? 'border-accent text-accent'
+                  : 'border-line text-ink-soft hover:border-accent hover:text-accent')
+              }
+            >
+              <input
+                type="checkbox"
+                data-testid={`selection-filter-check-${cat}`}
+                className="accent-accent"
+                checked={checked.has(cat)}
+                onChange={() => toggle(cat)}
+              />
+              <span>
+                {strings.catalog.categories[cat]}{' '}
+                <span className="ltr-nums text-[13px] text-ink-soft">({counts[cat]})</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            data-testid="selection-filter-all"
+            className={chip}
+            onClick={() => setChecked(new Set(rows))}
+          >
+            {T.selectionFilterAll}
+          </button>
+          <button
+            type="button"
+            data-testid="selection-filter-none"
+            className={chip}
+            onClick={() => setChecked(new Set())}
+          >
+            {T.selectionFilterNone}
+          </button>
+        </div>
+        <button
+          type="button"
+          data-testid="selection-filter-apply"
+          disabled={disabled}
+          className="flex min-h-9 w-full items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[14px] font-medium text-ink transition-colors hover:border-accent hover:text-accent disabled:opacity-40 disabled:hover:border-line disabled:hover:text-ink"
+          onClick={() => select(kept)}
+        >
+          <Filter size={13} />
+          {T.selectionFilterApply}
+        </button>
+      </div>
+    </Section>
+  )
+}
+
 function MultiInspector({ ids }: { ids: string[] }) {
   const alignButtons = [
     { title: T.alignStart, icon: <AlignStartVertical size={15} />, run: () => alignObjects(ids, 'start') },
@@ -584,7 +736,10 @@ function MultiInspector({ ids }: { ids: string[] }) {
   ]
   return (
     <>
-      <Section title={`${ids.length} ${T.itemsSelected}`}>
+      {/* keyed off the selection so a narrowed (or otherwise changed) selection
+          remounts it, which resets the ticked set for free */}
+      <SelectionFilter key={ids.join(',')} ids={ids} />
+      <Section title={T.selectedCount(ids.length)}>
         <div>
           <span className="mb-1.5 block text-[14px] text-ink-soft">{T.align}</span>
           <div className="flex gap-1">

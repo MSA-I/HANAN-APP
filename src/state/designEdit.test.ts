@@ -26,6 +26,7 @@ import { composeTransform, rotateVec } from '../core/space'
 import {
   addObject,
   addObjectToSurface,
+  addSeatItemsToTable,
   beginGesture,
   endGesture,
   moveObjectsBy,
@@ -35,7 +36,14 @@ import {
   setRotation,
   undo,
 } from './actions'
-import { designEditIds, designEditTable, isDesignEditMuted, isTable } from './selectors'
+import {
+  designEditIds,
+  designEditTable,
+  isArrangeableDecor,
+  isCover,
+  isDesignEditMuted,
+  isTable,
+} from './selectors'
 import { setDesignEditTable, temporalStore, useEditorStore } from './store'
 
 const state = () => useEditorStore.getState()
@@ -46,6 +54,8 @@ const TABLE = 'table.round'
 const DECOR = 'decor.candelabra-crystal'
 /** free-anchored, so it is judged (and moved) exactly where it is put */
 const SETTING = 'decor.place-setting'
+/** laid ON the setting (§27) — seat-placed like it, and the reason the rule is not "seat" */
+const NAPKIN = 'decor.napkin-white'
 
 const outlineR = (catalogId: string): number => {
   const entry = getCatalogEntry(catalogId)
@@ -225,6 +235,67 @@ describe('the isolated group', () => {
     setDesignEditTable(table)
     removeObjects([table])
     expect(isDesignEditMuted(designEditTable(scene(), state().designEditTableId), other)).toBe(false)
+  })
+})
+
+/**
+ * What the mode may pick up, in the user's words: "אסור שיהיה אפשר לערוך ערכות
+ * סכום" (source doc §11).
+ *
+ * BOTH renderers gate the drag on `isArrangeableDecor` — editor2d/ObjectNode.tsx
+ * and viewer3d/ObjectGroup.tsx's `SurfaceChild` — so this covers the plan and the
+ * 3D view at once, which is the whole reason the predicate lives in selectors.
+ * The ACTIONS layer is deliberately left ungated: the describe below still drags
+ * a place setting through `moveObjectsBy`, because that is the path `laySeatItems`
+ * and every clamp use to put one where it belongs.
+ *
+ * The premises are read off the catalog rather than assumed, since the rule IS a
+ * reading of the catalog: if a napkin ever loses its `requiresHost`, this must
+ * fail here rather than quietly lock the napkins along with the covers.
+ */
+describe('what may be arranged inside the mode', () => {
+  it('refuses the place setting and accepts the napkin laid on it', () => {
+    expect(getCatalogEntry(SETTING).placement).toBe('seat')
+    expect(getCatalogEntry(SETTING).requiresHost).toBeUndefined()
+    expect(getCatalogEntry(NAPKIN).placement).toBe('seat')
+    expect(getCatalogEntry(NAPKIN).requiresHost).toBe(SETTING)
+
+    const table = addObject(TABLE, { x: 1000, y: 1000 })
+    const settings = addSeatItemsToTable(SETTING, table)
+    const napkins = addSeatItemsToTable(NAPKIN, table)
+    expect(settings.length).toBeGreaterThan(0)
+    expect(napkins.length).toBe(settings.length) // one per COVER, not one per seat
+
+    for (const id of settings) {
+      const obj = scene().objects[id]
+      // it is surface decor by attachment — which is exactly what used to make it
+      // grabbable, and is why the rule had to be the catalog and not the attachment
+      expect(obj.attachment?.kind).toBe('surface')
+      expect(isCover(obj)).toBe(true)
+      expect(isArrangeableDecor(obj)).toBe(false)
+    }
+    for (const id of napkins) {
+      const obj = scene().objects[id]
+      expect(obj.attachment?.kind).toBe('surface')
+      expect(isCover(obj)).toBe(false)
+      expect(isArrangeableDecor(obj)).toBe(true)
+    }
+  })
+
+  it('accepts an ordinary centrepiece, and never picks up a chair', () => {
+    const table = addObject(TABLE, { x: 1000, y: 1000 })
+    const centre = childAt(DECOR, table, { x: 0, y: 0 })
+    expect(isCover(scene().objects[centre])).toBe(false)
+    expect(isArrangeableDecor(scene().objects[centre])).toBe(true)
+
+    // a chair is a `kind: 'seat'` attachment: it stays on its drill-in path and
+    // never reaches the surface branch, before this rule and after it
+    const chair = Object.values(scene().objects).find(
+      (o) => o.parentId === table && o.attachment?.kind === 'seat',
+    )!
+    expect(chair).toBeDefined()
+    expect(isCover(chair)).toBe(false)
+    expect(isArrangeableDecor(chair)).toBe(false)
   })
 })
 
