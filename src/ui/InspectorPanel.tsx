@@ -15,7 +15,7 @@ import { useState } from 'react'
 import { getCatalogEntry, hasCatalogEntry, listByCategory, listCatalog } from '../core/catalog/registry'
 import { slotColor } from '../core/catalog/types'
 import { maxGapForSeats, maxSeatsForEntry } from '../core/layout/seatLayout'
-import type { LightingMode, SceneObject } from '../core/model/types'
+import type { LightingMode, SceneObject, ShadowSharpness } from '../core/model/types'
 import { composeTransform, relativeTransform } from '../core/space'
 import { displayName } from '../editor2d/ObjectNode'
 import { overlay, useOverlayStore } from '../editor2d/overlayStore'
@@ -66,6 +66,55 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   )
 }
 
+/** Slider index → value. Explicit, because the union has no ordering of its own. */
+const SHARPNESS_STEPS: ShadowSharpness[] = ['soft', 'medium', 'sharp']
+
+/**
+ * Shadow sharpness — a three-stop slider, since each stop is one shadow-map size
+ * (viewer3d/LightingRig SHADOW_MAP_SIZES) and nothing in between exists.
+ *
+ * Local rather than `SliderField` because that one prints the raw number where
+ * this needs the stop's name: the readout would otherwise read "0 / 1 / 2",
+ * which means nothing to the user. Same markup and classes as `SliderField`
+ * apart from that one span, so it sits flush with the three sun sliders — minus
+ * `ltr-nums`, which forces LTR + mono and would mangle a Hebrew word.
+ */
+function ShadowSharpnessField({
+  value,
+  onChange,
+}: {
+  value: ShadowSharpness
+  onChange: (v: ShadowSharpness) => void
+}) {
+  const L = strings.lighting
+  const stopLabels: Record<ShadowSharpness, string> = {
+    soft: L.shadowSharpnessLow,
+    medium: L.shadowSharpnessMedium,
+    sharp: L.shadowSharpnessHigh,
+  }
+  return (
+    <div>
+      <span className="mb-1.5 block text-[14px] text-ink-soft">{L.shadows}</span>
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-[14px] text-ink-soft">{L.shadowSharpness}</span>
+        <span className="text-[14px] font-medium text-ink">{stopLabels[value]}</span>
+      </div>
+      <input
+        dir="ltr"
+        type="range"
+        min={0}
+        max={2}
+        step={1}
+        value={SHARPNESS_STEPS.indexOf(value)}
+        onChange={(e) => onChange(SHARPNESS_STEPS[Number(e.target.value)])}
+        className="w-full accent-accent"
+        aria-label={L.shadowSharpness}
+      />
+      <p className="mt-1 text-[13px] text-ink-soft">{L.shadowSharpnessHint}</p>
+    </div>
+  )
+}
+
 /** Outdoor lighting: mode chips + sun steering. Picking a mode resets the sun
  *  to that mode's canonical stance; the sliders then steer off it. */
 function LightingSection() {
@@ -103,6 +152,13 @@ function LightingSection() {
       <SliderField label={L.sunAzimuth} value={lighting.sunAzimuth} min={0} max={360} unit="°" onChange={(v) => setLighting({ sunAzimuth: v })} />
       <SliderField label={L.sunElevation} value={lighting.sunElevation} min={10} max={90} unit="°" onChange={(v) => setLighting({ sunElevation: v })} />
       <SliderField label={L.sunIntensity} value={lighting.sunIntensity} min={0} max={2} step={0.05} onChange={(v) => setLighting({ sunIntensity: v })} />
+      {/* Read with a fallback and never written on mount: absent already renders
+          as 'medium' (= the 4096 the rig always used), so materialising it here
+          would dirty every project that opens without changing a pixel. */}
+      <ShadowSharpnessField
+        value={lighting.shadowSharpness ?? 'medium'}
+        onChange={(v) => setLighting({ shadowSharpness: v })}
+      />
     </Section>
   )
 }

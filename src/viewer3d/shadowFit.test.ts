@@ -4,7 +4,15 @@ import { cmToM } from '../core/space'
 import { getVenuePack } from '../core/venuePacks'
 import { addObject, newProject } from '../state/actions'
 import { useEditorStore } from '../state/store'
-import { clampBounds, contentBounds, fitShadowCamera, toLightSpace, type Bounds3 } from './shadowFit'
+import {
+  clampBounds,
+  contentBounds,
+  fitShadowCamera,
+  shadowContent,
+  toLightSpace,
+  unionBounds,
+  type Bounds3,
+} from './shadowFit'
 
 const PACK = getVenuePack('resort')!
 const W = cmToM(PACK.size.width)
@@ -12,6 +20,13 @@ const D = cmToM(PACK.size.depth)
 const H = cmToM(PACK.wallHeight)
 const VENUE: Bounds3 = { min: [0, 0, 0], max: [W, H, D] }
 const OPTS = { margin: 3, minHalfExtent: 12 }
+/** LightingRig's `limit`: the venue plus its margin. */
+const LIMIT: Bounds3 = {
+  min: [-OPTS.margin, -OPTS.margin, -OPTS.margin],
+  max: [W + OPTS.margin, H + OPTS.margin, D + OPTS.margin],
+}
+/** LightingRig's `medium` map, which is also the fixed size every project used before the setting. */
+const MAP_SIZE = 4096
 
 /** The rig's sun, decomposed the same way LightingRig does it. */
 function sunAt(azimuth: number, elevation: number): [number, number, number] {
@@ -83,6 +98,11 @@ describe('fitShadowCamera', () => {
   const OLD_SIDE = 2 * Math.max(W, D) * 0.9
   const areaOf = (box: { left: number; right: number; top: number; bottom: number }) =>
     (box.right - box.left) * (box.top - box.bottom)
+  /** The map is square, so the wider axis sets the sampling density for both. */
+  const cmPerTexel = (
+    box: { left: number; right: number; top: number; bottom: number },
+    mapSize: number,
+  ) => (Math.max(box.right - box.left, box.top - box.bottom) / mapSize) * 100
 
   it('shrinks even the worst case — a hall furnished wall to wall, floor to roof', () => {
     const box = fitShadowCamera(eye, TARGET, VENUE, VENUE, OPTS)
@@ -105,11 +125,80 @@ describe('fitShadowCamera', () => {
     expect(Math.max(box.right - box.left, box.top - box.bottom) / 2048).toBeLessThan(0.04)
   })
 
-  it('gains an order of magnitude when the furniture is clustered', () => {
+  it('no longer shrinks onto clustered furniture, and still holds the far corner', () => {
+    // R3 reversed this test. It used to be "gains an order of magnitude when the
+    // furniture is clustered" and asserted area < OLD_SIDE² / 12 — true, and the
+    // reason the far end of the hall received no sun shadow at all. The box now
+    // always contains the venue (shadowContent), so clustering buys nothing.
     const cluster: Bounds3 = { min: [10, 0, 5], max: [25, 1.5, 20] }
-    const box = fitShadowCamera(eye, TARGET, cluster, VENUE, OPTS)
+    const clustered = fitShadowCamera(eye, TARGET, unionBounds(cluster, VENUE), VENUE, OPTS)
+    const emptyHall = fitShadowCamera(eye, TARGET, VENUE, VENUE, OPTS)
 
-    expect(areaOf(box)).toBeLessThan((OLD_SIDE * OLD_SIDE) / 12)
+    // a clustered hall now costs exactly what an empty hall has always cost
+    expect(areaOf(clustered)).toBeCloseTo(areaOf(emptyHall), 6)
+
+    for (const [px, pz] of [
+      [0, 0],
+      [PACK.size.width, 0],
+      [0, PACK.size.depth],
+      [PACK.size.width, PACK.size.depth],
+    ]) {
+      const [u, v] = toLightSpace(eye, TARGET, [cmToM(px), 0, cmToM(pz)])
+      expect(u).toBeGreaterThanOrEqual(clustered.left)
+      expect(u).toBeLessThanOrEqual(clustered.right)
+      expect(v).toBeGreaterThanOrEqual(clustered.bottom)
+      expect(v).toBeLessThanOrEqual(clustered.top)
+    }
+
+    // …and the old box really did drop a corner, so the assertion above is not free
+    const old = fitShadowCamera(eye, TARGET, cluster, VENUE, OPTS)
+    const [fu, fv] = toLightSpace(eye, TARGET, [W, 0, D])
+    expect(fu > old.right || fu < old.left || fv > old.top || fv < old.bottom).toBe(true)
+  })
+
+  it('costs cm per texel only where the box used to be too small to be correct', () => {
+    // The mandatory measurement for PLAN-03: what including the venue laterally
+    // does to sampling density, at the 4096 'medium' map every project renders
+    // today. `before` is the old contract (clamped content, venue only as the
+    // empty-scene fallback); `after` is shadowContent's union.
+    //
+    // Measured on the resort, cm/texel at 4096 (the fitted box is 64.07 x 68.08 m
+    // in light space, so the v axis sets the density):
+    //   clustered in a corner   before 0.662   after 1.662
+    //   wall to wall            before 1.564   after 1.662
+    //   empty hall              before 1.662   after 1.662
+    // For reference the same table at 2048 is 1.324 / 3.128 / 3.324 before and a
+    // flat 3.324 after; at 8192 it is 0.331 / 0.782 / 0.831 before and 0.831
+    // after. That is the whole shape of the trade: 1.662 cm is now the CEILING
+    // on coarseness for every scene at 4096, where before it was the ceiling for
+    // an empty hall and a clustered one bought 0.662 by dropping the rest of the
+    // hall out of the frustum entirely.
+    const clustered: Bounds3 = { min: [2, 0, 2], max: [17, 1.5, 17] }
+    const wallToWall: Bounds3 = { min: [0, 0, 0], max: [W, 1.5, D] }
+    const before = (found: Bounds3 | null) => (found ? clampBounds(found, LIMIT) : VENUE)
+    const after = (found: Bounds3 | null) =>
+      found ? unionBounds(clampBounds(found, LIMIT), VENUE) : VENUE
+    const measure = (content: Bounds3) =>
+      cmPerTexel(fitShadowCamera(eye, TARGET, content, VENUE, OPTS), MAP_SIZE)
+
+    // the empty hall is the ceiling on coarseness, and it did not move
+    const ceiling = measure(after(null))
+    expect(measure(before(null))).toBeCloseTo(ceiling, 6)
+    // nothing is ever coarser than it, before or after
+    for (const content of [clustered, wallToWall]) {
+      expect(measure(before(content))).toBeLessThanOrEqual(ceiling + 1e-9)
+      expect(measure(after(content))).toBeCloseTo(ceiling, 6)
+    }
+    // wall-to-wall barely moves — it already spanned the venue, and only the
+    // venue's HEIGHT (11.6 m of wall against 1.5 m of furniture) widens its
+    // light-space footprint at all
+    expect(measure(before(wallToWall))).toBeGreaterThan(0.9 * ceiling)
+    // the clustered hall is the only one that pays, and it pays 2.5x
+    expect(measure(before(clustered))).toBeLessThan(0.5 * ceiling)
+
+    // absolute sanity: a 4 cm chair leg still spans more than one texel at 4096,
+    // which is the line the R2 fitted box was introduced to stay on
+    expect(ceiling).toBeLessThan(4)
   })
 
   it('shrinks the depth range too, which is what the bias is scaled against', () => {
@@ -172,5 +261,44 @@ describe('clampBounds', () => {
   it('holds a runaway box inside the venue', () => {
     const wild: Bounds3 = { min: [-500, -20, -500], max: [900, 90, 900] }
     expect(clampBounds(wild, VENUE)).toEqual(VENUE)
+  })
+})
+
+describe('shadowContent', () => {
+  const contains = (outer: Bounds3, inner: Bounds3) =>
+    [0, 1, 2].every((i) => outer.min[i] <= inner.min[i] + 1e-9 && outer.max[i] >= inner.max[i] - 1e-9)
+
+  it('keeps the whole venue even when every object sits in one corner', () => {
+    // the shape of the reported bug: a hall furnished only near the entrance
+    addObject('table.round', { x: 400, y: 400 })
+    addObject('table.round', { x: 700, y: 400 })
+    const box = shadowContent(useEditorStore.getState().scene, VENUE, LIMIT)
+
+    expect(contains(box, VENUE)).toBe(true)
+    // the clamped content alone did NOT — that is what changed
+    expect(contains(clampBounds(contentBounds(useEditorStore.getState().scene)!, LIMIT), VENUE)).toBe(
+      false,
+    )
+  })
+
+  it('falls back to the venue for a scene with nothing in it', () => {
+    // a resort project is never empty (venueFixtures bakes the bar in), so the
+    // only place this branch can be reached is a pack-less procedural room
+    newProject({ name: 'shadow-content-plain', venueWidth: 2400, venueDepth: 1600 })
+    const room: Bounds3 = { min: [0, 0, 0], max: [cmToM(2400), cmToM(300), cmToM(1600)] }
+    expect(shadowContent(useEditorStore.getState().scene, room, room)).toEqual(room)
+  })
+
+  it('unions rather than replaces, so content outside the venue box still widens it', () => {
+    // the direction that is easy to get backwards. A deliberately undersized
+    // venue box stands in for the real cases where content legitimately leaves
+    // the walls: zone platforms lift objects above wallHeight, and a footprint
+    // is approximated as a disc that pokes past an object placed at the edge.
+    const tiny: Bounds3 = { min: [0, 0, 0], max: [1, 1, 1] }
+    const found = contentBounds(useEditorStore.getState().scene)!
+    const box = shadowContent(useEditorStore.getState().scene, tiny, LIMIT)
+
+    expect(contains(box, tiny)).toBe(true)
+    expect(contains(box, clampBounds(found, LIMIT))).toBe(true)
   })
 })

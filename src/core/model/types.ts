@@ -120,6 +120,9 @@ export interface LayerFlags {
 
 export type LightingMode = 'day' | 'sunset' | 'night'
 
+/** Shadow-map resolution bucket: 2048 / 4096 / 8192 (viewer3d/LightingRig). */
+export type ShadowSharpness = 'soft' | 'medium' | 'sharp'
+
 /** Outdoor lighting: a mode preset plus the sun the user may steer off it. */
 export interface LightingSettings {
   mode: LightingMode
@@ -128,6 +131,12 @@ export interface LightingSettings {
   /** degrees above the horizon */
   sunElevation: number
   sunIntensity: number
+  /**
+   * Optional, and absent means 'medium' — which resolves to the 4096 that was a
+   * fixed constant before this setting existed, so a project saved without it
+   * renders exactly what it rendered before.
+   */
+  shadowSharpness?: ShadowSharpness
 }
 
 /** Sunset seeded from the pre-v5 hardcoded sun so the default render is unchanged. */
