@@ -44,7 +44,7 @@ import { SelectionTransformer } from './SelectionTransformer'
 import { useEditorShortcuts, type ZoomApi } from './useEditorShortcuts'
 import { clampZoom, useViewportStore, ZOOM_100 } from './viewportStore'
 import { VenueLayer } from './VenueLayer'
-import { boundsOf, cachedVenueCut, pickWalls } from '../core/venueCut'
+import { cachedVenueCut } from '../core/venueCut'
 import { getVenuePack } from '../core/venuePacks'
 import { registerCapture } from './captureBus'
 import { registerZoomApi } from './zoomBus'
@@ -225,25 +225,13 @@ export function Stage2D() {
       // empty (handoff/FOUND-06.md §1) — on screen it was always there, because
       // the canvas is bigger than the rectangle. So the sheet is the UNION of the
       // two, and a pack with no walls still gets exactly its rectangle.
-      // …and it frames WHAT IS DRAWN. The hall/reception toggle hides one of the
-      // two buildings outright, so a sheet framed on the union would come back a
-      // third empty on the side the drawing does not include. The floor rectangle
-      // is the hall's or the deck's; the walls are whichever side VenueLayer is
-      // painting, split by the same function it uses.
       const pack = getVenuePack(useEditorStore.getState().scene.venue.venuePackId)
-      const deck = pack?.restricted?.find((z) => z.kind === 'kabalatPanim')
-      const hallSide = useEditorStore.getState().activeZone !== 'kabalatPanim'
-      const all = cachedVenueCut(pack?.cut)?.tris
-      const walls = boundsOf(deck && all ? pickWalls(all, deck, hallSide) : (all ?? []))
-      const floor =
-        deck && !hallSide
-          ? { minX: deck.x, minY: deck.y, maxX: deck.x + deck.width, maxY: deck.y + deck.depth }
-          : { minX: 0, minY: 0, maxX: deck ? Math.min(vw, deck.x) : vw, maxY: vd }
+      const walls = cachedVenueCut(pack?.cut)?.bounds
       const frame = {
-        minX: Math.min(floor.minX, walls?.minX ?? floor.minX),
-        minY: Math.min(floor.minY, walls?.minY ?? floor.minY),
-        maxX: Math.max(floor.maxX, walls?.maxX ?? floor.maxX),
-        maxY: Math.max(floor.maxY, walls?.maxY ?? floor.maxY),
+        minX: Math.min(0, walls?.minX ?? 0),
+        minY: Math.min(0, walls?.minY ?? 0),
+        maxX: Math.max(vw, walls?.maxX ?? vw),
+        maxY: Math.max(vd, walls?.maxY ?? vd),
       }
       const exportScale = ZOOM_100 // 64px/m at pixelRatio 1
       const prevScale = stage.scaleX()
@@ -295,6 +283,46 @@ export function Stage2D() {
   // keep the venue fit while the pane is still settling (panels mounting,
   // split ratio changes) — until the user takes over the viewport
   const userTouchedViewRef = useRef(false)
+
+  /**
+   * The viewport follows the hall/reception toggle.
+   *
+   * The two are different buildings 20 m apart on the sheet, and the toggle now
+   * hides one of them outright — so without this, switching to the reception
+   * leaves you looking at the empty stretch where the hall used to be, with the
+   * deck off in a corner. 3D already flies its camera to the reception angle on
+   * the same switch; this is the 2D half of that.
+   *
+   * ⚠ It deliberately OVERRIDES a hand-set pan and zoom, which nothing else here
+   * does. Pressing the toggle is a statement about what you want to look at, and
+   * honouring the old viewport would answer it by showing you nothing.
+   */
+  const activeZone = useEditorStore((s) => s.activeZone)
+  const firstZoneFit = useRef(true)
+  useEffect(() => {
+    if (!initialView || width <= 0 || height <= 0) return
+    // not on mount: the fit above already framed the venue, and re-running here
+    // would fight it on every panel resize
+    if (firstZoneFit.current) {
+      firstZoneFit.current = false
+      return
+    }
+    const scene = useEditorStore.getState().scene
+    const deck = getVenuePack(scene.venue.venuePackId)?.restricted?.find(
+      (z) => z.kind === 'kabalatPanim',
+    )
+    const box =
+      activeZone === 'kabalatPanim' && deck
+        ? { minX: deck.x, minY: deck.y, maxX: deck.x + deck.width, maxY: deck.y + deck.depth }
+        : {
+            minX: 0,
+            minY: 0,
+            maxX: deck ? Math.min(scene.venue.size.width, deck.x) : scene.venue.size.width,
+            maxY: scene.venue.size.depth,
+          }
+    userTouchedViewRef.current = true
+    fitBox(box, 90)
+  }, [activeZone, initialView, width, height, fitBox])
   useEffect(() => {
     if (initialView && width > 0 && height > 0 && !userTouchedViewRef.current) {
       const { width: vw, depth: vd } = useEditorStore.getState().scene.venue.size

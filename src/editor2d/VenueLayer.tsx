@@ -28,7 +28,7 @@ import {
 import type { Vec2 } from '../core/model/types'
 import { venueOutline } from '../core/venueOutline'
 import { getVenuePack, type RestrictedZone } from '../core/venuePacks'
-import { cachedVenueCut, loadVenueCut, pickWalls, type CutTriangle, type VenueCut } from '../core/venueCut'
+import { cachedVenueCut, loadVenueCut, type CutTriangle, type VenueCut } from '../core/venueCut'
 import { isObjectVisible } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { strings } from '../ui/strings'
@@ -382,9 +382,6 @@ export function VenueLayer() {
   const showReception = activeZone !== 'hall'
   const hallZones = drawOrder.filter((i) => !isReception(i))
   const receptionZones = drawOrder.filter(isReception)
-  // The walls take sides too — `splitWalls` is shared with the PNG export, which
-  // has to frame the same building this draws.
-  const visibleWalls = !cut ? [] : !deck ? cut.tris : pickWalls(cut.tris, deck, showHall)
 
   const zoneNodes = (indices: number[]) => (
     <Fragment>
@@ -460,13 +457,13 @@ export function VenueLayer() {
       <LevelChanges zones={zones.filter((z) => onDeck(z) === !showHall)} />
       {/* The building itself, last: a cut wall sits OVER the floor it encloses,
           and over the zone tints, which are markings on that floor.
-          ⚠ The walls take sides too. They are one triangle soup with no notion of
-          hall or deck, so the side is decided the same way everything else here
-          decides it — geometrically, by which rectangle the triangle sits in.
-          Leaving them whole would keep drawing the deck's envelope after
-          everything inside it had gone, which is the confusing half of the old
-          behaviour with none of its usefulness. */}
-      {cut ? <CutPoche tris={visibleWalls} /> : null}
+          ⚠ The walls do NOT take sides, and that is the user's call: ZONE_CUT is
+          one marker he painted over the whole building, and splitting it here by
+          which rectangle a triangle lands in would be this file inventing a
+          division the source does not make. He is painting the reception its own
+          marker; when it arrives the split is data, and this draws whichever one
+          belongs to the active side. Until then both envelopes stay. */}
+      {cut ? <CutPoche tris={cut.tris} /> : null}
     </Layer>
   )
 }
