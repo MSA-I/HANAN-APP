@@ -49,3 +49,31 @@ export function isZoneOccupied(zone: ZoneRect, centres: readonly Vec2[]): boolea
 export function isZoneInside(inner: ZoneRect, outer: ZoneRect): boolean {
   return isPointInZone({ x: inner.x + inner.width / 2, y: inner.y + inner.depth / 2 }, outer)
 }
+
+/**
+ * Of these candidates, the one the point stands in — else the nearest by centre.
+ *
+ * A `zoneKind` names a FAMILY of rectangles, not one rectangle, and the resort has
+ * two chuppah zones: the hall's at +0.50 and the reception deck's at +5.20. Picking
+ * the first of the family is picking by array order, which is how a chuppah placed
+ * on the deck came to be drawn 4.70 m below it — standing in the void under the
+ * deck, inside the building's walls.
+ *
+ * The fallback is "nearest" rather than "none" so that an object clamped hard
+ * against the outside of its home rectangle still reads the level it belongs to,
+ * and it matches how `clampToVenue` chooses that home in the first place.
+ */
+export function zoneUnder<T extends ZoneRect>(candidates: readonly T[], point: Vec2): T | undefined {
+  const standingOn = candidates.find((z) => isPointInZone(point, z))
+  if (standingOn) return standingOn
+  let best: T | undefined
+  let bestDistance = Infinity
+  for (const z of candidates) {
+    const d = Math.hypot(z.x + z.width / 2 - point.x, z.y + z.depth / 2 - point.y)
+    if (d < bestDistance) {
+      bestDistance = d
+      best = z
+    }
+  }
+  return best
+}

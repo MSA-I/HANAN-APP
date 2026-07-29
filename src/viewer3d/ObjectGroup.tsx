@@ -33,6 +33,7 @@ import { getCatalogEntry } from '../core/catalog/registry'
 import { slotColor, type Outline } from '../core/catalog/types'
 import { beamGrid, cordLength, snapToBeam } from '../core/layout/beams'
 import { snapValue } from '../core/layout/snapping'
+import { zoneUnder } from '../core/layout/zoneOccupancy'
 import { attachedChairs } from '../core/model/seatingReconciler'
 import type { Id, SceneState, Size3D } from '../core/model/types'
 import { cmToM, degToRad, radToDeg, relativeTransform, threeToPlan } from '../core/space'
@@ -212,9 +213,17 @@ export function ObjectGroup({ id }: { id: Id }) {
     return s.selection.length === 1 && s.selection[0] === id && !!obj && !isEffectivelyLocked(s.scene, obj)
   })
   const placing = useOverlayStore((s) => s.placing)
+  // Which rectangle of the family this piece is standing ON, never the first one
+  // declared: `zoneKind: 'chuppah'` matches both the hall's ceremony pad (+0.50)
+  // and the reception deck's (+5.20), and reading the first drew a chuppah placed
+  // upstairs 4.70 m below the deck, inside the walls. Still a plain number, so the
+  // selector only re-renders when the level actually changes mid-drag.
   const baseElevation = useEditorStore((s) => {
     const zoneKind = catalogId ? getCatalogEntry(catalogId).zoneKind : undefined
-    return getVenuePack(s.scene.venue.venuePackId)?.restricted?.find((zone) => zone.kind === zoneKind)?.elevation ?? 0
+    if (!zoneKind) return 0
+    const family = getVenuePack(s.scene.venue.venuePackId)?.restricted?.filter((z) => z.kind === zoneKind) ?? []
+    const here = s.scene.objects[id]?.transform.position
+    return (here ? zoneUnder(family, here) : family[0])?.elevation ?? 0
   })
   // a NUMBER selector, so it stays stable through the transient position writes
   // of a drag and only re-renders when the hang slider actually moves

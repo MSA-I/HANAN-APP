@@ -7,6 +7,7 @@ import { pointInHole, pointInOutline } from '../core/layout/bounds'
 import { checkPlacement } from '../core/layout/collision'
 import { beamGrid, snapToBeam } from '../core/layout/beams'
 import { snapValue } from '../core/layout/snapping'
+import { zoneUnder } from '../core/layout/zoneOccupancy'
 import type { Id, SceneState, Vec2 } from '../core/model/types'
 import { cmToM, degToRad, threeToPlan } from '../core/space'
 import { getVenuePack } from '../core/venuePacks'
@@ -189,12 +190,18 @@ export function Placement3D() {
   )
 }
 
-function zoneElevation(scene: SceneState, entry: CatalogEntry): number {
+/**
+ * `at` is where the piece is going, and it decides WHICH rectangle of the family
+ * answers: a chuppah has one pad in the hall (+0.50) and one on the reception deck
+ * (+5.20). The ghost must agree with where the drop lands, or the preview floats
+ * and the object arrives somewhere else — which reads as a worse fault than the
+ * one being fixed.
+ */
+function zoneElevation(scene: SceneState, entry: CatalogEntry, at: Vec2): number {
   if (!entry.zoneKind) return 0
-  const zone = getVenuePack(scene.venue.venuePackId)?.restricted?.find(
-    (candidate) => candidate.kind === entry.zoneKind,
-  )
-  return zone && 'elevation' in zone && typeof zone.elevation === 'number' ? zone.elevation : 0
+  const family =
+    getVenuePack(scene.venue.venuePackId)?.restricted?.filter((z) => z.kind === entry.zoneKind) ?? []
+  return zoneUnder(family, at)?.elevation ?? 0
 }
 
 function ghostElevation(scene: SceneState, entry: CatalogEntry, point: Vec2): number {
@@ -202,7 +209,9 @@ function ghostElevation(scene: SceneState, entry: CatalogEntry, point: Vec2): nu
     const target = tableAt(scene, point)
     if (!target) return 0
     const table = scene.objects[target.id]
-    const base = zoneElevation(scene, getCatalogEntry(table.catalogId)) + table.transform.elevation
+    const base =
+      zoneElevation(scene, getCatalogEntry(table.catalogId), table.transform.position) +
+      table.transform.elevation
     // over the open centre of a ring the preview belongs on the floor, which is
     // the only warning the user gets that this drop will not land on the top
     return target.inHole ? base : base + table.size.height
@@ -211,7 +220,7 @@ function ghostElevation(scene: SceneState, entry: CatalogEntry, point: Vec2): nu
     const pack = getVenuePack(scene.venue.venuePackId)
     return (pack?.hangHeight ?? scene.venue.wallHeight) - entry.defaultSize.height
   }
-  return zoneElevation(scene, entry)
+  return zoneElevation(scene, entry, point)
 }
 
 function PlacementFootprint() {

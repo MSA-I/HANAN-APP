@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { getVenuePack } from '../venuePacks'
-import { isPointInZone, isZoneInside, isZoneOccupied, type ZoneRect } from './zoneOccupancy'
+import { isPointInZone, isZoneInside, isZoneOccupied, zoneUnder, type ZoneRect } from './zoneOccupancy'
 
 // the real resort pool and bar, from venuePacks.ts
 const POOL: ZoneRect = { x: 766, y: 1408, width: 3196, depth: 1136 }
@@ -68,5 +68,31 @@ describe('isZoneInside', () => {
   it('claims nothing else in the hall for the deck', () => {
     const onDeck = zones.filter((z) => z.kind !== 'kabalatPanim' && isZoneInside(z, deck))
     expect(onDeck.map((z) => z.kind)).toEqual(['chuppah'])
+  })
+})
+
+/**
+ * The level a piece stands at. `zoneKind` names a family, and the resort's chuppah
+ * family has two members at different heights — reading the first one drew a
+ * chuppah placed on the deck 4.70 m below it, inside the walls.
+ */
+describe('zoneUnder', () => {
+  const chuppahs = getVenuePack('resort')!.restricted!.filter((z) => z.kind === 'chuppah')
+  const centre = (z: ZoneRect) => ({ x: z.x + z.width / 2, y: z.y + z.depth / 2 })
+
+  it('answers with the pad the point is standing on, not the first declared', () => {
+    for (const pad of chuppahs) expect(zoneUnder(chuppahs, centre(pad))).toBe(pad)
+    // and the two really are at different levels, or this test proves nothing
+    expect(new Set(chuppahs.map((z) => z.elevation)).size).toBe(2)
+  })
+
+  it('falls back to the nearest when the point is on neither', () => {
+    const hall = chuppahs.find((z) => z.elevation === 50)!
+    const justOutside = { x: hall.x - 40, y: centre(hall).y }
+    expect(zoneUnder(chuppahs, justOutside)).toBe(hall)
+  })
+
+  it('has nothing to say about an empty family', () => {
+    expect(zoneUnder([], { x: 0, y: 0 })).toBeUndefined()
   })
 })
