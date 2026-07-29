@@ -22,8 +22,6 @@ import {
   formatElevation,
   LABEL_ELEVATION_HEIGHT,
   labelFits,
-  LTR_ISOLATE,
-  POP_ISOLATE,
   zoneLabelBoxes,
   type ZoneLabelBox,
 } from '../core/layout/zoneLabels'
@@ -74,7 +72,6 @@ const INK_GLAZING = '#5a6b74'
 const INK_UNCLASSED = '#9a938a'
 /** the floor's edge once the real walls are drawn: the placement limit, not a wall */
 const INK_FLOOR_EDGE = '#7d746a'
-const INK_NOTE = '#57504a'
 
 const INK_LEVEL = '#6b635a'
 
@@ -98,14 +95,6 @@ const FALLBACK_WALL_THICKNESS = 20
 
 const LABEL_FONT_SIZE = 44
 const LEVEL_FONT_SIZE = 30
-
-/** cm the sheet furniture keeps off the paper's edge. */
-const SHEET_INSET = 60
-/** metres. The longest bar that still fits across 45% of the sheet — a 6 m room
- *  gets a 2 m bar instead of one that runs off the paper. */
-const BAR_METRES = [10, 5, 2]
-const NOTE_FONT_SIZE = 46
-const TITLE_FONT_SIZE = 72
 
 /**
  * dimmed side of the hall/reception toggle (source doc §18). ObjectsLayer dims
@@ -245,121 +234,14 @@ function SectionLines({ section }: { section: VenueSection }) {
   )
 }
 
-/**
- * Sheet furniture: the drawing's title, where north is, and how long a metre is.
- *
- * ⚠ IT LIVES IN THE VENUE LAYER, AND THAT IS NOT A STYLE CHOICE. The PNG export
- * (`Stage2D.tsx:211-250`) hides layers 1/3/4/5 and frames exactly
- * `0,0 → size.width,size.depth`. A north point drawn in any other layer, or one
- * millimetre outside that rectangle, is simply not in the drawing the user
- * exports. Layer 0, inside the rectangle, is the only place it can be.
- *
- * ⚠ North is −y. That is not this file's guess: `model/types.ts:129` defines
- * `sunAzimuth` as "degrees clockwise from plan north (−y)" and the 3D sun runs
- * on it, so the app has already committed to that frame and the arrow agrees
- * with the shadows.
- *
- * ponytail: fixed to the sheet's top-right corner, and the ceiling that comes
- * with that is that ObjectsLayer draws OVER it — a chandelier the sample layout
- * drops at (5592, 227) covers part of the north point. A real title block
- * belongs in a margin and this export has none, so the upgrade is a margin on
- * the capture rectangle (Stage2D, not this file — FOUND-06.md §1), not a
- * cleverer corner.
+/*
+ * The sheet furniture that used to live here — drawing title, north point and
+ * scale bar — was removed on 2026-07-29 at the user's request: this drawing is a
+ * working plan of a hall, not a sheet issued for construction, and a title block
+ * on it is decoration that competes with the furniture it is meant to describe.
+ * `strings.plan.north` and `strings.plan.title` stay in the dictionary; nothing
+ * reads them. Bring the block back only with a real margin to put it in.
  */
-function SheetAnnotations({ width }: { width: number }) {
-  const right = width - SHEET_INSET
-  const barM = BAR_METRES.find((m) => m * 100 <= width * 0.45) ?? BAR_METRES[BAR_METRES.length - 1]
-  const bar = barM * 100
-  const barLeft = right - bar
-  const barY = SHEET_INSET + 520
-  const barH = 24
-  const seg = bar / 5
-  const nx = right - 110
-  const ny = SHEET_INSET + 220
-  // digits on a canvas that inherits dir="rtl" come out reversed unless the run
-  // is isolated — same failure formatElevation() documents, same fix.
-  const num = (v: number) => `${LTR_ISOLATE}${v}${POP_ISOLATE}`
-
-  return (
-    <Fragment>
-      <Text
-        x={right - 1400}
-        y={SHEET_INSET}
-        width={1400}
-        text={strings.plan.title}
-        fontSize={TITLE_FONT_SIZE}
-        fontFamily="Assistant, sans-serif"
-        fontStyle="600"
-        fill={INK_NOTE}
-        align="right"
-      />
-      {/* north point: outlined disc, solid kite */}
-      <Line
-        points={[nx, ny - 84, nx - 34, ny + 76, nx, ny + 36, nx + 34, ny + 76]}
-        closed
-        fill={INK_NOTE}
-        listening={false}
-      />
-      <Circle
-        x={nx}
-        y={ny}
-        radius={100}
-        stroke={INK_NOTE}
-        strokeWidth={W_NOTE}
-        strokeScaleEnabled={false}
-        listening={false}
-      />
-      <Text
-        x={nx - 200}
-        y={ny + 116}
-        width={400}
-        text={strings.plan.north}
-        fontSize={NOTE_FONT_SIZE}
-        fontFamily="Assistant, sans-serif"
-        fill={INK_NOTE}
-        align="center"
-      />
-      {/* graphic scale: five equal parts, alternately solid, so it stays readable
-          at any zoom and survives being printed at an unknown size */}
-      <Text
-        x={barLeft}
-        y={barY - 74}
-        width={bar}
-        text={strings.plan.scale}
-        fontSize={NOTE_FONT_SIZE}
-        fontFamily="Assistant, sans-serif"
-        fill={INK_NOTE}
-        align="right"
-      />
-      {[0, 1, 2, 3, 4].map((i) => (
-        <Rect
-          key={`sb${i}`}
-          x={barLeft + i * seg}
-          y={barY}
-          width={seg}
-          height={barH}
-          fill={i % 2 === 0 ? INK_NOTE : PAPER}
-          stroke={INK_NOTE}
-          strokeWidth={W_NOTE}
-          strokeScaleEnabled={false}
-        />
-      ))}
-      {[0, 0.5, 1].map((t) => (
-        <Text
-          key={`sl${t}`}
-          x={barLeft + t * bar - 150}
-          y={barY + barH + 12}
-          width={300}
-          text={num(Math.round(t * barM))}
-          fontSize={NOTE_FONT_SIZE * 0.8}
-          fontFamily="Assistant, sans-serif"
-          fill={INK_NOTE}
-          align="center"
-        />
-      ))}
-    </Fragment>
-  )
-}
 
 const zoneKey = (z: RestrictedZone) => `${z.kind}-${z.x}-${z.y}`
 
@@ -650,7 +532,6 @@ export function VenueLayer() {
           either opacity group — the hall/reception toggle dims what stands in a
           zone, and the building is not standing in one. */}
       {section ? <SectionLines section={section} /> : null}
-      <SheetAnnotations width={venueSize.width} />
     </Layer>
   )
 }
