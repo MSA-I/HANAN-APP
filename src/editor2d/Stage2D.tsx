@@ -47,6 +47,13 @@ import { VenueLayer } from './VenueLayer'
 import { registerCapture } from './captureBus'
 import { registerZoomApi } from './zoomBus'
 
+/**
+ * cm of paper the PNG export keeps around the venue rectangle. 250 clears the
+ * resort's north wall, which lives at y ∈ [−10, 0], with room to spare for the
+ * dimension chain a plan should eventually carry outside the building.
+ */
+const SHEET_MARGIN = 250
+
 interface MenuState {
   x: number
   y: number
@@ -231,10 +238,15 @@ export function Stage2D() {
         stage.scale({ x: exportScale, y: exportScale })
         stage.position({ x: 0, y: 0 })
         return stage.toDataURL({
-          x: 0,
-          y: 0,
-          width: vw * exportScale,
-          height: vd * exportScale,
+          // ⚠ the venue rectangle is NOT the building. The resort's north wall sits
+          // at y ∈ [−10, 0] — outside it — so framing exactly 0,0 → size clipped the
+          // wall out of every export and made the top edge of the sheet look empty
+          // (handoff/FOUND-06.md §1). On screen it was always there; the canvas is
+          // bigger than the rectangle. The margin is what a drawing has anyway.
+          x: -SHEET_MARGIN * exportScale,
+          y: -SHEET_MARGIN * exportScale,
+          width: (vw + SHEET_MARGIN * 2) * exportScale,
+          height: (vd + SHEET_MARGIN * 2) * exportScale,
           pixelRatio,
           mimeType: 'image/png',
         })

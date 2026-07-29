@@ -282,23 +282,28 @@ export const VENUE_PACKS: VenuePack[] = [
     beamColor: '#ddd1c1',
     // Cut from THIS venue.glb by tools/glb-prep/extract-section.mjs, two planes:
     // 1.00 m over the hall and 5.70 m over the reception deck, because the deck
-    // floor is 4.70 m up and one plane cannot catch both. 170 polylines, 114 of
+    // floor is 4.70 m up and one plane cannot catch both. 134 polylines, 114 of
     // them closed — those are the wall cross-sections the plan fills as poché.
     // `--clip` throws away the 126 that lay wholly outside this pack's rectangle:
     // the model carries the rest of the building and a desert backdrop.
-    // Every polyline now also carries `kind` and the `material` it was cut from:
-    // 74 wall, 33 glazing, 16 column, 47 opening, 0 railing. Glazing is the
+    // Every polyline also carries `kind` and the `material` it was cut from:
+    // 74 wall, 33 glazing, 16 column, 11 opening, 0 railing. Glazing is the
     // material literally named `'Glass'`, quotes and all; column is a compact
     // closed loop, thresholds recorded in the file itself. ⚠ `opening` means
     // UNCLASSIFIED and nothing else — this model has NO door material, so a door
-    // is not identifiable from it and `opening` must never be drawn as one. 45 of
-    // the 47 sit on the 9 cm strip between the two cuts' x-ranges (4423…4432):
-    // that is the east wall truncated by the tool, not a hole in the building.
+    // is not identifiable from it and `opening` must never be drawn as one.
+    //
+    // ⚠ THE TWO CUT RANGES MUST TOUCH. They used to be 0..4423 and 4432..6051,
+    // leaving a 9 cm strip no plane covered — and the hall's east wall sits exactly
+    // there, so it came out as 36 severed stumps in a vertical comb down the middle
+    // of the drawing. That comb was most of what made the plan look unarchitectural.
+    // Closing the strip to 0..4432 dropped `opening` from 47 to 11 and left wall,
+    // glazing and column IDENTICAL — nothing real was traded for it.
     // Railing comes back 0 because `Glass Railing Color` exists only at 0.60-0.75
     // and 1.46-1.50 m, and the 1.00 m plane passes through the gap between them.
-    // Measurements: HANAN-APP-DOCS/Plans/R3/handoff/01-section.md.
+    // Measurements: HANAN-APP-DOCS/Plans/R3/handoff/01-section.md · FOUND-06.md §6.
     // ⚠ Re-run it whenever venue.glb changes, or the plan draws the old building:
-    //   node tools/glb-prep/extract-section.mjs public/venue-packs/resort/venue.glb --offset 0,24.861 --clip 0,0,6051,2544
+    //   node tools/glb-prep/extract-section.mjs public/venue-packs/resort/venue.glb --offset 0,24.861 --clip 0,0,6051,2544 --cut "1@0..4432" --cut "5.7@4432..6051"
     section: '/venue-packs/resort/section.json',
     // SketchUp Scenes → app three-metres via (x, z, 24.861 − y). Extracted from
     // SimLab Scene nodes (tools flow: SimLab session on the SKP → read Scene N).
