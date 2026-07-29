@@ -38,6 +38,7 @@ import {
   tableCellSize,
 } from '../core/layout/fillHall'
 import { beamGrid, clampHang, snapToBeam } from '../core/layout/beams'
+import { isZoneInside } from '../core/layout/zoneOccupancy'
 import { seatItemTransforms } from '../core/layout/seatItemLayout'
 import { seatsForEntry } from '../core/layout/seatLayout'
 import { serpentineCentre, serpentineSeats } from '../core/layout/serpentine'
@@ -368,16 +369,31 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>, mode: ClampMode = 's
     // sentence: collision.ts admitted a guest table onto the deck while the clamp
     // here went on shoving it off. One list is what stops "may it be here" and
     // "does it stay here" from disagreeing again.
+    // fixed station: snap into the nearest matching home zone and stop there
+    const zoneKind = getCatalogEntry(obj.catalogId).zoneKind
+    const home = zoneKind ? zones.filter((z) => z.kind === zoneKind) : []
+
     const reception = zones.find((z) => z.kind === 'kabalatPanim')
-    if (reception && overlapsZone(box, reception) && allowedOnDeck(getCatalogEntry(obj.catalogId))) {
+    // ⚠ …except for a station whose family has a pad ON the deck. The rule above
+    // was written when the deck had no pads of its own: keeping a chuppah up here
+    // then meant overriding its `zoneKind`, because the only ceremony rectangle in
+    // existence was downstairs. The user has since drawn one on the deck, and the
+    // home branch below now snaps to the NEAREST member of the family — which for
+    // anything standing up here is the deck's own pad. Letting the deck clamp win
+    // instead only guarantees the piece stays somewhere on the deck, which is how
+    // a chuppah came to be placeable anywhere across it rather than on the pad
+    // that was drawn for it.
+    const stationOnDeck = !!reception && home.some((z) => isZoneInside(z, reception))
+    if (
+      reception &&
+      !stationOnDeck &&
+      overlapsZone(box, reception) &&
+      allowedOnDeck(getCatalogEntry(obj.catalogId))
+    ) {
       d = zoneShift(box, reception)
       if (d.x || d.y) shift(obj, box, d)
       continue
     }
-
-    // fixed station: snap into the nearest matching home zone and stop there
-    const zoneKind = getCatalogEntry(obj.catalogId).zoneKind
-    const home = zoneKind ? zones.filter((z) => z.kind === zoneKind) : []
     if (home.length) {
       const center = (z: RestrictedZone) => ({ x: z.x + z.width / 2, y: z.y + z.depth / 2 })
       const nearestHome = (candidate: AABB) => {

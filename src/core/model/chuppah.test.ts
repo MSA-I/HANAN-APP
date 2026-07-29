@@ -19,6 +19,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { getCatalogEntry } from '../catalog/registry'
 import { chuppahEntries } from '../catalog/entries/chuppah'
+import { isZoneInside } from '../layout/zoneOccupancy'
 import { getVenuePack } from '../venuePacks'
 import { addObject, moveObjectsBy, newProject, rotateObjectsBy } from '../../state/actions'
 import { objectAABB } from '../../state/selectors'
@@ -40,7 +41,16 @@ const ZONE = zones().find((z) => z.kind === 'chuppah')!
  * `settledOnAHome`; the ones about the hall zone specifically still use
  * `settledOnZone`.
  */
-const DECK = zones().find((z) => z.kind === 'kabalatPanim')
+const DECK = zones().find((z) => z.kind === 'kabalatPanim')!
+/**
+ * ⚠ The home up there is the deck's own ceremony PAD, not the whole deck. This
+ * helper used to accept anywhere on `DECK`, which is a tolerance that was hiding
+ * a real fault: the deck clamp ran before the home-zone snap and short-circuited
+ * it, so a chuppah dropped up here settled wherever it was dropped. The user drew
+ * that pad; landing on it is the behaviour, and the looser assertion could never
+ * have caught its absence.
+ */
+const DECK_PAD = zones().find((z) => z.kind === 'chuppah' && isZoneInside(z, DECK))!
 const settledIn = (id: string, zone: { x: number; y: number; width: number; depth: number }) => {
   const b = objectAABB(scene(), id)!
   const settled = (min: number, max: number, zoneMin: number, zoneSize: number) =>
@@ -50,7 +60,7 @@ const settledIn = (id: string, zone: { x: number; y: number; width: number; dept
   return settled(b.minX, b.maxX, zone.x, zone.width) && settled(b.minY, b.maxY, zone.y, zone.depth)
 }
 const settledOnZone = (id: string) => settledIn(id, ZONE)
-const settledOnAHome = (id: string) => settledOnZone(id) || (!!DECK && settledIn(id, DECK))
+const settledOnAHome = (id: string) => settledOnZone(id) || settledIn(id, DECK_PAD)
 
 /**
  * The real size glb-prep left in each file, read straight out of public/props
@@ -201,6 +211,26 @@ describe('chuppah zone lock', () => {
     expect(settledOnAHome(objId)).toBe(true)
     rotateObjectsBy([objId], 90)
     expect(settledOnAHome(objId)).toBe(true)
+  })
+
+  /**
+   * The deck is a big rectangle (1619 × 1810) with a small pad drawn on it
+   * (571 × 426). Dropping at its far corners is what the user did when he found
+   * the chuppah standing wherever he clicked: the deck clamp accepted the drop
+   * and short-circuited the home snap, so "legal on the deck" was the only rule
+   * being applied. Each corner is nearer the deck pad than the hall's, so every
+   * one of them must come to rest on the pad.
+   */
+  it.each(ids)('%s lands on the deck PAD, not merely somewhere on the deck', (id) => {
+    for (const drop of [
+      { x: DECK.x + 60, y: DECK.y + 60 },
+      { x: DECK.x + DECK.width - 60, y: DECK.y + 60 },
+      { x: DECK.x + 60, y: DECK.y + DECK.depth - 60 },
+      { x: DECK.x + DECK.width - 60, y: DECK.y + DECK.depth - 60 },
+    ]) {
+      const objId = addObject(id, drop)
+      expect(settledIn(objId, DECK_PAD)).toBe(true)
+    }
   })
 
   // Structures that cannot fit the shallow zone at the requested angle snap to
