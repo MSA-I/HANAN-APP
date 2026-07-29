@@ -3,8 +3,10 @@ import { getCatalogEntry } from '../catalog/registry'
 import type { Outline } from '../catalog/types'
 import type { SeatingConfig, Size3D, Transform2D } from '../model/types'
 import { rotateVec } from '../space'
+import { holeRadius } from './bounds'
 import { seatItemTransforms } from './seatItemLayout'
 import { computeSeatTransforms, seatsForEntry } from './seatLayout'
+import { serpentineBandDepth } from './serpentine'
 
 const CHAIR = 'chair.x-white'
 const SETTING = 'decor.place-setting'
@@ -24,7 +26,8 @@ const DISTANCE = 6 + chair.depth / 2 + 3 + item.depth / 2
 
 const lay = (outline: Outline, cfg: SeatingConfig) => {
   const seats = computeSeatTransforms(outline, cfg, chair)
-  return { seats, items: seatItemTransforms(seats, chair, item, cfg.offset) }
+  // the outline goes in as the top, exactly as laySeatItems passes it
+  return { seats, items: seatItemTransforms(seats, chair, item, cfg.offset, outline) }
 }
 
 /** The four corners of a placed item, in the table's frame. */
@@ -149,12 +152,17 @@ function worstInlineOverlap(items: Transform2D[]): number {
   return worst
 }
 
+const topOf = (tableId: string): Outline => {
+  const entry = getCatalogEntry(tableId)
+  return entry.footprint(entry.defaultSize).outline
+}
+
 function coversOn(tableId: string): Transform2D[] {
   const entry = getCatalogEntry(tableId)
   const s = entry.seating!
   const cfg = seating(s.defaultCount, s.defaultGap)
   const seats = seatsForEntry(entry, entry.defaultSize, { ...cfg, offset: s.defaultOffset }, chair)
-  return seatItemTransforms(seats, chair, item, s.defaultOffset)
+  return seatItemTransforms(seats, chair, item, s.defaultOffset, topOf(tableId))
 }
 
 /**
@@ -184,6 +192,86 @@ describe('place settings — a full set on every table in the venue', () => {
   // neighbours splay 30° apart and their far corners do not. Clearing it needs a
   // cover about 31cm wide, whose charger would be 21cm and no longer a dinner
   // plate. Shrinking the setting to 0.8 took this from 18.0cm to 5.7cm.
+  /**
+   * Source doc §43: "there are complicated tables like the circle or the snake
+   * where the settings sit either at the EDGE of the table or get distorted."
+   *
+   * The two shapes the plan named, checked against the geometry rather than
+   * against the worry. Both come out clean, and by a wide margin — the numbers
+   * are pinned below so that a future change to the cover, the chair or the
+   * fitted arcs cannot quietly eat the margin.
+   */
+  describe('the two shapes the seat frame cannot see', () => {
+    const RING = 'table.round-large'
+
+    it('keeps every cover on the ⌀380 ring, clear of the opening', () => {
+      const top = topOf(RING)
+      const rInner = holeRadius(top)
+      const rOuter = top.kind === 'circle' ? top.r : 0
+      expect(rInner).toBeGreaterThan(0) // it really is a ring, not a disc
+
+      const radii = coversOn(RING).flatMap((t) => corners(t).map((c) => Math.hypot(c.x, c.y)))
+      expect(Math.min(...radii)).toBeGreaterThan(rInner)
+      expect(Math.max(...radii)).toBeLessThanOrEqual(rOuter)
+    })
+
+    // The measurement behind `clearOfHole`'s "it never fires today" note. Kept as
+    // an assertion rather than a comment so that the day it stops being true, this
+    // fails instead of the guard silently starting to move furniture.
+    it('has 78cm of slack between the nearest cover corner and the opening', () => {
+      const rInner = holeRadius(topOf(RING))
+      const nearest = Math.min(
+        ...coversOn(RING).flatMap((t) => corners(t).map((c) => Math.hypot(c.x, c.y))),
+      )
+      expect(nearest).toBeCloseTo(156.7, 1)
+      expect(nearest - rInner).toBeGreaterThan(70)
+    })
+
+    // …which leaves the guard itself untested by the real catalog, so drive it:
+    // a hole whose edge runs exactly through the cover centres. Every dimension is
+    // derived from the real table — only the hole is moved.
+    it('pushes a cover back out when a hole DOES reach the seat line', () => {
+      const top = topOf(RING)
+      const entry = getCatalogEntry(RING)
+      const s = entry.seating!
+      const cfg = { ...seating(s.defaultCount, s.defaultGap), offset: s.defaultOffset }
+      const seats = seatsForEntry(entry, entry.defaultSize, cfg, chair)
+
+      const loose = seatItemTransforms(seats, chair, item, s.defaultOffset)
+      const reached = Math.hypot(loose[0].position.x, loose[0].position.y)
+      const greedy: Outline = { kind: 'circle', r: top.kind === 'circle' ? top.r : 0, rInner: reached }
+
+      for (const t of seatItemTransforms(seats, chair, item, s.defaultOffset, greedy)) {
+        // pushed out far enough that the whole footprint clears the opening
+        for (const c of corners(t)) expect(Math.hypot(c.x, c.y)).toBeGreaterThanOrEqual(reached - 1e-9)
+        expect(Math.hypot(t.position.x, t.position.y)).toBeGreaterThan(reached)
+      }
+    })
+
+    it('keeps every cover inside the serpentine band', () => {
+      const covers = coversOn('table.serpentine')
+      expect(covers).toHaveLength(getCatalogEntry('table.serpentine').seating!.defaultCount)
+      const depths = covers.flatMap((t) => corners(t).map((c) => serpentineBandDepth(c)))
+      // no corner leaves the band, and the tightest one still has 2cm of drape
+      expect(Math.min(...depths)).toBeGreaterThan(0)
+      expect(Math.min(...depths)).toBeCloseTo(2.1, 0)
+    })
+
+    // The straight push in from the seat is what §43 suspected of leaving the
+    // curve. It does not: on both flanks and at both heads the cover ends up the
+    // same 3cm + half its depth inside whichever band edge its seat was measured
+    // from, because the seat's own front is radial to the arc it sits on.
+    it('sets every serpentine cover the same depth inside the band edge', () => {
+      const inset = 3 + item.depth / 2
+      const flanks = coversOn('table.serpentine').filter(
+        (t) => Math.abs(serpentineBandDepth(t.position) - inset) < 1e-6,
+      )
+      // 20 flank seats; the two heads run in along the cap instead and sit on the
+      // centre line, which is the deepest a cover ever gets (deliberate — FOUND-02 §2)
+      expect(flanks).toHaveLength(20)
+    })
+  })
+
   it('admits the ⌀180 × 12 corner clip rather than hiding it', () => {
     const round = getCatalogEntry('table.round')
     const items = coversOn('table.round')

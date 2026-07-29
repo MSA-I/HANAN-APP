@@ -34,13 +34,19 @@ import { slotColor, type Outline } from '../core/catalog/types'
 import { beamGrid, cordLength, snapToBeam } from '../core/layout/beams'
 import { snapValue } from '../core/layout/snapping'
 import { attachedChairs } from '../core/model/seatingReconciler'
-import type { Id, Size3D } from '../core/model/types'
-import { cmToM, degToRad, radToDeg } from '../core/space'
+import type { Id, SceneState, Size3D } from '../core/model/types'
+import { cmToM, degToRad, radToDeg, relativeTransform, threeToPlan } from '../core/space'
 import { getVenuePack } from '../core/venuePacks'
 import { useOverlayStore } from '../editor2d/overlayStore'
 import { beginGesture, endGesture, select, setPosition, setRotation, toggleSelect } from '../state/actions'
-import { isEffectivelyLocked, isLayerHidden, isObjectVisible } from '../state/selectors'
-import { useEditorStore } from '../state/store'
+import {
+  designEditTable,
+  isEffectivelyLocked,
+  isLayerHidden,
+  isObjectVisible,
+  isTable,
+} from '../state/selectors'
+import { setDesignEditTable, useEditorStore } from '../state/store'
 import {
   instancedChairMaterial,
   objectSlotGeometries,
@@ -102,6 +108,34 @@ let activeGizmo: GizmoControls | null = null
 function gizmoBusy(): boolean {
   const g = gizmoState(activeGizmo)
   return !!g && (g.dragging || g.axis !== null)
+}
+
+/**
+ * Which table a double-click on `objId` should open for decor editing, or null
+ * (source doc §52 — the gesture is the same in BOTH views).
+ *
+ * Mirrors `onObjectDblClick` / `onChildDblClick` in editor2d/dragController.ts
+ * one branch for one branch:
+ *
+ *   a top-level table   -> open on it
+ *   surface decor       -> open on its TABLE; the caller still selects the decor
+ *   a chair ('seat')    -> NULL. `kind: 'seat'` keeps meaning "drill into this
+ *                          chair", which is the behaviour PLAN-05 builds on
+ *   anything else       -> null
+ *
+ * Duplicated rather than imported on purpose: viewer3d must not depend on
+ * editor2d, and A1's version takes a KonvaEventObject. Only the two shared
+ * primitives cross over — `isTable` and `setDesignEditTable`, both read-only
+ * from A1's files. If this is ever unified, selectors.ts is the home, and both
+ * views should move together.
+ */
+export function designEditTargetOf(scene: SceneState, objId: Id): Id | null {
+  const obj = scene.objects[objId]
+  if (!obj) return null
+  if (!obj.parentId) return isTable(obj) ? obj.id : null
+  if (obj.attachment?.kind !== 'surface') return null
+  const parent = scene.objects[obj.parentId]
+  return parent && !parent.parentId && isTable(parent) ? parent.id : null
 }
 
 /** A single-axis editor handle; every drag is one history entry. */
@@ -255,6 +289,22 @@ export function ObjectGroup({ id }: { id: Id }) {
     else select([id])
   }
 
+  /**
+   * Double-click a table to isolate it for decor editing — the 3D half of the
+   * gesture 2D already had (source doc §52). Without it the mode could only be
+   * entered from the plan, which is not what "double-click in both views" means.
+   *
+   * No `select` here: the pointer-down that precedes every double-click has
+   * already selected this object, exactly as 2D's mousedown does.
+   */
+  const handleDoubleClick = (e: ThreeEvent<MouseEvent>) => {
+    // an armed ghost owns the gesture; the two clicks under it are placements
+    if (placing) return
+    e.stopPropagation()
+    const target = designEditTargetOf(useEditorStore.getState().scene, id)
+    if (target) setDesignEditTable(target)
+  }
+
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
     suppressClick.current = false
     if (placing || e.button !== 0 || e.nativeEvent.shiftKey || gizmoBusy()) return
@@ -361,6 +411,7 @@ export function ObjectGroup({ id }: { id: Id }) {
       <group
         ref={bindGroup}
         onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
       >
@@ -414,15 +465,24 @@ function SurfaceChildren({ parentId }: { parentId: Id }) {
  * One surface decor. Mirrors ObjectGroup's shape (transient transform, GLB with
  * procedural fallback) but lives INSIDE the parent's group, so its transform is
  * parent-local with elevation = the parent's height (set by the actions layer).
+ *
+ * It is DRAGGABLE ONLY IN DESIGN-EDIT MODE (source doc §11 + §52). Outside the
+ * mode a press falls through to `handleClick`, which retargets the selection to
+ * the table exactly as it always did — decor that moved on every stray drag of a
+ * table would be worse than decor that cannot be moved at all.
  */
 function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
   const groupRef = useRef<THREE.Group>(null)
+  const dragRef = useRef<MoveDrag | null>(null)
+  const suppressClick = useRef(false)
   const [rotationTarget, setRotationTarget] = useState<THREE.Group | null>(null)
   const bindGroup = useCallback((group: THREE.Group | null) => {
     groupRef.current = group
     setRotationTarget(group)
   }, [])
   const invalidate = useThree((s) => s.invalidate)
+  const camera = useThree((s) => s.camera)
+  const gl = useThree((s) => s.gl)
   const catalogId = useEditorStore((s) => s.scene.objects[id]?.catalogId)
   const size = useEditorStore((s) => s.scene.objects[id]?.size)
   const appearance = useEditorStore((s) => s.scene.objects[id]?.appearance)
@@ -431,6 +491,12 @@ function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
     const obj = s.scene.objects[id]
     return s.selection.length === 1 && s.selection[0] === id && !!obj && !isEffectivelyLocked(s.scene, obj)
   })
+  // A BOOLEAN selector, so it re-renders on entering/leaving the mode and never
+  // on an id change elsewhere. Validated on read via A1's `designEditTable` — the
+  // raw store field can name a table that has since been deleted or hidden.
+  const editable = useEditorStore(
+    (s) => designEditTable(s.scene, s.designEditTableId) === parentId,
+  )
   const placing = useOverlayStore((s) => s.placing)
 
   useLayoutEffect(() => {
@@ -446,6 +512,21 @@ function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
     )
   }, [id, invalidate])
 
+  useEffect(
+    () => () => {
+      const drag = dragRef.current
+      if (!drag) return
+      window.removeEventListener('pointermove', drag.move)
+      window.removeEventListener('pointerup', drag.end)
+      window.removeEventListener('pointercancel', drag.end)
+      if (drag.capture.hasPointerCapture(drag.pointerId)) drag.capture.releasePointerCapture(drag.pointerId)
+      gl.domElement.style.cursor = drag.previousCursor
+      dragRef.current = null
+      endGesture()
+    },
+    [gl],
+  )
+
   const geometries = useMemo(
     () => (catalogId && size ? objectSlotGeometries(catalogId, size) : []),
     [catalogId, size],
@@ -455,17 +536,142 @@ function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
   const entry = getCatalogEntry(catalogId)
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
+    if (suppressClick.current) {
+      suppressClick.current = false
+      e.stopPropagation()
+      return
+    }
     if (placing) {
       e.stopPropagation()
       commitPlacement3D(e.point, e.nativeEvent.altKey, parentId)
       return
     }
     e.stopPropagation()
-    // mirror chairs: a click selects the TABLE, unless this decor is already selected
+    // mirror chairs: a click selects the TABLE, unless this decor is already
+    // selected — or unless the mode that exists to edit these pieces is open, in
+    // which case the piece IS the thing being clicked (source doc §11)
     const sel = useEditorStore.getState().selection
-    const target = sel.includes(id) ? id : parentId
+    const target = editable || sel.includes(id) ? id : parentId
     if (e.nativeEvent.shiftKey) toggleSelect(target)
     else select([target])
+  }
+
+  /**
+   * Decor opens the mode on its PARENT and stays selected, ready to drag —
+   * A1's reasoning in `onChildDblClick`, and it matters more in 3D than in 2D:
+   * every `placement: 'surface'` entry is `surfaceAnchor: 'center'`
+   * (06-collision-api §3.1), so a hand-placed centrepiece sits dead on the
+   * middle of the table and IS the biggest target on it. Aiming there and
+   * getting nothing is the first thing a user tries.
+   *
+   * `stopPropagation` is load-bearing: this group is INSIDE the table's, so
+   * without it the table's own handler would fire too. It is `e.cancelBubble`
+   * in the 2D twin.
+   */
+  const handleDoubleClick = (e: ThreeEvent<MouseEvent>) => {
+    if (placing) return
+    e.stopPropagation()
+    const target = designEditTargetOf(useEditorStore.getState().scene, id)
+    if (target) setDesignEditTable(target)
+    select([id])
+  }
+
+  /**
+   * Drag this piece across its parent's top. Only inside design-edit mode, and
+   * only for this parent's session.
+   *
+   * The plane is the child's OWN elevation, taken from the group's world position
+   * — the group sits inside the parent's, so that one read already carries the
+   * parent's transform, the zone base elevation and the child's stacking height.
+   *
+   * `setPosition` wants the object's own frame, which for a child is PARENT-LOCAL
+   * (model/types.ts:5-9), so the plan-space hit is put through
+   * `relativeTransform`. That is also the frame `checkPlacement` judges a child in
+   * (`parentLocal`, 06-collision-api §2), so the sibling check and `slideToLegal`
+   * come along for free — the same red-outline feedback the 2D drag gets.
+   *
+   * No grid snap, deliberately: the venue grid is world-aligned and the offsets
+   * here are measured from the middle of a table that may be turned to any angle,
+   * so snapping would quantise to lines that mean nothing on this top. A1's 2D
+   * child drag snaps nothing either, and the two views must agree.
+   */
+  const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
+    suppressClick.current = false
+    if (!editable || placing || e.button !== 0 || e.nativeEvent.shiftKey || gizmoBusy()) return
+    const state = useEditorStore.getState()
+    const obj = state.scene.objects[id]
+    const group = groupRef.current
+    if (!obj || !group || isEffectivelyLocked(state.scene, obj)) return
+
+    const world = group.getWorldPosition(new THREE.Vector3())
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -world.y)
+    const hit = new THREE.Vector3()
+    if (!e.ray.intersectPlane(plane, hit)) return
+    const capture = e.nativeEvent.target
+    if (!(capture instanceof Element)) return
+
+    /** plan-space hit -> the parent's local frame, the frame `setPosition` writes. */
+    const toLocal = (point: THREE.Vector3) => {
+      const parent = useEditorStore.getState().scene.objects[parentId]
+      const plan = threeToPlan(point.x, point.z)
+      if (!parent) return plan
+      return relativeTransform(parent.transform, {
+        position: plan,
+        rotation: 0,
+        elevation: 0,
+      }).position
+    }
+
+    e.stopPropagation()
+    if (state.selection.length !== 1 || state.selection[0] !== id) select([id])
+    const grabbed = toLocal(hit)
+    const raycaster = new THREE.Raycaster()
+    const ndc = new THREE.Vector2()
+    const drag = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      offsetX: obj.transform.position.x - grabbed.x,
+      offsetY: obj.transform.position.y - grabbed.y,
+      plane,
+      hit,
+      capture,
+      previousCursor: gl.domElement.style.cursor,
+      moved: false,
+    } as MoveDrag
+    drag.move = (event) => {
+      if (event.pointerId !== drag.pointerId) return
+      if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 3) return
+      drag.moved = true
+      const rect = gl.domElement.getBoundingClientRect()
+      ndc.set(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      )
+      raycaster.setFromCamera(ndc, camera)
+      if (!raycaster.ray.intersectPlane(drag.plane, drag.hit)) return
+      const local = toLocal(drag.hit)
+      setPosition(id, { x: local.x + drag.offsetX, y: local.y + drag.offsetY })
+      event.preventDefault()
+    }
+    drag.end = (event) => {
+      if (event.pointerId !== drag.pointerId || dragRef.current !== drag) return
+      window.removeEventListener('pointermove', drag.move)
+      window.removeEventListener('pointerup', drag.end)
+      window.removeEventListener('pointercancel', drag.end)
+      if (drag.capture.hasPointerCapture(drag.pointerId)) drag.capture.releasePointerCapture(drag.pointerId)
+      gl.domElement.style.cursor = drag.previousCursor
+      dragRef.current = null
+      suppressClick.current = drag.moved
+      endGesture()
+    }
+    dragRef.current = drag
+    beginGesture()
+    capture.setPointerCapture(e.pointerId)
+    gl.domElement.style.cursor = 'grabbing'
+    window.addEventListener('pointermove', drag.move)
+    window.addEventListener('pointerup', drag.end)
+    window.addEventListener('pointercancel', drag.end)
   }
 
   const handlePointerMove = placing
@@ -490,7 +696,13 @@ function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
 
   return (
     <>
-      <group ref={bindGroup} onClick={handleClick} onPointerMove={handlePointerMove}>
+      <group
+        ref={bindGroup}
+        onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+      >
         {entry.model ? (
           <ModelFallback fallback={procedural}>
             <ModelParts
@@ -809,6 +1021,30 @@ function ChairSlot({
     else select([target])
   }
 
+  /**
+   * ⚠ THIS HANDLER EXISTS TO *STOP* SOMETHING, and removing it is a silent bug.
+   *
+   * The chairs are instanced INSIDE the table's group, so R3F resolves a hit on
+   * a chair to the nearest ancestor carrying the handler — the table's group.
+   * With no `onDoubleClick` here, double-clicking a CHAIR would open design-edit
+   * mode on its table, which is not what 2D does and not what the mode is for.
+   *
+   * What it does instead is the 2D behaviour: drill into the chair and select
+   * it. `designEditTargetOf` returns null for a `kind: 'seat'` child, so the
+   * mode is left alone; the call is kept rather than dropped so the rule stays
+   * in one place and a future seat-like child cannot quietly diverge.
+   */
+  const handleDoubleClick = (e: ThreeEvent<MouseEvent>) => {
+    if (placing) return
+    e.stopPropagation()
+    if (e.instanceId == null) return
+    const chairId = chairIds[e.instanceId]
+    if (!chairId) return
+    const target = designEditTargetOf(useEditorStore.getState().scene, chairId)
+    if (target) setDesignEditTable(target)
+    select([chairId])
+  }
+
   const handlePointerMove = placing
     ? (e: ThreeEvent<PointerEvent>) => {
         e.stopPropagation()
@@ -825,6 +1061,7 @@ function ChairSlot({
       castShadow
       receiveShadow
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       onPointerMove={handlePointerMove}
     />
   )

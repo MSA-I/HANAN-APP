@@ -11,8 +11,8 @@ import { collectSnapLines, snapAABB, type SnapLines } from '../core/layout/snapp
 import type { Id } from '../core/model/types'
 import { rotateVec } from '../core/space'
 import { beginGesture, endGesture, moveObjectsBy, select } from '../state/actions'
-import { isEffectivelyLocked, objectAABB, visibleTopLevelIds } from '../state/selectors'
-import { useEditorStore } from '../state/store'
+import { isEffectivelyLocked, isTable, objectAABB, visibleTopLevelIds } from '../state/selectors'
+import { setDesignEditTable, useEditorStore } from '../state/store'
 import { overlay } from './overlayStore'
 import { useViewportStore } from './viewportStore'
 
@@ -37,6 +37,24 @@ export function onObjectClick(id: Id, e: KonvaEventObject<MouseEvent>): void {
   if (e.evt.shiftKey && selection.includes(id) && selection.length > 1) {
     select(selection.filter((s) => s !== id))
   }
+}
+
+/**
+ * Double-click a TABLE to isolate it for decor editing (source doc §52).
+ *
+ * Anything that is not a table ignores the gesture rather than opening a mode
+ * with nothing to arrange; the preceding mousedown has already selected it
+ * either way. The gesture aimed at a table's DECOR arrives at
+ * `onChildDblClick` instead — see the note there, it is not a corner case.
+ *
+ * The mode is exited by Esc, by a click on empty canvas (Stage2D), and — because
+ * the id is validated on read — by deleting the table or switching project.
+ */
+export function onObjectDblClick(id: Id, e: KonvaEventObject<MouseEvent>): void {
+  e.cancelBubble = true
+  const obj = useEditorStore.getState().scene.objects[id]
+  if (!obj || obj.parentId || !isTable(obj)) return
+  setDesignEditTable(id)
 }
 
 export function onObjectDragStart(id: Id, e: KonvaEventObject<DragEvent>): void {
@@ -123,20 +141,49 @@ export function onObjectDragEnd(_id: Id, e: KonvaEventObject<DragEvent>): void {
 }
 
 // ---------------------------------------------------------------------------
-// attached chairs (drill-in): a chair listens for its own dbl-click + drag,
-// but a plain click still falls through to select the parent table.
+// attached children. Two ways one becomes grabbable: drilling into a chair
+// (dbl-click, always available), or opening design-edit mode on its table, which
+// hands every piece of decor straight over. A child that is neither still lets
+// a plain click fall through and select the parent table.
 // ---------------------------------------------------------------------------
 
-export function onChildMouseDown(_id: Id, isSelected: boolean, e: KonvaEventObject<MouseEvent>): void {
+export function onChildMouseDown(id: Id, grabbable: boolean, e: KonvaEventObject<MouseEvent>): void {
   if (e.evt.button !== 0) return
-  // A drilled-in chair keeps focus and starts its own drag — stop the event so
-  // the parent table's mousedown doesn't reselect the table. When the chair is
-  // NOT selected we let it bubble, so a single click behaves like the table.
-  if (isSelected) e.cancelBubble = true
+  // Not grabbable: let it bubble, so a single click behaves like the table.
+  if (!grabbable) return
+  // A grabbable child keeps focus and starts its own drag — stop the event so
+  // the parent table's mousedown doesn't reselect the table.
+  e.cancelBubble = true
+  // …and bring the selection with the press. In design-edit mode this is the
+  // only thing that selects the decor (there is no drill-in dbl-click to do it),
+  // and the inspector, Delete and the rotate gizmo all read the selection. For a
+  // drilled-in chair `grabbable` already means selected, so this is a no-op.
+  if (!useEditorStore.getState().selection.includes(id)) select([id])
 }
 
+/**
+ * A child swallows the double-click before the table under it ever sees it
+ * (`e.cancelBubble`), so this is also the way INTO design-edit mode for the most
+ * likely aim there is.
+ *
+ * ⚠ Every `placement: 'surface'` entry in the catalog is `surfaceAnchor: 'center'`
+ * (`06-collision-api.md §3.1`), which means a hand-placed centrepiece sits dead
+ * on the middle of the table — the biggest, most inviting target on it. Aiming
+ * there and getting nothing is what a user (and a verification script) will do
+ * first. So decor opens the mode on its PARENT and stays selected, ready to drag.
+ *
+ * A chair is left exactly as it was: `kind: 'seat'` still means "drill into this
+ * chair", which is the behaviour PLAN-05 builds on. This adds a branch, it does
+ * not take one away.
+ */
 export function onChildDblClick(id: Id, e: KonvaEventObject<MouseEvent>): void {
   e.cancelBubble = true
+  const { scene } = useEditorStore.getState()
+  const child = scene.objects[id]
+  const parent = child?.parentId ? scene.objects[child.parentId] : null
+  if (child?.attachment?.kind === 'surface' && parent && !parent.parentId && isTable(parent)) {
+    setDesignEditTable(parent.id)
+  }
   select([id])
 }
 
@@ -170,5 +217,10 @@ export function onChildDragMove(id: Id, e: KonvaEventObject<DragEvent>): void {
 export function onChildDragEnd(_id: Id, e: KonvaEventObject<DragEvent>): void {
   e.cancelBubble = true
   childCtx = null
+  // The refusal explained a gesture that is now over. `mutateScene` only clears
+  // it on the next SUCCESSFUL write, so leaving it standing would keep the red
+  // sibling outline (ObjectNode) lit long after the drag — feedback that outlives
+  // its gesture reads as a broken item rather than as a reason.
+  overlay.setViolation(null)
   endGesture()
 }

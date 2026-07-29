@@ -5,10 +5,14 @@ import { rotateVec } from '../space'
 import {
   SERPENTINE_ARCS,
   SERPENTINE_BAND,
+  pointInSerpentineBand,
   serpentineArcs,
+  serpentineBandDepth,
   serpentineBounds,
+  serpentineCentre,
   serpentineMaxSeats,
   serpentineSeats,
+  snapIntoSerpentineBand,
 } from './serpentine'
 
 const chair: Size3D = { width: 45, depth: 45, height: 92 }
@@ -135,6 +139,137 @@ describe('serpentine geometry', () => {
     }
     // an S, not a C: the curvature has to reverse somewhere along the chain
     expect(new Set(SERPENTINE_ARCS.map((a) => Math.sign(a.turn))).size).toBe(2)
+  })
+})
+
+/**
+ * Source doc §53 / §54b — where the band IS, as opposed to where its bounding box
+ * says it might be. The box is what the catalog entry declares and what every
+ * generic consumer sees; these are the only functions that know better.
+ */
+describe('serpentine band membership', () => {
+  const ORIGIN = { x: 0, y: 0 }
+
+  /** Centre-line samples with the arc length walked to each one. */
+  function walk(step = 0.02) {
+    const out: { x: number; y: number; s: number }[] = []
+    let s = 0
+    for (const a of SERPENTINE_ARCS) {
+      for (let t = 0; t <= Math.abs(a.turn); t += step) {
+        const th = rad(a.from + Math.sign(a.turn) * t)
+        out.push({ x: a.cx + Math.cos(th) * a.r, y: a.cy + Math.sin(th) * a.r, s: s + rad(t) * a.r })
+      }
+      s += rad(Math.abs(a.turn)) * a.r
+    }
+    return out
+  }
+
+  it('THE BUG: the table has no point at its own origin', () => {
+    // This one number is the whole of §53. `clampToSurface` pins every
+    // `surfaceAnchor:'center'` piece to the parent's (0,0), and all four table
+    // designs in presets.ts put their centrepiece there — on a concave S that is
+    // over the floor, 63cm shy of the nearest drape edge.
+    expect(pointInSerpentineBand(ORIGIN)).toBe(false)
+    expect(serpentineBandDepth(ORIGIN)).toBeCloseTo(-63.1, 1)
+  })
+
+  it('reads the centre line as exactly half a band deep, everywhere', () => {
+    for (const p of walk(0.5)) expect(serpentineBandDepth(p)).toBeCloseTo(SERPENTINE_BAND / 2, 6)
+  })
+
+  it('puts both drape edges at zero and anything past them outside', () => {
+    for (const p of walk(2)) {
+      const near = toCenterLine(p)
+      // step off the centre line, perpendicular to it, on the arc it belongs to
+      const ux = (p.x - near.arc.cx) / near.arc.r
+      const uy = (p.y - near.arc.cy) / near.arc.r
+      const at = (t: number) => ({ x: p.x + ux * t, y: p.y + uy * t })
+      for (const side of [1, -1]) {
+        expect(serpentineBandDepth(at(side * (SERPENTINE_BAND / 2)))).toBeCloseTo(0, 6)
+        expect(pointInSerpentineBand(at(side * (SERPENTINE_BAND / 2 + 1)))).toBe(false)
+      }
+    }
+  })
+
+  it('finds a centre on the band, bisecting the centre line by arc length', () => {
+    const c = serpentineCentre()
+    // "on the centre line", stated analytically rather than against toCenterLine's
+    // 0.05° sampling: half a band from both drape edges is true of the centre line
+    // and of nothing else
+    expect(serpentineBandDepth(c)).toBeCloseTo(SERPENTINE_BAND / 2, 6)
+
+    const line = walk()
+    const nearest = line.reduce((a, b) =>
+      Math.hypot(b.x - c.x, b.y - c.y) < Math.hypot(a.x - c.x, a.y - c.y) ? b : a,
+    )
+    expect(nearest.s).toBeCloseTo(centerLineLength() / 2, 0)
+  })
+
+  /**
+   * The choice `serpentineCentre` makes, held against the two it rejects. An
+   * average of a concave shape lands in the hollow, and both averages do — so
+   * this is not a tie broken on taste.
+   */
+  it('beats both averages, because both of them are off the table', () => {
+    // area centroid of the three annular sectors: each sector's centroid lies on
+    // its own bisector at (2/3)·(R³−r³)/(R²−r²)·sinc(sweep/2), area-weighted.
+    // They meet tangentially at a point, so the three do not overlap and a plain
+    // weighted mean is exact rather than an approximation.
+    let ax = 0
+    let ay = 0
+    let area = 0
+    for (const s of serpentineArcs()) {
+      const sw = rad(s.sweep)
+      const a = (sw / 2) * (s.outerR ** 2 - s.innerR ** 2)
+      const d =
+        ((2 / 3) * (s.outerR ** 3 - s.innerR ** 3) * Math.sin(sw / 2)) /
+        ((s.outerR ** 2 - s.innerR ** 2) * (sw / 2))
+      const b = rad(s.startAngle + s.sweep / 2)
+      ax += a * (s.cx + Math.cos(b) * d)
+      ay += a * (s.cy + Math.sin(b) * d)
+      area += a
+    }
+    const centroid = { x: ax / area, y: ay / area }
+
+    expect(serpentineBandDepth(ORIGIN)).toBeCloseTo(-63.13, 1) // bounding box
+    expect(serpentineBandDepth(centroid)).toBeCloseTo(-15.42, 1) // area centroid
+    expect(serpentineBandDepth(serpentineCentre())).toBeCloseTo(SERPENTINE_BAND / 2, 6)
+    // and the two are 55cm apart, so this is a different answer and not a rounding
+    const c = serpentineCentre()
+    expect(Math.hypot(centroid.x - c.x, centroid.y - c.y)).toBeCloseTo(55.5, 0)
+  })
+
+  it('snaps a point onto the band and leaves an interior one alone', () => {
+    const c = serpentineCentre()
+    expect(snapIntoSerpentineBand(c)).toBe(c) // identity, not a rebuilt copy
+
+    const pulled = snapIntoSerpentineBand(ORIGIN)
+    expect(pointInSerpentineBand(pulled)).toBe(true)
+    expect(serpentineBandDepth(pulled)).toBeCloseTo(0, 6) // lands ON the edge with no reach
+  })
+
+  it('keeps a whole footprint in when given its reach', () => {
+    // a candelabrum-sized piece dropped at the origin and at the four design
+    // offsets presets.ts uses, plus the bbox corners the outline would allow
+    const reach = 20
+    const probes = [
+      ORIGIN,
+      { x: 38, y: 0 },
+      { x: -38, y: 0 },
+      { x: 0, y: 100 },
+      { x: serpentineBounds().width / 2, y: serpentineBounds().depth / 2 },
+      { x: -200, y: 150 },
+    ]
+    for (const p of probes) {
+      const q = snapIntoSerpentineBand(p, reach)
+      expect(serpentineBandDepth(q)).toBeGreaterThanOrEqual(reach - 1e-6)
+    }
+  })
+
+  it('collapses to the centre line for a piece wider than the table', () => {
+    // no inset can fit it, so the least-wrong answer is the middle of the band
+    const q = snapIntoSerpentineBand(ORIGIN, SERPENTINE_BAND)
+    expect(serpentineBandDepth(q)).toBeCloseTo(SERPENTINE_BAND / 2, 6)
   })
 })
 

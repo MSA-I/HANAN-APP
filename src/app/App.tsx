@@ -4,6 +4,7 @@ import { startAutosave } from '../persistence/autosave'
 import { indexedDbRepository } from '../persistence/indexedDbRepository'
 import { loadProject } from '../state/actions'
 import { useEditorStore } from '../state/store'
+import { DesignEditMode } from '../ui/DesignEditMode'
 import { InspectorPanel } from '../ui/InspectorPanel'
 import { LibraryPanel } from '../ui/LibraryPanel'
 import { ShortcutsHelp } from '../ui/ShortcutsHelp'
@@ -54,6 +55,11 @@ function Editor() {
             start={<Stage2D />}
             end={ever3d ? <View3D /> : <Loading3d />}
           />
+          {/* PLAN-07: over the panes rather than inside one of them. Design-edit
+              mode is a mode of BOTH views (plan G3), and its Esc handler is the
+              only way out of the 3D one — mounting it in Stage2D would hide the
+              chip behind `display:none` the moment the user switched to 3D. */}
+          <DesignEditMode />
         </main>
         <InspectorPanel />
       </div>
