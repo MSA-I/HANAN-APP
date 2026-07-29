@@ -1,4 +1,4 @@
-import { Group, Layer } from 'react-konva'
+import { Layer } from 'react-konva'
 import { useShallow } from 'zustand/react/shallow'
 import { isPointInZone } from '../core/layout/zoneOccupancy'
 import { getVenuePack } from '../core/venuePacks'
@@ -6,7 +6,6 @@ import { visibleTopLevelIds } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { ObjectNode } from './ObjectNode'
 import { useOverlayStore } from './overlayStore'
-import { ZONE_OFF_OPACITY } from './VenueLayer'
 
 export function ObjectsLayer() {
   const order = useEditorStore(useShallow((s) => visibleTopLevelIds(s.scene)))
@@ -16,9 +15,11 @@ export function ObjectsLayer() {
   const deck = useEditorStore((s) =>
     getVenuePack(s.scene.venue.venuePackId)?.restricted?.find((z) => z.kind === 'kabalatPanim'),
   )
-  // Source doc §18: the reception area has to go dark WITH what stands on it.
-  // VenueLayer dims the envelope; without this the deck fades and its chairs
-  // stay at full strength, which reads as a rendering fault rather than a mode.
+  // Source doc §18: the reception area has to go WITH what stands on it. The two
+  // sides used to dim rather than disappear; the user's verdict after two goes at
+  // the number was that a ghost of the other building on the same sheet is
+  // confusing, so now the far side is not drawn at all. Without this half, the
+  // deck would vanish and its chairs would stay behind standing on nothing.
   const onDeck = useEditorStore(
     useShallow((s) => {
       if (!deck) return [] as string[]
@@ -28,8 +29,8 @@ export function ObjectsLayer() {
     }),
   )
   const deckIds = new Set(onDeck)
-  const hallOpacity = activeZone === 'kabalatPanim' ? ZONE_OFF_OPACITY : 1
-  const deckOpacity = activeZone === 'hall' ? ZONE_OFF_OPACITY : 1
+  const showHall = activeZone !== 'kabalatPanim'
+  const showDeck = activeZone !== 'hall'
 
   // ⚠ This split is GEOMETRIC on purpose — which side of the plan the piece is
   // drawn on. It is NOT the `zoneKind` rule that decides 3D elevation
@@ -37,20 +38,16 @@ export function ObjectsLayer() {
   // where it is. Two questions, two rules; do not "unify" them.
   return (
     <Layer listening={interactive}>
-      <Group opacity={hallOpacity}>
-        {order
-          .filter((id) => !deckIds.has(id))
-          .map((id) => (
-            <ObjectNode key={id} id={id} />
-          ))}
-      </Group>
-      <Group opacity={deckOpacity}>
-        {order
-          .filter((id) => deckIds.has(id))
-          .map((id) => (
-            <ObjectNode key={id} id={id} />
-          ))}
-      </Group>
+      {showHall
+        ? order
+            .filter((id) => !deckIds.has(id))
+            .map((id) => <ObjectNode key={id} id={id} />)
+        : null}
+      {showDeck
+        ? order
+            .filter((id) => deckIds.has(id))
+            .map((id) => <ObjectNode key={id} id={id} />)
+        : null}
     </Layer>
   )
 }

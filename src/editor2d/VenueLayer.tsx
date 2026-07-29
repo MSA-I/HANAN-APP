@@ -28,7 +28,7 @@ import {
 import type { Vec2 } from '../core/model/types'
 import { venueOutline } from '../core/venueOutline'
 import { getVenuePack, type RestrictedZone } from '../core/venuePacks'
-import { cachedVenueCut, loadVenueCut, type VenueCut } from '../core/venueCut'
+import { cachedVenueCut, loadVenueCut, pickWalls, type CutTriangle, type VenueCut } from '../core/venueCut'
 import { isObjectVisible } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { strings } from '../ui/strings'
@@ -77,18 +77,6 @@ const FALLBACK_WALL_THICKNESS = 20
 const LABEL_FONT_SIZE = 44
 const LEVEL_FONT_SIZE = 30
 
-/**
- * dimmed side of the hall/reception toggle (source doc §18). ObjectsLayer dims
- * the furniture standing on the far side to the same value — one number.
- *
- * Raised from 0.28 on 2026-07-29 at the user's request. The zone tints above are
- * already only a few percent off the paper, so a further ×0.28 left the whole
- * hall reading as a blank sheet the moment you stepped onto the deck — and since
- * the hall is most of the drawing, the plan looked erased rather than backgrounded.
- * The number has to be low enough that the active side clearly wins and high
- * enough that the other side is still context you can navigate by.
- */
-export const ZONE_OFF_OPACITY = 0.45
 
 interface ZoneTint {
   fill: string
@@ -148,13 +136,13 @@ const FALLBACK_TINT: ZoneTint = { fill: '#f0eff4', stroke: '#c0bcc8' }
  * returned some walls as 5 cm slivers. These are the footprints the user drew,
  * at the thickness he drew them.
  */
-function CutPoche({ cut }: { cut: VenueCut }) {
+function CutPoche({ tris }: { tris: readonly CutTriangle[] }) {
   return (
     <Shape
       listening={false}
       sceneFunc={(ctx, shape) => {
         ctx.beginPath()
-        for (const t of cut.tris) {
+        for (const t of tris) {
           ctx.moveTo(t[0], t[1])
           ctx.lineTo(t[2], t[3])
           ctx.lineTo(t[4], t[5])
@@ -375,8 +363,12 @@ export function VenueLayer() {
   )
   const occupiedKeys = new Set(occupied)
 
-  // source doc §18: the two work zones take turns. The one you are not in stays
-  // visible — you still need its context — but drops back so the active one reads.
+  // source doc §18: the two work zones take turns. The one you are not in is now
+  // GONE, not dimmed. It was dimmed for three rounds — first to 0.28, then to
+  // 0.45 — and the user's verdict on the result was that it is confusing: the
+  // hall and the deck are two separate buildings 4.70 m apart in height, and a
+  // ghost of the other one laid over the same sheet reads as part of the drawing
+  // you are working on. Absent is unambiguous in a way that faint is not.
   //
   // ⚠ Membership is GEOMETRIC, not by `kind` — the same rule ObjectsLayer applies
   // to furniture, for the same reason: this asks where a rectangle is drawn, not
@@ -384,12 +376,15 @@ export function VenueLayer() {
   // inside `kabalatPanim`) counted as a hall zone and behaved backwards: lit while
   // you worked in the hall, gone the moment you switched to reception.
   const deck = zones.find((z) => z.kind === 'kabalatPanim')
-  const isReception = (i: number) =>
-    zones[i].kind === 'kabalatPanim' || (!!deck && isZoneInside(zones[i], deck))
-  const hallOpacity = activeZone === 'kabalatPanim' ? ZONE_OFF_OPACITY : 1
-  const receptionOpacity = activeZone === 'hall' ? ZONE_OFF_OPACITY : 1
+  const onDeck = (z: RestrictedZone) => z.kind === 'kabalatPanim' || (!!deck && isZoneInside(z, deck))
+  const isReception = (i: number) => onDeck(zones[i])
+  const showHall = activeZone !== 'kabalatPanim'
+  const showReception = activeZone !== 'hall'
   const hallZones = drawOrder.filter((i) => !isReception(i))
   const receptionZones = drawOrder.filter(isReception)
+  // The walls take sides too — `splitWalls` is shared with the PNG export, which
+  // has to frame the same building this draws.
+  const visibleWalls = !cut ? [] : !deck ? cut.tris : pickWalls(cut.tris, deck, showHall)
 
   const zoneNodes = (indices: number[]) => (
     <Fragment>
@@ -406,7 +401,8 @@ export function VenueLayer() {
 
   return (
     <Layer listening={false}>
-      <Group opacity={hallOpacity}>
+      {showHall ? (
+      <Group>
         {/* The paper. Where the section exists this is only the sheet the drawing
             sits on; the walls come from the cut below, at their real thickness and
             with their real openings. Where it does not, the contour doubles as a
@@ -457,15 +453,20 @@ export function VenueLayer() {
         ))}
         {zoneNodes(hallZones)}
       </Group>
-      <Group opacity={receptionOpacity}>{zoneNodes(receptionZones)}</Group>
+      ) : null}
+      {showReception ? <Group>{zoneNodes(receptionZones)}</Group> : null}
       {/* The ground before the building on it: a wall standing on the deck sits
           over the step, not under it. */}
-      <LevelChanges zones={zones} />
+      <LevelChanges zones={zones.filter((z) => onDeck(z) === !showHall)} />
       {/* The building itself, last: a cut wall sits OVER the floor it encloses,
-          and over the zone tints, which are markings on that floor. Not inside
-          either opacity group — the hall/reception toggle dims what stands in a
-          zone, and the building is not standing in one. */}
-      {cut ? <CutPoche cut={cut} /> : null}
+          and over the zone tints, which are markings on that floor.
+          ⚠ The walls take sides too. They are one triangle soup with no notion of
+          hall or deck, so the side is decided the same way everything else here
+          decides it — geometrically, by which rectangle the triangle sits in.
+          Leaving them whole would keep drawing the deck's envelope after
+          everything inside it had gone, which is the confusing half of the old
+          behaviour with none of its usefulness. */}
+      {cut ? <CutPoche tris={visibleWalls} /> : null}
     </Layer>
   )
 }
