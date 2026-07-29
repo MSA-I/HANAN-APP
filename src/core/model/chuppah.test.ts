@@ -183,12 +183,24 @@ describe('chuppah zone lock', () => {
     expect(settledOnAHome(objId)).toBe(true)
   })
 
+  /**
+   * The property under test is "a quarter turn does not un-anchor it", not "the
+   * hall zone specifically" — the next case covers that, dropping at (0, 2544)
+   * where the hall is unambiguously nearest and still asserting `settledOnZone`.
+   *
+   * This one asserts `settledOnAHome` because 2026-07-29 gave the chuppah its
+   * second real home: the deck marker at 4706,2009. The home snap picks the
+   * NEAREST CENTRE, and the centres are (2189, 1863) and (4991, 2222), so the
+   * watershed runs at about x=3500 — a drop at x=4000 now legitimately settles on
+   * the deck. That is the behaviour the re-import was for, not a regression, and
+   * `settledOnAHome` is the helper this file already defines for exactly it.
+   */
   it.each(ids)('%s stays anchored after a quarter turn', (id) => {
     const objId = addObject(id, { x: 4000, y: 200 })
     rotateObjectsBy([objId], 90)
-    expect(settledOnZone(objId)).toBe(true)
+    expect(settledOnAHome(objId)).toBe(true)
     rotateObjectsBy([objId], 90)
-    expect(settledOnZone(objId)).toBe(true)
+    expect(settledOnAHome(objId)).toBe(true)
   })
 
   // Structures that cannot fit the shallow zone at the requested angle snap to

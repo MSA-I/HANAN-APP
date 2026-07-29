@@ -4,7 +4,7 @@ import { HALL_LAYOUTS } from '../core/hallLayouts'
 import { hangRange, MAX_DROP_FROM_CEILING } from '../core/layout/beams'
 import { attachedChairs } from '../core/model/seatingReconciler'
 import { getHallDesign, getTableDesign, getTablePreset } from '../core/presets'
-import { getVenuePack } from '../core/venuePacks'
+import { getVenuePack, type RestrictedZone } from '../core/venuePacks'
 import {
   addObject,
   addObjectToSurface,
@@ -624,29 +624,38 @@ describe('place settings (seat placement)', () => {
 
 describe('fixed stations (zone lock)', () => {
   /**
-   * The zone rectangle with 1cm of slack, read off the pack rather than written
-   * out. The measurements move on every SketchUp re-import — 2026-07-28 15:09
-   * deepened the bar by 50 and the DJ by 10 — and hardcoding them turned a real
-   * venue change into a test failure that looked like a clamp bug.
+   * EVERY rectangle of that kind, with 1cm of slack, read off the pack rather
+   * than written out. The measurements move on every SketchUp re-import —
+   * 2026-07-28 15:09 deepened the bar by 50 and the DJ by 10 — and hardcoding
+   * them turned a real venue change into a test failure that looked like a clamp
+   * bug.
+   *
+   * ⚠ Plural on purpose. A `kind` may own SEVERAL rectangles, and the clamp snaps
+   * to the NEAREST CENTRE (actions.ts:380-391), so which one a station lands in
+   * depends on where it was dropped. This used to `find()` the first and ask
+   * "is it in THAT one" — which is the same frozen-tally mistake one level up,
+   * and it is exactly what the second DJ pad (2026-07-29) tripped.
    */
-  const zoneBounds = (kind: string) => {
-    const z = getVenuePack('resort')!.restricted!.find((r) => r.kind === kind)!
-    return {
-      minX: z.x - 0.01,
-      minY: z.y - 0.01,
-      maxX: z.x + z.width + 0.01,
-      maxY: z.y + z.depth + 0.01,
-    }
-  }
+  const zoneBounds = (kind: string) =>
+    getVenuePack('resort')!
+      .restricted!.filter((r) => r.kind === kind)
+      .map((z) => ({
+        minX: z.x - 0.01,
+        minY: z.y - 0.01,
+        maxX: z.x + z.width + 0.01,
+        maxY: z.y + z.depth + 0.01,
+      }))
 
   it('a DJ booth dropped anywhere in the resort snaps into its zone and cannot leave', () => {
     newProject({ name: 'resort', venuePackId: 'resort' })
-    const id = addObject('dj.booth', { x: 300, y: 300 }) // far from the DJ zone
+    const id = addObject('dj.booth', { x: 300, y: 300 }) // far from either DJ pad
     expect(scene().objects[id].transform.rotation).toBe(-180)
-    const z = zoneBounds('dj')
+    const zs = zoneBounds('dj')
+    // the resort has two pads since 2026-07-29; "its zone" means either of them
+    expect(zs.length).toBeGreaterThan(0)
     const inZone = () => {
       const b = objectAABB(scene(), id)!
-      return b.minX >= z.minX && b.maxX <= z.maxX && b.minY >= z.minY && b.maxY <= z.maxY
+      return zs.some((z) => b.minX >= z.minX && b.maxX <= z.maxX && b.minY >= z.minY && b.maxY <= z.maxY)
     }
     expect(inZone()).toBe(true)
     moveObjectsBy([id], { x: -2000, y: -1000 })
@@ -655,11 +664,52 @@ describe('fixed stations (zone lock)', () => {
     expect(inZone()).toBe(true)
   })
 
+  /**
+   * Two DJ pads are only a feature if a booth can actually be sent to either one.
+   * The clamp picks the NEAREST CENTRE, so the booth is dropped on one pad and
+   * then walked across the watershed to the other and back.
+   *
+   * Every coordinate is derived from the pack and the pads are told apart by x,
+   * not by array position: the array order is load-bearing for other reasons
+   * (venuePacks.ts) and must not become load-bearing here too.
+   */
+  it('a DJ booth snaps to the NEAREST pad and can be moved to the other', () => {
+    newProject({ name: 'resort', venuePackId: 'resort' })
+    const pads = [...getVenuePack('resort')!.restricted!.filter((r) => r.kind === 'dj')]
+      .sort((a, b) => a.x - b.x)
+    expect(pads).toHaveLength(2)
+    const [west, east] = pads
+    const centre = (z: RestrictedZone) => ({ x: z.x + z.width / 2, y: z.y + z.depth / 2 })
+    const inPad = (id: string, z: RestrictedZone) => {
+      const b = objectAABB(scene(), id)!
+      return (
+        b.minX >= z.x - 0.01 && b.maxX <= z.x + z.width + 0.01 &&
+        b.minY >= z.y - 0.01 && b.maxY <= z.y + z.depth + 0.01
+      )
+    }
+    const span = centre(east).x - centre(west).x
+
+    const id = addObject('dj.booth', centre(west))
+    expect(inPad(id, west)).toBe(true)
+    expect(inPad(id, east)).toBe(false)
+
+    moveObjectsBy([id], { x: span, y: 0 })
+    expect(inPad(id, east)).toBe(true)
+
+    moveObjectsBy([id], { x: -span, y: 0 })
+    expect(inPad(id, west)).toBe(true)
+  })
+
   it('a bar unit lives only inside the bar zone', () => {
     newProject({ name: 'resort', venuePackId: 'resort' })
     const id = addObject('bar.resort-left', { x: 4000, y: 2400 })
     const b = objectAABB(scene(), id)!
-    const z = zoneBounds('bar')
+    const zs = zoneBounds('bar')
+    // one bar rectangle today, so the per-axis assertions below stay readable.
+    // A second one would make this fail HERE, pointing at the .some() treatment
+    // the DJ case above already has, rather than failing as a mystery clamp bug.
+    expect(zs).toHaveLength(1)
+    const [z] = zs
     expect(b.minX).toBeGreaterThanOrEqual(z.minX)
     expect(b.maxX).toBeLessThanOrEqual(z.maxX)
     expect(b.minY).toBeGreaterThanOrEqual(z.minY)

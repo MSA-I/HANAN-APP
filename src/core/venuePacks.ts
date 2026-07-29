@@ -181,14 +181,11 @@ export const VENUE_PACKS: VenuePack[] = [
       // span y 0…1408 exactly, so only the seam between them moved.
       { x: 1789, y: 0, width: 800, depth: 350, label: 'בר', kind: 'bar' },
       { x: 1789, y: 350, width: 800, depth: 1058, label: 'רחבת ריקודים', kind: 'dancefloor' },
-      // 15:09: 233 → 243 deep. That import also carries a SECOND ZONE_DJ face, the
-      // same size, 460cm to the left — deliberately NOT added. `kind` is matched as
-      // a string and a zone-bound object clamps INTO "its" zone, so two rectangles
-      // sharing one kind have no defined target. Keeping x here is what keeps the
-      // booth in every saved project where the user left it (BLOCKED-01-A1 §2).
-      // 19:47 re-measured both faces identical; the user confirmed the pair is
-      // intentional (ANSWERS-WAVE-1 §3), so the second one lands with PLAN-06.
-      { x: 2269, y: 1408, width: 310, depth: 243, label: 'עמדת DJ', kind: 'dj' },
+      // Re-measured 2026-07-29 off a fresh export of the SKP: 2269→2259 and 310→320
+      // wide. The RIGHT edge did not move — 2269+310 and 2259+320 are both 2579 —
+      // so the new rectangle is a strict SUPERSET of the old one and no saved booth
+      // becomes illegal. The second pad is at the bottom of this list (source doc §2).
+      { x: 2259, y: 1408, width: 320, depth: 243, label: 'עמדת DJ', kind: 'dj' },
       // 15:09: re-measured unchanged at 425 deep. 6 of the 8 chuppah models are
       // deeper than that (Plans/R1/handoff/BLOCKED-01-A3.md) — still open.
       { x: 1809, y: 1651, width: 760, depth: 425, elevation: 50, label: 'חופה', kind: 'chuppah' },
@@ -200,6 +197,30 @@ export const VENUE_PACKS: VenuePack[] = [
       // chuppah, chairs and buffet tables may be in it, everything else is pushed
       // out (source doc §41).
       { x: 4432, y: 734, width: 1619, depth: 1810, elevation: 470, label: 'קבלת פנים', kind: 'kabalatPanim' },
+      // ⚠ THE TWO BELOW ARE APPENDED, AND THAT POSITION IS DELIBERATE.
+      // Both were `notImported` in manifest.json for a whole round on a reason that
+      // was already false: two rectangles CAN share a `kind` — the clamp filters by
+      // kind and snaps to the nearest CENTRE (actions.ts:380-391) and collision uses
+      // `.some()`. `saviv` above has been four of them all along. Extracted
+      // 2026-07-29 from a fresh SimLab export of the SKP; see handoff/01-zones.md.
+      //
+      // Appended rather than filed next to their siblings for two separate reasons:
+      //  1. the push-out loop walks this list IN ORDER and each push moves the box
+      //     (actions.ts:437-444), so appending leaves every existing push sequence
+      //     byte-identical and applies the new ones last;
+      //  2. chuppah.test.ts:33 and viewer3d/planTransform.test.ts:8 both do
+      //     `find(z => z.kind === 'chuppah')` and mean the HALL one. Putting the
+      //     deck chuppah earlier silently repoints both files at the wrong rectangle.
+      { x: 1809, y: 1408, width: 310, depth: 243, label: 'עמדת DJ', kind: 'dj' },
+      // The reception deck's own canopy: 470 of deck + the same 50cm riser as the
+      // hall marker. It sits wholly inside kabalatPanim, which is FINE — the deck
+      // branch runs before the home-zone snap (actions.ts:371-376), so anything
+      // standing on the deck is judged by the deck, not by this.
+      // ⚠ With two chuppah rects the home snap has a watershed at about x=3500 (the
+      // midpoint between centres 2189 and 4991). Source doc §19 also asks for this
+      // one to be VISIBLE only while reception is on — that is VenueLayer's call
+      // and did NOT land here; it is written up in handoff/01-zones.md §6.
+      { x: 4706, y: 2009, width: 571, depth: 426, elevation: 520, label: 'חופה', kind: 'chuppah' },
     ],
     floorAreas: [
       [[0, 0], [1790, 0], [1790, 1410], [770, 1410], [770, 2540], [0, 2540]],
@@ -217,15 +238,34 @@ export const VENUE_PACKS: VenuePack[] = [
     // — this time because the floor genuinely is one, not because the outline was
     // unknown and fell back to `size`.
     outline: [[0, 0], [4420, 0], [4420, 2540], [0, 2540]],
-    // Lighting-truss grid: 9 beams along y × 4 along x, all at one level. Read off
-    // the 72 `HalfCoupler` clamps in the SKP (72 = 36 crossings × 2), whose centres
-    // sit at z = 9.097m with no spread. See Plans/R1/handoff/07-venue-data.md §1.5.
-    // Re-measured on the 15:09 import: same 72 clamps, every centre within 4cm of
-    // the values below. The 19:47 SKP still carries 288 HalfCoupler nodes — the
-    // same 72 clamps × 4 parts — so the truss was not touched. Left alone: a
-    // "correction" would slide a snap grid that already lands on the real beams.
+    // GEOMETRY-EXTRACTED 2026-07-29 from venue.glb itself, by
+    // tools/glb-prep/extract-beams.mjs. Full measurement, per-beam deltas and the
+    // reproduction commands: Plans/R3/handoff/01-beams.md.
+    //
+    // What is physically there: ELEVEN ⌀7cm tubes (material H08_Emerald_Abyss,
+    // nodes 3DGeom-518…528), all running along y, at x = 158 + 405k with no drift,
+    // spanning y −193…2531 at height 909–916. `height: 910` is inside the tube, so
+    // it stays. NOTHING runs along x at that level — verified at the vertex level:
+    // 29123 truss-metal vertices in the 895–935 band fall into those 11 lines and
+    // not one lands in the 337cm gaps between them. No diagonal bracing either;
+    // 14.PNG shows diagonals on the real truss, but they were never modelled.
+    //
+    // ⚠ The `axis: 'y'` numbers used to be 578, 988, 1389, 1798, 2194, 2599, 3011,
+    // 3420, 3821 — 11 to 22cm east of the tubes, all in the same direction, and
+    // missing the tubes at 158 and 4208 entirely. That was not a sloppy transcript:
+    // it reproduces the 72 HalfCoupler clamp centres to under 0.5cm. The clamps
+    // are just not the beams — they are 36 hand-placed hanging light fixtures
+    // gripping the tube from its +x side, which is where the whole offset came
+    // from. This is source-doc item 9a, and it explains item 8: a hung item snapped
+    // 15cm off the tube it was supposed to hang on.
+    //
+    // ⛔ `axis: 'x'` IS NOT A BEAM FAMILY. Those 4 values are the rows of those same
+    // 36 fixtures, measured to under 0.5cm — accurate, but not tubes. Whether they
+    // should keep being drawn and snapped to as beams is a product call, not a
+    // measurement, and it is open: see Plans/R3/handoff/BLOCKED-01-A2.md. Left as
+    // it was rather than guessed at, because five code paths enforce this grid.
     ceilingBeams: [
-      { axis: 'y', positions: [578, 988, 1389, 1798, 2194, 2599, 3011, 3420, 3821], height: 910 },
+      { axis: 'y', positions: [158, 563, 968, 1373, 1778, 2183, 2588, 2993, 3398, 3803, 4208], height: 910 },
       { axis: 'x', positions: [190, 550, 904, 1270], height: 910 },
     ],
     // Roof-truss metal, off the venue.glb material `H08_Emerald_Abyss` (no texture —
@@ -241,6 +281,17 @@ export const VENUE_PACKS: VenuePack[] = [
     // them closed — those are the wall cross-sections the plan fills as poché.
     // `--clip` throws away the 126 that lay wholly outside this pack's rectangle:
     // the model carries the rest of the building and a desert backdrop.
+    // Every polyline now also carries `kind` and the `material` it was cut from:
+    // 74 wall, 33 glazing, 16 column, 47 opening, 0 railing. Glazing is the
+    // material literally named `'Glass'`, quotes and all; column is a compact
+    // closed loop, thresholds recorded in the file itself. ⚠ `opening` means
+    // UNCLASSIFIED and nothing else — this model has NO door material, so a door
+    // is not identifiable from it and `opening` must never be drawn as one. 45 of
+    // the 47 sit on the 9 cm strip between the two cuts' x-ranges (4423…4432):
+    // that is the east wall truncated by the tool, not a hole in the building.
+    // Railing comes back 0 because `Glass Railing Color` exists only at 0.60-0.75
+    // and 1.46-1.50 m, and the 1.00 m plane passes through the gap between them.
+    // Measurements: HANAN-APP-DOCS/Plans/R3/handoff/01-section.md.
     // ⚠ Re-run it whenever venue.glb changes, or the plan draws the old building:
     //   node tools/glb-prep/extract-section.mjs public/venue-packs/resort/venue.glb --offset 0,24.861 --clip 0,0,6051,2544
     section: '/venue-packs/resort/section.json',

@@ -254,6 +254,13 @@ const zoneMeta = {
   ZONE_CHUPPAH: { kind: 'chuppah', label: 'חופה' },
   ZONE_CORRIDOR: { kind: 'passage', label: 'מעבר' },
   ZONE_KABALAT_PANIM: { kind: 'kabalatPanim', label: 'קבלת פנים' },
+  // Source doc §20, "a flooring ZONE belonging only to the reception". The user
+  // named the material ZONE_FLOR — ONE 'O'. ⚠ ZONE_FLOOR, two 'O's, is the floor
+  // OUTLINE that establishes the plan origin and is skipped below; these two are
+  // one keystroke apart and mean entirely different things. Do not "fix" either
+  // spelling. Painted on TWO faces (the user's own count), which is supported:
+  // the clamp filters by kind and snaps to the nearest centre.
+  ZONE_FLOR: { kind: 'flooring', label: 'ריצוף' },
 }
 
 console.log('=== plan origin (raw ZONE_FLOOR min corner) ===')
@@ -265,9 +272,10 @@ console.log(`\n=== floorAreas (green placeable, ${floorAreas.length} pieces, pla
 console.log(JSON.stringify(floorAreas))
 console.log('\n=== restricted (plan cm) ===')
 const multi = []
+const unmapped = []
 for (const [name, list] of Object.entries(rects)) {
   const meta = zoneMeta[name]
-  if (!meta) console.warn(`  ! no kind/label mapping for ${name} — add it to zoneMeta`)
+  if (!meta) unmapped.push(name)
   if (list.length > 1) multi.push([name, list.length])
   for (const r of list) {
     const elevation = r.elevation ? `elevation: ${r.elevation}, ` : ''
@@ -275,12 +283,27 @@ for (const [name, list] of Object.entries(rects)) {
   }
 }
 
-// A `kind` is matched as a plain string and a zone-bound entity is clamped INTO
-// "its" zone, so two rects sharing one kind is not a thing the app can express.
-// Surface it here rather than let whoever pastes this pick one at random.
+// Several rects under one `kind` ARE supported, and this warning used to say the
+// opposite — which is why the second DJ pad and the deck chuppah sat in
+// manifest.json as `notImported` for a whole round. The clamp does
+// `zones.filter(z => z.kind === zoneKind)` and snaps to the NEAREST CENTRE
+// (actions.ts:380-391), and collision tests membership with `.some()`. `saviv`
+// has been four rectangles all along. So this is information, not an error —
+// paste them all. What it is still worth saying out loud is that they must not be
+// UNIONED: the bounding box of two markers covers the empty gap between them.
 if (multi.length) {
-  console.warn('\n! MORE THAN ONE MARKER FACE PER ZONE — these are separate, non-overlapping rectangles:')
+  console.warn('\n! MORE THAN ONE MARKER FACE PER ZONE — separate, non-overlapping rectangles:')
   for (const [name, n] of multi) console.warn(`!   ${name}: ${n} rects (listed above, largest first)`)
-  console.warn('! RestrictedZone.kind is compared as a string; two rects with the same kind cannot both')
-  console.warn('! be a home zone. Decide which is real before pasting — do not union them.')
+  console.warn('! This is supported — paste every one. The clamp filters by kind and picks the')
+  console.warn('! nearest centre. Do NOT union them into one rectangle: that claims the gap.')
+}
+
+// A ZONE_* material the extractor has no mapping for is the silent failure mode
+// of this whole pipeline: it is simply absent from the output above, with no
+// error, and nobody notices the zone never reached the app. Say it last and say
+// it loudly.
+if (unmapped.length) {
+  console.warn('\n! UNMAPPED ZONE MARKERS — painted in the model, NOT emitted above:')
+  for (const name of unmapped) console.warn(`!   ${name}`)
+  console.warn('! Add each to `zoneMeta` with its kind and Hebrew label, then re-run.')
 }

@@ -15,6 +15,7 @@
     "wallHeightCm": 1160,
     "hangHeightCm": 895,
     "restrictedZones": ["בריכה", "סביב הבריכה", "בר", "רחבת ריקודים", "עמדת DJ", "חופה", "מעבר", "קבלת פנים"],
+    "restrictedZonesNote": "8 kinds, 13 rectangles as of 2026-07-29: saviv is 4, dj is 2 (both pads now imported), chuppah is 2 (hall + reception deck). Several rectangles under one kind are supported and always were — the clamp filters by kind and snaps to the nearest centre (actions.ts:380-391), collision tests membership with .some(). The two new ones are APPENDED to the array: the push-out loop walks it in order, and chuppah.test.ts / planTransform.test.ts both find() the first 'chuppah' and mean the hall one.",
     "placeableAreas": "3 polygons (green) from ZONE_FLOOR; furniture is confined to these",
     "note2": "Real floor is non-rectangular & disconnected: left L + east rectangle + the new strip under the shortened passage.",
     "note3": "planSizeCm.width runs to 6051 because the raised reception deck (ZONE_KABALAT_PANIM, x 4432…6051, +470cm) shares this plan space. The hall alone is 4423 wide."
@@ -39,10 +40,12 @@
   "heroFacing": "desert",
   "source": {
     "skp": "D:/משה פרוייקטים/מגרש 510/SKP/ריזורט גאמוס - אפליקציה.skp",
-    "skpModified": "2026-07-28T19:47:18",
-    "skpModifiedNote": "The user saved four times on 2026-07-28 (01:57, 15:09, 18:03, 19:47). This asset is built from the 19:47 save, which redrew ZONE_SAVIV and ZONE_POOL and extended the south-east floor strip. Every other figure here was re-measured on the 19:47 export and came out identical.",
+    "skpModified": "2026-07-29T16:25:14",
+    "skpModifiedNote": "venue.glb itself is still the 2026-07-28 19:47 build and is CORRECT — see venueGlbNotRebuilt. The zone rectangles in venuePacks.ts were re-extracted on 2026-07-29 from a fresh export of the 16:25 save.",
     "pipeline": "SketchUp -> SimLab (scene.exportFile GLB) -> tools/glb-prep/glb-prep.mjs --mode venue",
-    "preparedOn": "2026-07-28",
+    "zoneExtractionNote": "⚠ extract-zones.mjs CANNOT run on venue.glb — glb-prep strips the ZONE_* marker faces, so it exits with 'no ZONE_FLOOR found'. It must be pointed at the RAW SimLab export. Those live outside the repo in D:/simlab-out/ and are not kept forever: the 19:47 one this asset was built from is already gone. Producing a new one is a single MCP call and takes about a minute — simlab_convert(skp -> D:/simlab-out/raw-venue-<stamp>.glb) — which is how the 2026-07-29 numbers were obtained. Re-export rather than trust an old raw file.",
+    "venueGlbNotRebuilt": "MEASURED, not assumed. Structural fingerprint of raw-venue-1803.glb vs a fresh export of the 16:25 save: triangles 3217110 in BOTH, world bounds identical to 3 decimals ([-8.546,-1.45,-32.392]..[75.65,11.623,1.139]), 59 materials, 28 textures in both. The ONLY differences are node 9893->9890, mesh/primitive 4451->4450, and the triangle counts of two marker materials, ZONE_POOL 20->10 and ZONE_SAVIV 4->14 — which sum to 24 on both sides. Every edit the user made since 18:03 was confined to ZONE_* marker faces and touched no visible geometry, so the committed venue.glb still renders the right building and section.json cut from it is still valid.",
+    "preparedOn": "2026-07-28 (asset) · zones re-extracted 2026-07-29",
     "originalSizeMB": 93.1,
     "optimizedSizeMB": 5.1,
     "changesFromPreviousImport": [
@@ -63,12 +66,20 @@
     "openForPlan06": [
       "GEOMETRY LANDED, BEHAVIOUR DID NOT. A zone in `restricted` rejects everything that touches it (collision.ts:458-464), so a plant standing correctly inside saviv is still reported forbiddenZone. The pattern to copy is the kabalatPanim branch at collision.ts:460-463 with allowedOnDeck.",
       "BLOCKED-03-A2 §1 is now answered by data. decor.ts:59-65 left plant.potted unwired because the band width had no measured source and the plan's 150cm was an admitted guess. The user has now drawn the area himself, so the wiring is { allowedZones: [{ kind: 'saviv', within: 0 }] }. If a number against `pool` is still wanted, the measurement is 123cm at the sides and 203cm along the north edge — not 150.",
-      "Shrinking pool leaves x 1809…2579 by y 1408…1611 uncovered: 9.34 m² today, falling to 3.05 m² once PLAN-06 adds the second DJ pad. What remains is a 150x203cm slot BETWEEN the two DJ pads, which the user left unpainted deliberately and is most likely walking space. No coverage was invented for it.",
+    "DONE 2026-07-29, not PLAN-06's any more: the second DJ pad is imported. The strip x 1809…2579 by y 1408…1611 that shrinking pool left uncovered is now down to the slot BETWEEN the two pads — measured 140x203cm, not the 150 predicted off the older rectangle. The user left it unpainted deliberately and it is most likely walking space. No coverage was invented for it.",
       "VenueLayer draws a label per rectangle (VenueLayer.tsx:156), so 'סביב הבריכה' now renders four times. Keys are unique (kind-x-y) so there is no render bug — it is a visual decision, and the file belongs to PLAN-04."
     ],
+    "imported20260729": [
+      "The two rows that used to sit under `notImported` are IN. The reason they were held back — 'two rects cannot share a kind' — was never true: the clamp does zones.filter(z => z.kind === zoneKind) and picks the nearest centre (actions.ts:380-391), collision uses .some(), and saviv had been four rectangles the whole time. extract-zones.mjs used to print that claim as a warning; it now prints the opposite.",
+      "SECOND ZONE_DJ pad imported at x 1809 y 1408 (310×243). Gap between the two pads measures 140cm (1809+310=2119 to 2259), not the 150 predicted off the older rectangle.",
+      "EAST ZONE_DJ pad re-measured: x 2269->2259, width 310->320. The right edge did not move (both give 2579), so the new rectangle is a strict superset of the old and no saved booth becomes illegal.",
+      "SECOND ZONE_HUPA imported as the reception deck's chuppah at x 4706 y 2009 (571×426, elevation 520 = deck 470 + the same 50cm riser as the hall marker). It lies wholly inside kabalatPanim, which is fine: the deck branch runs before the home-zone snap.",
+      "Side effect worth knowing: with two chuppah rectangles the home snap has a watershed at about x=3500 (midpoint of centres 2189 and 4991). chuppah.test.ts's 'stays anchored after a quarter turn' drops at x=4000 and now legitimately settles on the deck, so it asserts settledOnAHome — the helper that file already defined for exactly this. The pool push-out regression test it exists for is untouched and passes.",
+      "UNCHANGED, re-measured on the fresh export: plan origin and offset, floor bbox 4423×2544, outline, all 3 floorAreas byte-identical, pool, all four saviv rectangles, bar, dancefloor, chuppah (hall), corridor, kabalatPanim.",
+      "saviv was NOT re-derived from this export and must not be. extract-zones.mjs bounds one rect per marker NODE, and ZONE_SAVIV is a single node holding two disjoint L shapes, so it reports one box 766,1408,3196×1136 — the exact over-claim documented above, which would permit plants standing in the pool. The four hand-derived rectangles stand; the evidence they are still current is that the node still carries 14 triangles with that same bbox."
+    ],
     "notImported": [
-      "A SECOND ZONE_DJ marker exists at x 1809 y 1408 (310×243), 460cm left of the committed one. Two rects cannot share a `kind`, so the committed position was kept. See BLOCKED-01-A1.md §2.",
-      "A SECOND ZONE_HUPA marker exists on the reception deck at x 4706 y 2009 (571×426, elevation 520 = deck 470 + the same 50cm riser as the hall chuppah). Not added, for the same reason. See BLOCKED-01-A1.md §3."
+      "ZONE_FLOR — the flooring zone of source doc §20 ('a flooring ZONE belonging only to the reception'). NOT IN THE MODEL. Measured two independent ways on the 2026-07-29 16:25 save: the GLB export declares 59 materials of which exactly ten contain 'zone' (BAR, CHUPPAH, CORRIDOR, DANCEFLOOR, DJ, FLOOR, HUPA, KABALAT_PANIM, POOL, SAVIV), and a raw byte scan of the .skp itself finds ten distinct ZONE_ tokens and zero occurrences of the string ZONE_FLOR. No rectangle was invented. extract-zones.mjs already maps ZONE_FLOR -> kind 'flooring', label 'ריצוף', so the day the face is painted it lands with no code change. ⚠ ZONE_FLOR (one O) is the flooring marker; ZONE_FLOOR (two O's) is the floor OUTLINE that establishes the plan origin — one keystroke apart, entirely different meanings. See handoff/BLOCKED-01-A1.md."
     ],
     "notDone": "Source doc §6 (move the wall behind the bar back ≥2m) is STILL not in this asset — ZONE_BAR came out unchanged again on the 19:47 export. The user closed this as answered rather than as a model change: see Plans/R2/handoff/ANSWERS-WAVE-1.md §1, which confirms the wall sits at y=0 by design and the bar unit stands 1.20m in front of it. See also Plans/R2/handoff/01-bar-measure.md."
   },
