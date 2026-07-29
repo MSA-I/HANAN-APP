@@ -410,4 +410,3 @@ for (const axis of ['y', 'x']) {
   }
   console.log(`  positions: [${beams.map((b) => Math.round(b.at)).join(', ')}]`);
 }
-
