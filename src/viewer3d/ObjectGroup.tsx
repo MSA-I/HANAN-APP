@@ -36,18 +36,22 @@ import { snapValue } from '../core/layout/snapping'
 import { standingHeightAt } from '../core/layout/groundHeight'
 import { attachedChairs } from '../core/model/seatingReconciler'
 import type { Id, SceneState, Size3D } from '../core/model/types'
-import { cmToM, degToRad, radToDeg, relativeTransform, threeToPlan } from '../core/space'
+import { cmToM, radToDeg, relativeTransform, threeToPlan } from '../core/space'
 import { getVenuePack } from '../core/venuePacks'
 import { useOverlayStore } from '../editor2d/overlayStore'
 import { beginGesture, endGesture, select, setPosition, setRotation, toggleSelect } from '../state/actions'
+import { notify } from '../state/notice'
 import {
   designEditTable,
+  isArrangeableDecor,
+  isDesignEditMuted,
   isEffectivelyLocked,
   isLayerHidden,
   isObjectVisible,
   isTable,
 } from '../state/selectors'
 import { setDesignEditTable, useEditorStore } from '../state/store'
+import { strings } from '../ui/strings'
 import {
   instancedChairMaterial,
   objectSlotGeometries,
@@ -64,6 +68,56 @@ const SELECT_COLOR = new THREE.Color(SELECT_TINT)
 
 /** No pack, no measured truss to match — the cord stays the near-black it always was. */
 const DEFAULT_CORD_COLOR = '#2a2a2a'
+
+/**
+ * How far back the rest of the hall falls while one table is being arranged
+ * (source doc §52). The same 0.22 as 2D's `DESIGN_EDIT_DIM`
+ * (editor2d/ObjectNode.tsx:41) — one mode must not read as two strengths
+ * depending on which pane the user happens to be looking at.
+ */
+const DESIGN_EDIT_DIM = 0.22
+
+/**
+ * ⚠ THREE HAS NO GROUP OPACITY. 2D mutes a whole table by dropping the opacity of
+ * one Konva group; here the dim is a property of each MATERIAL, so a muted table
+ * has to dim its own meshes, its instanced chairs and its surface decor, each
+ * explicitly. That is why `muted` is threaded down as a prop instead of being
+ * asked of the store in five places.
+ *
+ * And every material in this file is SHARED: `slotMaterial`/`selectedSlotMaterial`
+ * per colour hex, `instancedChairMaterial` a module singleton, and the GLB part
+ * materials per catalogId+size in `propModel.partCache`. Writing `opacity` onto
+ * one of them would ghost objects nobody asked to dim — the same trap
+ * `ModelParts` already avoids by cloning before it tints. So the dim is a CLONE,
+ * shared by everything that points at the same source.
+ *
+ * ponytail: an unbounded Map, bounded in practice by (catalog entries × palette)
+ * because only long-lived cached materials are ever handed to it — `ModelParts`
+ * dims its own private clones instead, see there. Nothing is disposed, exactly
+ * like `sharedGlass` below. If a continuous colour picker ever starts feeding
+ * `slotMaterial`, make this an `LruCache` that disposes on eviction, which is how
+ * `meshCache` already bounds the materials this mirrors.
+ */
+const dimmedCache = new Map<string, THREE.Material>()
+
+/** Ghost a material IN PLACE. Only ever called on a clone — never on a cached one. */
+function dimInPlace<T extends THREE.Material>(material: T): T {
+  material.transparent = true
+  material.opacity *= DESIGN_EDIT_DIM
+  // Ghosts overlap. Writing depth would let one dimmed table punch a hard-edged
+  // hole through another, and nothing behind a ghost is meant to be hidden by it.
+  material.depthWrite = false
+  return material
+}
+
+/** The shared dimmed twin of a shared material, built once per source. */
+function dimmedMaterial(source: THREE.Material): THREE.Material {
+  const cached = dimmedCache.get(source.uuid)
+  if (cached) return cached
+  const dimmed = dimInPlace(source.clone())
+  dimmedCache.set(source.uuid, dimmed)
+  return dimmed
+}
 
 type MoveDrag = {
   pointerId: number
@@ -141,7 +195,6 @@ export function designEditTargetOf(scene: SceneState, objId: Id): Id | null {
 
 /** A single-axis editor handle; every drag is one history entry. */
 function RotationHandle({ id, object }: { id: Id; object: THREE.Object3D }) {
-  const shiftHeld = useOverlayStore((s) => s.shiftHeld)
   const dragging = useRef(false)
   const controlsRef = useRef<GizmoControls | null>(null)
 
@@ -168,9 +221,10 @@ function RotationHandle({ id, object }: { id: Id; object: THREE.Object3D }) {
       showX={false}
       showY
       showZ={false}
-      // Free rotation by default; Shift engages 5° detents (source doc §25).
-      // Must mirror SelectionTransformer.tsx or 2D and 3D behave opposite ways.
-      rotationSnap={shiftHeld ? degToRad(5) : null}
+      // No `rotationSnap`: the ring turns freely at EVERY angle, with or without
+      // Shift (PLAN-09/G1). Shift used to engage 5° detents; the user asked for the
+      // snap to go altogether, so the only quantised rotation left is the exact 90°
+      // of `R`. Must mirror SelectionTransformer.tsx or 2D and 3D behave differently.
       onMouseDown={() => {
         dragging.current = true
         beginGesture()
@@ -212,6 +266,14 @@ export function ObjectGroup({ id }: { id: Id }) {
     const obj = s.scene.objects[id]
     return s.selection.length === 1 && s.selection[0] === id && !!obj && !isEffectivelyLocked(s.scene, obj)
   })
+  // Design-edit isolation (source doc §52), the 3D half of what 2D does with one
+  // group opacity and `listening={false}` (editor2d/ObjectNode.tsx:152). A
+  // BOOLEAN selector: only the mode transition re-renders the hall, never an id
+  // change elsewhere. Validated on read via `designEditTable` — the raw store
+  // field can still name a table that has been deleted or hidden since.
+  const muted = useEditorStore((s) =>
+    isDesignEditMuted(designEditTable(s.scene, s.designEditTableId), id),
+  )
   const placing = useOverlayStore((s) => s.placing)
   // The surface this piece is standing on, asked of the PLACE it stands in. What
   // used to be here asked the ENTITY — `zoneKind` matched against the zone list —
@@ -411,12 +473,15 @@ export function ObjectGroup({ id }: { id: Id }) {
 
   const procedural = geometries.map(({ slot, geometry }) => {
     const color = slotColor(entry, appearance, slot)
+    const material = isSelected ? selectedSlotMaterial(color) : slotMaterial(color)
     return (
       <mesh
         key={slot}
         geometry={geometry}
-        material={isSelected ? selectedSlotMaterial(color) : slotMaterial(color)}
-        castShadow
+        material={muted ? dimmedMaterial(material) : material}
+        // A ghosted table that still lays a solid shadow on the floor reads as a
+        // rendering fault rather than as a table the mode is standing down.
+        castShadow={!muted}
         receiveShadow
       />
     )
@@ -426,10 +491,15 @@ export function ObjectGroup({ id }: { id: Id }) {
     <>
       <group
         ref={bindGroup}
-        onClick={handleClick}
-        onDoubleClick={handleDoubleClick}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
+        // Muted means OUT of the session, not merely faint: 2D takes `listening`
+        // away from the same objects, so leaving these attached would let a user
+        // in 3D select, drag and even open the mode on a table the plan will not
+        // let them touch. With no handler the ray carries on to whatever is
+        // behind, exactly as a click through a non-listening Konva group does.
+        onClick={muted ? undefined : handleClick}
+        onDoubleClick={muted ? undefined : handleDoubleClick}
+        onPointerDown={muted ? undefined : handlePointerDown}
+        onPointerMove={muted ? undefined : handlePointerMove}
       >
         {entry.model ? (
           <ModelFallback fallback={procedural}>
@@ -439,23 +509,26 @@ export function ObjectGroup({ id }: { id: Id }) {
               size={size}
               slot={entry.editableColorSlot}
               color={entry.editableColorSlot ? appearance[entry.editableColorSlot]?.color : undefined}
+              muted={muted}
             />
           </ModelFallback>
         ) : (
           procedural
         )}
-        {isSelected && <SelectionOutline outline={entry.footprint(size).outline} />}
-        {drop > 0 && <HangingCord from={size.height} length={drop} color={cordColor} />}
-        {hasSeating && !seatingHidden && <ChairInstances tableId={id} />}
-        <SurfaceChildren parentId={id} />
+        {isSelected && !muted && <SelectionOutline outline={entry.footprint(size).outline} />}
+        {drop > 0 && <HangingCord from={size.height} length={drop} color={cordColor} muted={muted} />}
+        {hasSeating && !seatingHidden && <ChairInstances tableId={id} muted={muted} />}
+        <SurfaceChildren parentId={id} muted={muted} />
       </group>
-      {canRotate && !placing && rotationTarget && <RotationHandle id={id} object={rotationTarget} />}
+      {canRotate && !muted && !placing && rotationTarget && (
+        <RotationHandle id={id} object={rotationTarget} />
+      )}
     </>
   )
 }
 
 /** Decor standing on this object's top — each child in its own local group. */
-function SurfaceChildren({ parentId }: { parentId: Id }) {
+function SurfaceChildren({ parentId, muted }: { parentId: Id; muted: boolean }) {
   const ids = useEditorStore(
     useShallow((s) =>
       Object.values(s.scene.objects)
@@ -471,7 +544,7 @@ function SurfaceChildren({ parentId }: { parentId: Id }) {
   return (
     <>
       {ids.map((id) => (
-        <SurfaceChild key={id} id={id} parentId={parentId} />
+        <SurfaceChild key={id} id={id} parentId={parentId} muted={muted} />
       ))}
     </>
   )
@@ -487,7 +560,7 @@ function SurfaceChildren({ parentId }: { parentId: Id }) {
  * the table exactly as it always did — decor that moved on every stray drag of a
  * table would be worse than decor that cannot be moved at all.
  */
-function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
+function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: boolean }) {
   const groupRef = useRef<THREE.Group>(null)
   const dragRef = useRef<MoveDrag | null>(null)
   const suppressClick = useRef(false)
@@ -510,9 +583,19 @@ function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
   // A BOOLEAN selector, so it re-renders on entering/leaving the mode and never
   // on an id change elsewhere. Validated on read via A1's `designEditTable` — the
   // raw store field can name a table that has since been deleted or hidden.
-  const editable = useEditorStore(
+  const inEditSession = useEditorStore(
     (s) => designEditTable(s.scene, s.designEditTableId) === parentId,
   )
+  // …and separately, whether this particular piece may be moved at all. The COVER
+  // may not (source doc §11) — see `isArrangeableDecor`, which editor2d/ObjectNode
+  // asks of the same object so the plan and the render cannot disagree. Split in
+  // two rather than folded into one flag because the mode still being OPEN is what
+  // turns a refused press into a message instead of a dead pointer.
+  const arrangeable = useEditorStore((s) => {
+    const obj = s.scene.objects[id]
+    return !!obj && isArrangeableDecor(obj)
+  })
+  const editable = inEditSession && arrangeable
   const placing = useOverlayStore((s) => s.placing)
 
   useLayoutEffect(() => {
@@ -565,9 +648,11 @@ function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
     e.stopPropagation()
     // mirror chairs: a click selects the TABLE, unless this decor is already
     // selected — or unless the mode that exists to edit these pieces is open, in
-    // which case the piece IS the thing being clicked (source doc §11)
+    // which case the piece IS the thing being clicked (source doc §11).
+    // `inEditSession`, not `editable`: a cover cannot be MOVED, but selecting one
+    // to read it in the inspector was never what §11 refused.
     const sel = useEditorStore.getState().selection
-    const target = editable || sel.includes(id) ? id : parentId
+    const target = inEditSession || sel.includes(id) ? id : parentId
     if (e.nativeEvent.shiftKey) toggleSelect(target)
     else select([target])
   }
@@ -613,7 +698,16 @@ function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
    */
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
     suppressClick.current = false
-    if (!editable || placing || e.button !== 0 || e.nativeEvent.shiftKey || gizmoBusy()) return
+    if (placing || e.button !== 0 || e.nativeEvent.shiftKey || gizmoBusy()) return
+    if (!editable) {
+      // Inside the session the only piece that gets here is the cover, and a
+      // refusal nobody can see is indistinguishable from a broken drag. The event
+      // is NOT stopped: it carries on to the table's own handler, so pressing a
+      // place setting moves the table exactly as pressing a chair does — the 2D
+      // twin of this line does the same (editor2d/ObjectNode.tsx).
+      if (inEditSession) notify(strings.editMode.placeSettingLocked)
+      return
+    }
     const state = useEditorStore.getState()
     const obj = state.scene.objects[id]
     const group = groupRef.current
@@ -699,12 +793,13 @@ function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
 
   const procedural = geometries.map(({ slot, geometry }) => {
     const color = slotColor(entry, appearance, slot)
+    const material = isSelected ? selectedSlotMaterial(color) : slotMaterial(color)
     return (
       <mesh
         key={slot}
         geometry={geometry}
-        material={isSelected ? selectedSlotMaterial(color) : slotMaterial(color)}
-        castShadow
+        material={muted ? dimmedMaterial(material) : material}
+        castShadow={!muted}
         receiveShadow
       />
     )
@@ -714,10 +809,12 @@ function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
     <>
       <group
         ref={bindGroup}
-        onClick={handleClick}
-        onDoubleClick={handleDoubleClick}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
+        // `muted` is the TABLE's — the whole group stands down together, decor
+        // included, or a ghosted table would still hand out its centrepieces.
+        onClick={muted ? undefined : handleClick}
+        onDoubleClick={muted ? undefined : handleDoubleClick}
+        onPointerDown={muted ? undefined : handlePointerDown}
+        onPointerMove={muted ? undefined : handlePointerMove}
       >
         {entry.model ? (
           <ModelFallback fallback={procedural}>
@@ -727,14 +824,17 @@ function SurfaceChild({ id, parentId }: { id: Id; parentId: Id }) {
               size={size}
               slot={entry.editableColorSlot}
               color={entry.editableColorSlot ? appearance[entry.editableColorSlot]?.color : undefined}
+              muted={muted}
             />
           </ModelFallback>
         ) : (
           procedural
         )}
-        {isSelected && <SelectionOutline outline={entry.footprint(size).outline} />}
+        {isSelected && !muted && <SelectionOutline outline={entry.footprint(size).outline} />}
       </group>
-      {canRotate && !placing && rotationTarget && <RotationHandle id={id} object={rotationTarget} />}
+      {canRotate && !muted && !placing && rotationTarget && (
+        <RotationHandle id={id} object={rotationTarget} />
+      )}
     </>
   )
 }
@@ -788,20 +888,29 @@ function ModelParts({
   size,
   slot,
   color,
+  muted,
 }: {
   catalogId: string
   url: string
   size: Size3D
   slot?: string
   color?: string
+  /** design-edit mode is arranging another table — ghost this one (source doc §52) */
+  muted?: boolean
 }) {
   const parts = useModelParts(catalogId, url, size)
   const invalidate = useThree((s) => s.invalidate)
   const map = useSlotTexture(slotTextureUrl(catalogId, slot))
   const hasGlass = useMemo(() => parts.some((p) => isGlassPart(p.material)), [parts])
+  // ⚠ The dim is folded in HERE rather than through `dimmedMaterial`, because the
+  // materials in this array are this component's OWN clones: the cache up top may
+  // only be keyed on long-lived shared materials, and feeding it a per-instance
+  // clone would grow it without bound and hand back a dimmed twin of a material
+  // that has since been disposed. `muted` is a memo dependency, so leaving the
+  // mode rebuilds these undimmed.
   const overriddenMaterials = useMemo(
     () =>
-      color || map || hasGlass
+      color || map || hasGlass || muted
         ? parts.map(({ material }) => {
             // A drinking vessel is not a tint of the mesh it was cut from — it is a
             // different material class. The baked one is `metalness 1, roughness 1,
@@ -809,7 +918,12 @@ function ModelParts({
             // MeshPhysicalMaterial and the clone is Standard. So this one is BUILT,
             // and the part's own baked texture is dropped on purpose — a transmissive
             // surface has nothing to show it on.
-            if (isGlassPart(material)) return glassMaterial()
+            //
+            // Muted, it has to be a COPY of that one: `sharedGlass` is every glass on
+            // every table, so ghosting it in place would ghost the whole hall.
+            if (isGlassPart(material)) {
+              return muted ? dimInPlace(glassMaterial().clone()) : glassMaterial()
+            }
             const clone = material.clone()
             const tintable = clone as THREE.Material & {
               color?: THREE.Color
@@ -820,10 +934,11 @@ function ModelParts({
               tintable.map = map
               clone.needsUpdate = true
             }
+            if (muted) dimInPlace(clone)
             return clone
           })
         : null,
-    [color, map, hasGlass, parts],
+    [color, map, hasGlass, muted, parts],
   )
   // frameloop is "demand": a texture that arrives after the object was drawn has
   // to ask for the frame that shows it
@@ -845,7 +960,9 @@ function ModelParts({
           key={key}
           geometry={geometry}
           material={overriddenMaterials?.[index] ?? material}
-          castShadow
+          // muted ⇒ `overriddenMaterials` is always built, so the mesh above is
+          // already the ghost; the shadow is the other half of not being there
+          castShadow={!muted}
           receiveShadow
         />
       ))}
@@ -888,11 +1005,32 @@ function ModelFallback({ children, fallback }: { children: ReactNode; fallback: 
  * roughness are the beams' measured 0.5/0.5 — the resort truss is warm beige, not
  * polished steel, and a shinier cord next to a matte beam looks like a mistake.
  */
-function HangingCord({ from, length, color }: { from: number; length: number; color: string }) {
+function HangingCord({
+  from,
+  length,
+  color,
+  muted,
+}: {
+  from: number
+  length: number
+  color: string
+  muted?: boolean
+}) {
   return (
-    <mesh position={[0, cmToM(from + length / 2), 0]} raycast={() => null} castShadow>
+    <mesh position={[0, cmToM(from + length / 2), 0]} raycast={() => null} castShadow={!muted}>
       <cylinderGeometry args={[cmToM(1.5), cmToM(1.5), cmToM(length), 6]} />
-      <meshStandardMaterial color={color} metalness={0.5} roughness={0.5} />
+      {/* This material is inline and private to this fixture, so the mute is set
+          on it directly — `dimmedMaterial`'s cache is for the shared ones. A
+          solid wire hanging out of a ghosted chandelier is the giveaway that a
+          dim was applied per mesh and one was missed. */}
+      <meshStandardMaterial
+        color={color}
+        metalness={0.5}
+        roughness={0.5}
+        transparent={muted}
+        opacity={muted ? DESIGN_EDIT_DIM : 1}
+        depthWrite={!muted}
+      />
     </mesh>
   )
 }
@@ -938,7 +1076,7 @@ function SelectionOutline({ outline }: { outline: Outline }) {
 }
 
 /** All chairs of one table, one InstancedMesh per material slot. */
-function ChairInstances({ tableId }: { tableId: Id }) {
+function ChairInstances({ tableId, muted }: { tableId: Id; muted: boolean }) {
   const invalidate = useThree((s) => s.invalidate)
   const chairs = useEditorStore(useShallow((s) => attachedChairs(s.scene, tableId)))
   const selection = useEditorStore(useShallow((s) => s.selection))
@@ -972,6 +1110,7 @@ function ChairInstances({ tableId }: { tableId: Id }) {
       chairIds={built.chairIds}
       tableId={tableId}
       invalidate={invalidate}
+      muted={muted}
     />
   ))
 
@@ -987,6 +1126,7 @@ function ChairInstances({ tableId }: { tableId: Id }) {
         chairIds={built.chairIds}
         tableId={tableId}
         invalidate={invalidate}
+        muted={muted}
       />
     </ModelFallback>
   )
@@ -1001,6 +1141,7 @@ function ModelChairInstances({
   chairIds,
   tableId,
   invalidate,
+  muted,
 }: {
   catalogId: string
   url: string
@@ -1009,6 +1150,7 @@ function ModelChairInstances({
   chairIds: Id[]
   tableId: Id
   invalidate: () => void
+  muted: boolean
 }) {
   const parts = useModelParts(catalogId, url, size)
   return (
@@ -1022,6 +1164,7 @@ function ModelChairInstances({
           chairIds={chairIds}
           tableId={tableId}
           invalidate={invalidate}
+          muted={muted}
         />
       ))}
     </>
@@ -1036,6 +1179,7 @@ function ChairSlot({
   chairIds,
   tableId,
   invalidate,
+  muted,
 }: {
   geometry: THREE.BufferGeometry
   material: THREE.Material
@@ -1045,6 +1189,8 @@ function ChairSlot({
   chairIds: Id[]
   tableId: Id
   invalidate: () => void
+  /** the table these chairs ride is dimmed — they are part of it, so they go too */
+  muted: boolean
 }) {
   const ref = useRef<THREE.InstancedMesh>(null)
   const count = matrices.length
@@ -1117,12 +1263,17 @@ function ChairSlot({
       // key by count so a seating change rebuilds the instance buffers cleanly
       key={count}
       ref={ref}
+      // ⚠ `args` keeps the UNDIMMED material on purpose: R3F re-CONSTRUCTS the
+      // instanced mesh whenever `args` change, and the layout effect above would
+      // not re-run for it (its deps did not change), leaving every chair stacked
+      // at the origin. As a plain prop the swap is applied to the existing mesh.
       args={[geometry, material, count]}
-      castShadow
+      material={muted ? dimmedMaterial(material) : material}
+      castShadow={!muted}
       receiveShadow
-      onClick={handleClick}
-      onDoubleClick={handleDoubleClick}
-      onPointerMove={handlePointerMove}
+      onClick={muted ? undefined : handleClick}
+      onDoubleClick={muted ? undefined : handleDoubleClick}
+      onPointerMove={muted ? undefined : handlePointerMove}
     />
   )
 }

@@ -108,6 +108,48 @@ export function isDesignEditMuted(editTableId: Id | null, objId: Id): boolean {
   return editTableId !== null && editTableId !== objId
 }
 
+/**
+ * A COVER — the place setting itself, the one thing on a table top the mode may
+ * NOT rearrange (source doc §11, in the user's words: "אסור שיהיה אפשר לערוך
+ * ערכות סכום"). It is laid one per seat by `laySeatItems`, and where it sits is
+ * the seat's business, not the arranger's.
+ *
+ * The CATALOG is the discriminator, never the id. Two properties say it:
+ *
+ *   placement: 'seat'   laid one per cover, not dropped where the pointer is.
+ *   no `requiresHost`   it stands on the cloth ITSELF. The napkins are
+ *                       `placement: 'seat'` too — but each names the cover it is
+ *                       laid ON (`requiresHost: 'decor.place-setting'`), which is
+ *                       exactly what makes a napkin decor rather than the setting.
+ *
+ * So this reads "the seat-placed piece that stands on the cloth", and it picks
+ * out `decor.place-setting` today without any renderer having to name it. A
+ * second cover added to the catalogue is covered the day it is added.
+ */
+export function isCover(obj: SceneObject): boolean {
+  if (!hasCatalogEntry(obj.catalogId)) return false
+  const entry = getCatalogEntry(obj.catalogId)
+  return entry.placement === 'seat' && !entry.requiresHost
+}
+
+/**
+ * May design-edit mode pick this table-top child up? Everything standing on the
+ * top except the cover: the napkins laid on it, the centrepieces beside it.
+ *
+ * ⚠ BOTH renderers ask this one question — editor2d/ObjectNode.tsx (`editableDecor`)
+ * and viewer3d/ObjectGroup.tsx (`SurfaceChild`) — because a rule wired into only
+ * one of them means the same place setting is locked in the plan and draggable in
+ * 3D. The chairs never reach here: they are `kind: 'seat'` attachments and stay on
+ * their drill-in path.
+ *
+ * Deliberately a RENDERER gate and not an `actions.ts` one: `moveObjectsBy` must
+ * keep moving a cover, because that is how `laySeatItems`, the clamps and the
+ * collision tests place them in the first place.
+ */
+export function isArrangeableDecor(obj: SceneObject): boolean {
+  return obj.attachment?.kind === 'surface' && !isCover(obj)
+}
+
 // --- category layers --------------------------------------------------------
 
 export function categoryOf(obj: SceneObject): Category | null {

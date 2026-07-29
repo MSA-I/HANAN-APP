@@ -18,7 +18,7 @@ import type {
   Transform2D,
   Vec2,
 } from '../core/model/types'
-import { relativeTransform, rotateVec } from '../core/space'
+import { normalizeDeg, relativeTransform, rotateVec } from '../core/space'
 import { aabbUnion, holeRadius, outlineAABB, type AABB } from '../core/layout/bounds'
 import {
   allowedOnDeck,
@@ -1952,28 +1952,51 @@ export function setElevation(id: Id, elevation: number): void {
   })
 }
 
+/**
+ * Turn a selection, judging each member on its own.
+ *
+ * This used to be all-or-nothing across the GROUP: one member with no legal pose
+ * at the new angle cancelled the rotation for everybody — and did it in complete
+ * silence, which from the outside is indistinguishable from a gizmo stuck on
+ * detents (PLAN-09 item 15, and very likely part of what was reported as "the
+ * rotation is stuck"). Now everything that can turn turns, and the ones that
+ * cannot are counted out loud.
+ *
+ * `poseAllowed` is still ALL-OR-NOTHING PER OBJECT, on purpose: an angle has no
+ * "slide to the nearest legal spot" the way a move does, so a single piece either
+ * takes the new pose or keeps the old one. Only the group verdict changed.
+ *
+ * Children (anything with a `parentId`) are rotated but never probed — as before.
+ * Their legality is a parent-local question, and `clampSurfaceChildrenIn` settles
+ * it after the write.
+ */
 export function rotateObjectsBy(ids: Id[], delta: number): void {
   const before = get().scene
-  // all or nothing: a partially-applied group rotation is not a shape the user
-  // asked for, and there is no "slide" along an angle to fall back to
-  const refused = editable(before, ids).some(
-    (obj) =>
-      !obj.parentId &&
-      !poseAllowed(before, obj, {
-        transform: { ...obj.transform, rotation: obj.transform.rotation + delta },
-      }),
-  )
-  if (refused) {
+  const targets = editable(before, ids)
+  const turning = targets
+    .filter(
+      (obj) =>
+        !!obj.parentId ||
+        poseAllowed(before, obj, {
+          transform: { ...obj.transform, rotation: normalizeDeg(obj.transform.rotation + delta) },
+        }),
+    )
+    .map((obj) => obj.id)
+  const refusedCount = targets.length - turning.length
+  if (refusedCount) notify(strings.status.rotationRefused(refusedCount))
+  // nothing survived the probe: no scene write, so the pill carries the reason
+  if (refusedCount && !turning.length) {
     publishRefusal()
     return
   }
   mutateScene((scene) => {
-    for (const obj of editable(scene, ids)) {
-      obj.transform.rotation += delta
+    for (const obj of editable(scene, turning)) {
+      // normalized, or `R` pressed all afternoon walks the inspector up to 3600°
+      obj.transform.rotation = normalizeDeg(obj.transform.rotation + delta)
       if (obj.attachment?.kind === 'seat') obj.attachment.manual = true
     }
-    clampToVenue(scene, ids)
-    clampSurfaceChildrenIn(scene, ids)
+    clampToVenue(scene, turning)
+    clampSurfaceChildrenIn(scene, turning)
   })
 }
 

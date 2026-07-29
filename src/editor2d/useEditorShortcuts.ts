@@ -37,13 +37,20 @@ export function isTypingTarget(e: KeyboardEvent): boolean {
 export function useEditorShortcuts(zoom: ZoomApi): void {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') overlay.setShiftHeld(true)
-
-      // In full-3D mode the fly controls own the keyboard (Stage2D is only
-      // CSS-hidden, so this handler still fires). Keep navigation keys for the
-      // fly controls, but retain the editor actions that make 3D changes safe.
-      // onKeyUp stays unconditional so spacePan/shiftHeld can't get stuck when
-      // switching modes mid-hold. 'split' keeps normal 2D behavior.
+      // In full-3D mode the fly controls own the NAVIGATION keys (Stage2D is only
+      // CSS-hidden, so this handler still fires) — W/A/S/D, Q/E, arrows, Shift and
+      // Space belong to FlyControls and must fall through untouched. What this
+      // branch owns is the editing that has to work wherever the object is
+      // visible: undo/redo, duplicate, delete, select-all, rotate, help, Esc.
+      //
+      // Ctrl+A and R were 2D-only until PLAN-09 (items 24 and 16) purely because
+      // this branch returned before reaching them, which made the same object
+      // rotatable from the plan and inert in the view the user was looking at.
+      // Neither collides with the fly controls: `KeyR` is not in their KEYMAP, and
+      // their handler bails on ctrl/meta/alt (FlyControls.tsx:49-63 · :186).
+      //
+      // onKeyUp stays unconditional so spacePan can't get stuck when switching
+      // modes mid-hold. 'split' keeps normal 2D behavior.
       if (useEditorStore.getState().mode === '3d') {
         if (isTypingTarget(e)) return
         const s3 = useEditorStore.getState()
@@ -59,12 +66,18 @@ export function useEditorShortcuts(zoom: ZoomApi): void {
           } else if (e.code === 'KeyD') {
             if (s3.selection.length) duplicateObjects(s3.selection)
             e.preventDefault()
+          } else if (e.code === 'KeyA') {
+            select(visibleTopLevelIds(s3.scene))
+            e.preventDefault()
           }
           return
         }
         if (e.code === 'Slash') {
           overlay.toggleHelp()
           e.preventDefault()
+        } else if (e.code === 'KeyR') {
+          // no preventDefault, matching the 2D branch below
+          if (s3.selection.length) rotateObjectsBy(s3.selection, e.shiftKey ? -90 : 90)
         } else if (e.code === 'Delete' || e.code === 'Backspace') {
           if (s3.selection.length) removeObjects(s3.selection)
           e.preventDefault()
@@ -211,7 +224,6 @@ export function useEditorShortcuts(zoom: ZoomApi): void {
     }
 
     const onKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') overlay.setShiftHeld(false)
       if (e.code === 'Space') overlay.setSpacePan(false)
     }
 

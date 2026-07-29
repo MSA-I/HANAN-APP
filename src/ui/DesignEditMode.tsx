@@ -82,6 +82,24 @@ export function DesignEditMode() {
         <span>{tableName}</span>
         <span className="text-ink-soft">·</span>
         <span className="text-ink-soft">{S.hint}</span>
+        {/* The user asked for a "שמור וצא" (source doc §11). There is nothing to
+            save on the way out — `startAutosave` (App.tsx) already writes every
+            change — so this is the SAME `exitDesignEdit` the X runs, named for
+            the intent behind it. A second save path here would race the autosave
+            for the same project record, which is a real bug traded for a label.
+            The hint next to it is what keeps the button honest. */}
+        <span className="text-ink-soft">{S.autosaveHint}</span>
+        <button
+          type="button"
+          title={S.autosaveHint}
+          data-testid="design-edit-save-exit"
+          onClick={exitDesignEdit}
+          className="rounded-full border border-accent px-2 py-0.5 font-semibold text-accent transition-colors hover:bg-accent-tint"
+        >
+          {S.saveAndExit}
+        </button>
+        {/* kept as it was: the headless verification run drives this one, and the
+            X is the affordance a user reaches for without reading */}
         <button
           type="button"
           title={S.exit}
