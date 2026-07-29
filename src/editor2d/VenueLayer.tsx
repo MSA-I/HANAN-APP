@@ -250,9 +250,12 @@ function SectionLines({ section }: { section: VenueSection }) {
  * on it, so the app has already committed to that frame and the arrow agrees
  * with the shadows.
  *
- * ponytail: fixed to the sheet's top-right corner. A real title block belongs in
- * a margin, and this export has no margin — the frame IS the venue rectangle. If
- * a pack ever wants it elsewhere, the corner is the thing to make a pack field.
+ * ponytail: fixed to the sheet's top-right corner, and the ceiling that comes
+ * with that is that ObjectsLayer draws OVER it — a chandelier the sample layout
+ * drops at (5592, 227) covers part of the north point. A real title block
+ * belongs in a margin and this export has none, so the upgrade is a margin on
+ * the capture rectangle (Stage2D, not this file — FOUND-06.md §1), not a
+ * cleverer corner.
  */
 function SheetAnnotations({ width }: { width: number }) {
   const right = width - SHEET_INSET
