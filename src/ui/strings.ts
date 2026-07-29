@@ -324,7 +324,6 @@ export const strings = {
     placeSettingsAdd: 'פריסה על כל המקומות',
     placeSettingsRemove: 'הסרת הערכות',
     placeSettingsType: 'סוג הערכה',
-    bake: 'קיבוע האלמנטים (פיתוח)',
     bakeConfirm: (count: number) =>
       `לקבע ${count} אלמנטים לתוך קוד המקור?\n\nהפעולה כותבת את src/core/venueFixtures.ts. האלמנטים ייטענו בכל פרויקט חדש ולא ניתן יהיה להזיז או למחוק אותם.`,
     bakeDone: (count: number) => `${count} אלמנטים נכתבו ל-venueFixtures.ts`,
@@ -333,17 +332,11 @@ export const strings = {
     /**
      * PLAN-04/G2 — item 7. The button already exists and always did; the user could
      * not find it because he searched for "שמירת מיקום אלמנטים" and the label said
-     * "קיבוע". This is a discovery fix, not a feature: `bake` above stays so nothing
-     * breaks mid-round, and PLAN-04 switches the button to `bakeSaveElements`.
+     * "קיבוע". A discovery fix, not a feature. The old `bake` label was kept for one
+     * round so nothing broke mid-flight, and is gone now that the switch has landed.
      */
     bakeSaveElements: 'שמירת מיקום האלמנטים (פיתוח)',
     bakeHint: 'כותב את מיקומי האלמנטים לתוך קוד המקור — לפיתוח בלבד',
-    /**
-     * The POST sends TOP-LEVEL objects only. A user who reads "שמירת מיקום
-     * אלמנטים" will reasonably expect chairs and centrepieces to be saved too, and
-     * they are not — so the panel should say so rather than let him find out.
-     */
-    bakeTopLevelOnly: 'נשמרים אלמנטים ראשיים בלבד — כסאות וקישוטי שולחן אינם נכללים',
     /**
      * PLAN-04 item 22: "אם אני לוחץ על פריסות אולם צריך שייפתח תפריט… שממנו אני
      * יכול לשנות עיצובים וסוג כסאות לאותה פריסה". Clicking a card applies it on the

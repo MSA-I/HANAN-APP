@@ -1111,14 +1111,15 @@ function BakeFixturesSection() {
       </button>
       <p className="text-[13px] text-ink-soft">{T.bakeHint}</p>
       {/*
-        `strings.presets.bakeTopLevelOnly` — "נשמרים אלמנטים ראשיים בלבד — כסאות
-        וקישוטי שולחן אינם נכללים" — is deliberately NOT rendered. It was seeded
-        for this button against a limitation that no longer exists: the POST above
-        sends roots AND every child. Measured on a real bake, 2026-07-29: the
+        There is deliberately no "top-level objects only" caption here. One was
+        seeded for this button against a limitation that no longer exists: the POST
+        above sends roots AND every child. Measured on a real bake, 2026-07-29: the
         generated file held 336 chairs, 336 place settings and 84 candlesticks
-        beside its 28 tables. Printing that sentence would tell the user his
-        chairs were dropped when they were not. See handoff/FOUND-04.md — the
-        string belongs to PLAN-02's file, so it is reported, not edited.
+        beside its 28 tables. Printing it would tell the user his chairs were
+        dropped when they were not, so the string was deleted outright rather than
+        left lying in wait (handoff/FOUND-04.md §1). What IS still true and unsaid:
+        only the roots are frozen — the chairs and centrepieces bake and reload, but
+        stay selectable and deletable.
       */}
       {status && (
         <p role="status" className="text-[13px] text-success">
