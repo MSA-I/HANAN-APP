@@ -1,9 +1,9 @@
 ﻿import { beforeEach, describe, expect, it } from 'vitest'
-import { getCatalogEntry, listCatalog } from '../core/catalog/registry'
+import { getCatalogEntry, listByCategory, listCatalog } from '../core/catalog/registry'
 import { HALL_LAYOUTS } from '../core/hallLayouts'
 import { hangRange, MAX_DROP_FROM_CEILING } from '../core/layout/beams'
 import { attachedChairs } from '../core/model/seatingReconciler'
-import { getHallDesign, getTableDesign, getTablePreset } from '../core/presets'
+import { getHallDesign, getTableDesign, getTablePreset, TABLE_DESIGNS } from '../core/presets'
 import { getVenuePack, type RestrictedZone } from '../core/venuePacks'
 import {
   addObject,
@@ -1034,5 +1034,52 @@ describe('hall layouts', () => {
     expect(hasHallLayout(scene())).toBe(false)
     expect(scene().objects[table]).toBeDefined()
     expect(attachedChairs(scene(), table).length).toBeGreaterThan(0)
+  })
+
+  /**
+   * Source doc §22 — the submenu picks a chair and a design for the layout it is
+   * about to apply. Both are read out of the registries rather than spelled out
+   * here: the preset's baked chair and the design's contents both move between
+   * rounds, and a frozen copy in the test would only fail later for the wrong
+   * reason (BRIEF §1.7).
+   */
+  it('applies a chair override and a design to every table it places', () => {
+    newProject({ name: 'resort', venuePackId: 'resort' })
+    const baked = getTablePreset(LAYOUT.placements[0].presetId)!.chairCatalogId
+    const other = listByCategory('seating').find((c) => c.id !== baked)!
+    const design = TABLE_DESIGNS[0]
+
+    const ids = applyHallLayout(LAYOUT.id, { chairCatalogId: other.id, designId: design.id })
+
+    expect(ids).toHaveLength(LAYOUT.placements.length)
+    for (const id of ids) {
+      expect(scene().objects[id].seating!.chairCatalogId).toBe(other.id)
+      expect(attachedChairs(scene(), id).map((c) => c.catalogId)).not.toContain(baked)
+      expect(designItems(scene(), id).length).toBeGreaterThan(0)
+    }
+  })
+
+  /** The whole apply — tables, overridden chairs and decor — is ONE undo entry. */
+  it('undoes a layout applied with options in a single step', () => {
+    newProject({ name: 'resort', venuePackId: 'resort' })
+    const other = listByCategory('seating')[1]
+    applyHallLayout(LAYOUT.id, { chairCatalogId: other.id, designId: TABLE_DESIGNS[0].id })
+    expect(Object.values(scene().objects).some((o) => o.meta.design !== undefined)).toBe(true)
+
+    undo()
+
+    expect(hasHallLayout(scene())).toBe(false)
+    expect(Object.values(scene().objects).some((o) => o.meta.design !== undefined)).toBe(false)
+  })
+
+  /** A chair the catalog does not have is ignored, not thrown on: the mutation
+   *  would be discarded whole, leaving the previous layout deleted and nothing
+   *  in its place. */
+  it('falls back to the preset chair when the override is not a real catalog id', () => {
+    newProject({ name: 'resort', venuePackId: 'resort' })
+    const baked = getTablePreset(LAYOUT.placements[0].presetId)!.chairCatalogId
+    const ids = applyHallLayout(LAYOUT.id, { chairCatalogId: 'chair.does-not-exist' })
+    expect(ids).toHaveLength(LAYOUT.placements.length)
+    expect(scene().objects[ids[0]].seating!.chairCatalogId).toBe(baked)
   })
 })
