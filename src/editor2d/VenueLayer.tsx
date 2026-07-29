@@ -76,10 +76,13 @@ const INK_UNCLASSED = '#9a938a'
 const INK_FLOOR_EDGE = '#7d746a'
 const INK_NOTE = '#57504a'
 
+const INK_LEVEL = '#6b635a'
+
 const W_POCHE_EDGE = 0.75
 const W_GLAZING = 1.8
 const W_UNCLASSED = 0.9
 const W_FLOOR_EDGE = 1.6
+const W_LEVEL = 2.2
 const W_NOTE = 1.3
 
 /**
@@ -350,6 +353,9 @@ const zoneKey = (z: RestrictedZone) => `${z.kind}-${z.x}-${z.y}`
 
 function ZoneFill({ zone }: { zone: RestrictedZone }) {
   const tint = ZONE_TINT[zone.kind ?? ''] ?? FALLBACK_TINT
+  // a raised zone's edge is drawn by LevelChanges instead, at the weight a step
+  // in the floor deserves — stroking it here as well doubles the line
+  const raised = zone.elevation !== undefined
   return (
     <Rect
       x={zone.x}
@@ -357,10 +363,91 @@ function ZoneFill({ zone }: { zone: RestrictedZone }) {
       width={zone.width}
       height={zone.depth}
       fill={tint.fill}
-      stroke={tint.stroke}
+      stroke={raised ? undefined : tint.stroke}
       strokeWidth={1.2}
       strokeScaleEnabled={false}
     />
+  )
+}
+
+/**
+ * Where the floor steps. The reception deck stands at +4.70 m and the plan said
+ * so in one line of grey text under its name and in no other way — no edge, no
+ * mark, nothing that reads as "there is a four-and-a-half-metre drop here".
+ *
+ * A change of level is seen BELOW the cut plane, so it is not poché and it is
+ * not glazing; it is the heaviest of the "below" weights, above the floor
+ * contour, and it is drawn under the walls because a wall standing on the step
+ * sits over it.
+ *
+ * ⚠ Drawn OUTSIDE the two opacity groups, like the section itself. The
+ * hall/reception toggle dims what STANDS in a zone; a step in the ground is
+ * building, and the deck's own glass edge (drawn from the cut) is already
+ * undimmed — dimming the step would put the two at different strengths along
+ * the same line.
+ *
+ * ⚠ The 470 comes from `venuePacks.ts` and is read, never written: that file
+ * belongs to PLAN-01.
+ */
+function LevelChanges({ zones }: { zones: readonly RestrictedZone[] }) {
+  return (
+    <Fragment>
+      {zones.map((z, i) =>
+        z.elevation === undefined ? null : (
+          <Rect
+            key={`lv${i}`}
+            x={z.x}
+            y={z.y}
+            width={z.width}
+            height={z.depth}
+            stroke={INK_LEVEL}
+            strokeWidth={W_LEVEL}
+            strokeScaleEnabled={false}
+            listening={false}
+          />
+        ),
+      )}
+    </Fragment>
+  )
+}
+
+/** cm — the spot-level disc, and the width the value is centred in beside it. */
+const LEVEL_MARK_R = 19
+const LEVEL_MARK_GAP = 12
+const LEVEL_VALUE_WIDTH = 150
+
+/**
+ * The spot level as a plan writes it: a small disc quartered by a cross, with
+ * the value beside it. It replaces a bare line of text, which is what a UI does
+ * and not what a drawing does.
+ *
+ * The disc is a fixed size in plan cm rather than a share of the row, so the
+ * mark means the same thing on a 17 m deck and on a 4 m chuppah.
+ */
+function LevelMark({ x, y, w, h, cm }: { x: number; y: number; w: number; h: number; cm: number }) {
+  const r = Math.min(LEVEL_MARK_R, h / 2)
+  const total = r * 2 + LEVEL_MARK_GAP + LEVEL_VALUE_WIDTH
+  const left = x + (w - total) / 2
+  const cx = left + r
+  const cy = y + h / 2
+  return (
+    <Fragment>
+      <Circle x={cx} y={cy} radius={r} stroke={LEVEL_TEXT} strokeWidth={W_NOTE} strokeScaleEnabled={false} />
+      <Line points={[cx - r, cy, cx + r, cy]} stroke={LEVEL_TEXT} strokeWidth={W_NOTE} strokeScaleEnabled={false} />
+      <Line points={[cx, cy - r, cx, cy + r]} stroke={LEVEL_TEXT} strokeWidth={W_NOTE} strokeScaleEnabled={false} />
+      <Text
+        x={left + r * 2 + LEVEL_MARK_GAP}
+        y={y}
+        width={LEVEL_VALUE_WIDTH}
+        height={h}
+        text={formatElevation(cm)}
+        fontSize={LEVEL_FONT_SIZE}
+        fontFamily="Assistant, sans-serif"
+        fill={LEVEL_TEXT}
+        align="center"
+        verticalAlign="middle"
+      />
+    </Fragment>
   )
 }
 
@@ -395,17 +482,12 @@ function ZoneLabel({ zone, box }: { zone: RestrictedZone; box: ZoneLabelBox }) {
         ellipsis
       />
       {levelH > 0 && (
-        <Text
+        <LevelMark
           x={box.x}
           y={box.y + box.h - levelH}
-          width={box.w}
-          height={levelH}
-          text={formatElevation(zone.elevation ?? 0)}
-          fontSize={LEVEL_FONT_SIZE}
-          fontFamily="Assistant, sans-serif"
-          fill={LEVEL_TEXT}
-          align="center"
-          verticalAlign="middle"
+          w={box.w}
+          h={levelH}
+          cm={zone.elevation ?? 0}
         />
       )}
     </Fragment>
@@ -548,6 +630,9 @@ export function VenueLayer() {
         {zoneNodes(hallZones)}
       </Group>
       <Group opacity={receptionOpacity}>{zoneNodes(receptionZones)}</Group>
+      {/* The ground before the building on it: a wall standing on the deck sits
+          over the step, not under it. */}
+      <LevelChanges zones={zones} />
       {/* The building itself, last: a cut wall sits OVER the floor it encloses,
           and over the zone tints, which are markings on that floor. Not inside
           either opacity group — the hall/reception toggle dims what stands in a
