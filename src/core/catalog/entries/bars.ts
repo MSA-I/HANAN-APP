@@ -23,6 +23,24 @@ import { leggedTable } from '../builders'
 
 const P = (file: string) => `/props/${file}`
 
+/** cm, at the 0.1 the source measurements carry — scaling in binary floats drifts */
+const round1 = (n: number) => Math.round(n * 10) / 10
+
+/**
+ * `dj-resort.glb`'s OWN measured bounds. A property of the FILE, so it does not
+ * move when the catalogued size does — which is the whole point of `modelSize`
+ * (catalog/types.ts:152-168).
+ */
+const DJ_BOOTH_MODEL_SIZE = { width: 309.9, depth: 242.9, height: 183.8 }
+
+/**
+ * "Shrink the DJ stand by 0.7" — round-3 correction §1. Stated as a factor over
+ * the model's own size rather than as three literals, so the one number the user
+ * gave is the one number in the file and `defaultSize` cannot drift away from the
+ * bounds it is a fraction of.
+ */
+const DJ_BOOTH_SCALE = 0.7
+
 /**
  * The resort's own bar, as three separately placeable pieces. Sizes are the EXACT
  * prepped bounds of each GLB (measured per vertex, not read off a glb-prep log),
@@ -119,18 +137,30 @@ export const djBooth: CatalogEntry = {
   // Gamos "G" medallion that the new model carries. One product, one entry
   // (REAL-INVENTORY, presets.ts:7-9).
   //
-  // The size is now the GLB's own exact bounds, so the loader's scale is 1 and
-  // `modelSize` is gone. Those bounds are 309.91 × 242.92, which is ZONE_DJ
-  // (310 × 243) to within a millimetre — the model was built to the zone, so
-  // source doc §37 ("check it is at the plan's dimensions, and only scale if not")
-  // resolves to: do not scale.
+  // 2026-07-29: SHRUNK TO 0.7 at the user's request (round-3 correction §1).
   //
-  // ⚠ A saved project that already holds a dj.booth keeps its stored 208×91×143
-  // and would draw the new model squashed to 0.37 on depth, because propModel
-  // scales per axis by size / (modelSize ?? defaultSize). Resizing those objects
-  // needs a migration, which this task is not permitted to add — see
-  // handoff/BLOCKED-1B.md.
-  defaultSize: { width: 309.9, depth: 242.9, height: 183.8 },
+  // The model still measures 309.9 × 242.9 × 183.8 — that is what the file holds
+  // and it did not move, which is why those numbers are now `modelSize` rather
+  // than gone. The catalogue states 0.7 of them, so the loader's per-axis fit
+  // `size / (modelSize ?? defaultSize)` comes out at 0.7 instead of 1 and the
+  // model is drawn at the size 2D draws. ⚠ Dropping `modelSize` would make the
+  // ratio 1 again and the stand would silently stay full-size in 3D only.
+  //
+  // The consequence, stated plainly: the stand NO LONGER FILLS ITS ZONE. It used
+  // to match ZONE_DJ (310 × 243) to within a millimetre, and source doc §37
+  // ("check it is at the plan's dimensions, and only scale if not") resolved to
+  // "do not scale". The newer instruction overrides that — at 216.9 × 170 the
+  // booth leaves ~93 cm across and ~73 cm of depth of its rectangle free.
+  //
+  // A saved project keeps its stored size, so it needs a migration to follow the
+  // catalogue: v9→v10 already rewrote the pre-re-model 208×91×143, and v10→v11
+  // (migrations/index.ts) rewrites the full-size 309.9×242.9×183.8 to this.
+  defaultSize: {
+    width: round1(DJ_BOOTH_MODEL_SIZE.width * DJ_BOOTH_SCALE),
+    depth: round1(DJ_BOOTH_MODEL_SIZE.depth * DJ_BOOTH_SCALE),
+    height: round1(DJ_BOOTH_MODEL_SIZE.height * DJ_BOOTH_SCALE),
+  },
+  modelSize: DJ_BOOTH_MODEL_SIZE,
   defaultRotation: -180,
   resizable: [],
   minSize: {},
@@ -147,7 +177,7 @@ export const djBooth: CatalogEntry = {
     { shape: 'box', dims: [s.width, s.height - 4, s.depth], offset: [0, (s.height - 4) / 2, 0], slot: 'body' },
     { shape: 'box', dims: [s.width + 8, 4, s.depth + 8], offset: [0, s.height - 2, 0], slot: 'counter' },
   ],
-  // the venue's real DJ stand, prepped to fill ZONE_DJ exactly
+  // the venue's real DJ stand — prepped at its own bounds, catalogued at 0.7 of them
   model: P('dj-resort.glb'),
   thumbnail: '/thumbs/dj-booth.webp',
   // fixed station — lives only inside the venue's DJ zone

@@ -2,7 +2,13 @@
  * Library thumbnail prep: converts the catalog's source product shots
  * (HANAN-APP-DOCS/GPT) into square 512×512 webp thumbnails under public/thumbs/.
  * Idempotent — run `npm run thumbs` after adding or changing a mapping row.
- * Optional argv[2] overrides the source directory.
+ * Optional argv[2] overrides the source directory; `--only <substring>` limits
+ * the run to the matching ids.
+ *
+ * A row is EITHER `{ id, src }` — a product photo, which is all of them but one —
+ * or `{ id, glb, view }`, which renders the prepped model itself through
+ * tools/model-elevation.mjs. The second form exists because one catalog item
+ * arrived as a model with no photo and none coming; see the `figure.woman` row.
  *
  * The shot is FITTED inside the square (`contain`), not centre-cropped: a cover
  * crop of a portrait product shot cut the top off tall items — chandeliers lost
@@ -20,10 +26,14 @@ import { access, mkdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
+import { renderElevation } from './model-elevation.mjs'
 
 const DEFAULT_SRC_DIR = fileURLToPath(new URL('../../HANAN-APP-DOCS/GPT/', import.meta.url))
-const SRC_DIR = process.argv[2] ?? DEFAULT_SRC_DIR
+const args = process.argv.slice(2)
+const only = args.includes('--only') ? args[args.indexOf('--only') + 1] : null
+const SRC_DIR = args.find((a) => !a.startsWith('--') && a !== only) ?? DEFAULT_SRC_DIR
 const OUT_DIR = fileURLToPath(new URL('../public/thumbs/', import.meta.url))
+const PROPS_DIR = fileURLToPath(new URL('../public/props/', import.meta.url))
 const SIZE = 512
 
 /** entry id → source PNG. Alternates that were considered stay as comments. */
@@ -201,35 +211,64 @@ const MAPPING = [
   // genuinely needs `requiresHost: 'ring.table'` to have something to stand on.
   { id: 'ring.table', src: 'עיצוב בתוך שולחן עגול גדול/hf_20260728_113541_6c49c128-48a9-47b0-9bd4-aa51cb15f4fd.png' },
   { id: 'ring.floral', src: 'עיצוב בתוך שולחן עגול גדול/hf_20260728_113245_69655076-0d9a-4eae-a8a2-8d342e730361.png' },
+
+  // ── round 3 additions ──────────────────────────────────────────────────────
+  // THE ONE ROW THAT IS NOT A PHOTO, and the decision is recorded here rather
+  // than in the entry because this file is where the alternative lived.
+  //
+  // The human figure (source doc §17) arrived as `דמות אישה.glb` and nothing
+  // else: the user wrote "no image is needed", meaning they were not going to
+  // supply a product shot, and a search of HANAN-APP-DOCS on 2026-07-29 found no
+  // photograph of a figure anywhere. The library still needs a tile, so the two
+  // real options were (a) point this row at some existing photo of something
+  // else, or (b) render the model. (a) is a lie in the shape of a mapping row —
+  // every other line in this table is a promise that the picture IS the item —
+  // so it is (b): model-elevation.mjs renders the prepped GLB from the front,
+  // which is the view that makes a person recognisable at 64 px. The top-down
+  // render the 2D plan uses (public/plan/) is the same model from above, where a
+  // person is a disc of hair, so it could not double as the tile.
+  { id: 'figure.woman', glb: 'figure-woman.glb', view: 'front' },
 ]
 
 const outName = (id) => `${id.replaceAll('.', '-')}.webp`
+/** Where a row's input lives, whichever of the two kinds it is. */
+const sourceOf = (row) => (row.glb ? path.join(PROPS_DIR, row.glb) : path.join(SRC_DIR, row.src))
+
+const rows = MAPPING.filter((r) => !only || r.id.includes(only))
+if (only && !rows.length) {
+  console.error(`--only ${only} matched no mapping row`)
+  process.exit(1)
+}
 
 const missing = []
-for (const { src } of MAPPING) {
+for (const row of rows) {
   try {
-    await access(path.join(SRC_DIR, src), constants.R_OK)
+    await access(sourceOf(row), constants.R_OK)
   } catch {
-    missing.push(src)
+    missing.push(row.glb ?? row.src)
   }
 }
 
 if (missing.length) {
-  console.error(`missing ${missing.length} source file(s) in ${SRC_DIR}:`)
+  console.error(`missing ${missing.length} source file(s):`)
   for (const m of missing) console.error(`  - ${m}`)
   process.exitCode = 1
 } else {
   await mkdir(OUT_DIR, { recursive: true })
-  for (const { id, src } of MAPPING) {
-    const out = path.join(OUT_DIR, outName(id))
-    // .rotate() honors EXIF orientation; sharp re-encoding also drops metadata
-    await sharp(path.join(SRC_DIR, src))
-      .rotate()
+  for (const row of rows) {
+    const out = path.join(OUT_DIR, outName(row.id))
+    // Both kinds converge on the same square: fitted, never cropped, on a fully
+    // transparent letterbox so the library card's own background shows through.
+    // .rotate() honors EXIF orientation; sharp re-encoding also drops metadata.
+    const image = row.glb
+      ? (await renderElevation(sourceOf(row), row.view)).image
+      : sharp(sourceOf(row)).rotate()
+    await image
       .resize(SIZE, SIZE, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
       .webp({ quality: 80 })
       .toFile(out)
     const kb = Math.round((await stat(out)).size / 1024)
-    console.log(`${id.padEnd(18)} <- ${src}  ->  ${outName(id)} (${kb} KB)`)
+    console.log(`${row.id.padEnd(18)} <- ${row.glb ?? row.src}  ->  ${outName(row.id)} (${kb} KB)`)
   }
-  console.log(`\n${MAPPING.length} thumbnails written to ${OUT_DIR}`)
+  console.log(`\n${rows.length} thumbnails written to ${OUT_DIR}`)
 }

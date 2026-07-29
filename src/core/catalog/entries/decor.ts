@@ -104,6 +104,14 @@ export const pottedPlant = vegetationEntry(
  * status bar. Nobody asked for it to go, and it is the catalog's only way to say
  * "against a wall". This entry was its only user, so it currently has none.
  *
+ * ROUND 3 RE-VERIFIED THIS AND FOUND NOTHING TO BUILD (source doc §6, "vegetation
+ * 2 can be placed wherever you want, it has no location restriction"): headless,
+ * in the resort, it drops in the open floor and hard against the north wall alike
+ * (2026-07-29). What it is NOT is `placeAnywhere` — the pool still refuses it, as
+ * it refuses a table. "Has no siting rule of its own" and "is exempt from the
+ * room's" are different claims and only the first was ever made; the second
+ * belongs to the human figure below. Locked in collision.test.ts.
+ *
  * Same ×1.5 as vegetation 1 (corrections document §6), and the same reason for
  * `modelSize`: the GLB is untouched, so it must state its own prepped bounds.
  * 71.25 × 65.7 × 240 — inside `maxSize` (200 × 200 × 300).
@@ -178,4 +186,71 @@ export const arcLampCrystal: CatalogEntry = {
   thumbnail: '/thumbs/lamp-arc-crystal.webp',
 }
 
-export const decorEntries = [pottedPlant, pottedPlant2, dividerScreen, arcLampCrystal]
+/**
+ * A person, for scale — source doc §17: "a human figure should be added to the
+ * library and it can be placed anywhere, including places other elements are not
+ * allowed; there is already a model for it and no image is needed."
+ *
+ * ONE figure, and it is a woman. The user wrote "human figure"; the file they
+ * supplied is `דמות אישה.glb` (8.52 MB, 2026-07-29 13:49) and it is the only one
+ * in the folder. A male counterpart was NOT generated to round out the pair —
+ * that is the real-inventory principle (presets.ts:7-9) exactly: one entry per
+ * thing that exists. The question is asked in handoff/BLOCKED-02-A2.md.
+ *
+ * The pose is a T-stance, arms straight out, which is why the plan footprint is
+ * 155 cm wide for a 28 cm depth: the width is the ARM SPAN, not the shoulders.
+ * That is the model as delivered and it is what the top-down plan image draws.
+ *
+ * ⚠ THE HEIGHT IS THE ONE NUMBER NOT TAKEN FROM THE FILE. The GLB is normalised
+ * to 92.4 × 16.9 × 98.2 cm — arm span ≈ height, which is the correct adult
+ * proportion, so the model is right and only its scale is arbitrary (a Tripo-style
+ * unit export). A 98 cm person standing next to a 75 cm table is a doll, and the
+ * whole point of the item is to read the room's scale, so it is catalogued at
+ * 165 cm and every axis carries the same ratio. That is the second question in
+ * BLOCKED-02-A2: one number to change if the user wants another height.
+ *
+ * `modelSize` is the file's own measured bounds, as everywhere else — the loader
+ * fits by `size / modelSize`, and stating the file's size rather than a scale
+ * factor is what stops the two drifting apart (catalog/types.ts).
+ *
+ * No product photo exists and none is coming, so the library tile is the model
+ * rendered from the front by tools/model-elevation.mjs; the mapping row in
+ * tools/thumbs-prep.mjs carries the reasoning. The slot colour is the measured
+ * mean of that render (#65605b over 40,655 opaque pixels), not a guess — it only
+ * tints the 2D shape, since the GLB's materials are baked.
+ */
+export const humanFigure: CatalogEntry = {
+  id: 'figure.woman',
+  category: 'decor',
+  labelKey: 'humanFigure',
+  promptFragment: 'a woman standing, in a plain long-sleeved top and jeans',
+  defaultSize: { width: 155.3, depth: 28.4, height: 165 },
+  modelSize: { width: 92.4, depth: 16.9, height: 98.2 },
+  // Source doc §17. See CatalogEntry.placeAnywhere for why this is a flag of its
+  // own rather than a `zoneKind` or an `allowedZones` list.
+  placeAnywhere: true,
+  resizable: [],
+  minSize: {},
+  maxSize: {},
+  materialSlots: [{ name: 'figure', labelKey: 'figure', defaultColor: '#65605b' }],
+  footprint: (s) => ({
+    parts: [{ kind: 'rect', w: s.width, h: s.depth, cornerRadius: s.depth / 2, slot: 'figure' }],
+    outline: { kind: 'rect', w: s.width, h: s.depth },
+  }),
+  // Fallback only — the GLB is the real render. Legs, torso, head, at the
+  // fractions of total height a standing adult actually divides into.
+  buildMesh: (s) => [
+    { shape: 'cylinder', dims: [s.depth * 0.5, s.depth * 0.4, s.height * 0.48], offset: [0, s.height * 0.24, 0], slot: 'figure' },
+    { shape: 'cylinder', dims: [s.depth * 0.62, s.depth * 0.55, s.height * 0.38], offset: [0, s.height * 0.67, 0], slot: 'figure' },
+    { shape: 'sphere', dims: [s.height * 0.07], offset: [0, s.height * 0.93, 0], slot: 'figure' },
+  ],
+  model: '/props/figure-woman.glb',
+  thumbnail: '/thumbs/figure-woman.webp',
+  // The tile would otherwise print "1.55 × 0.28 מ'", which is the arm span and
+  // reads as the size of a piece of furniture. Source doc §20 already says decor
+  // is bought by look; here the only number worth showing is the height, and the
+  // subtitle cannot show it.
+  librarySubtitle: 'none',
+}
+
+export const decorEntries = [pottedPlant, pottedPlant2, dividerScreen, arcLampCrystal, humanFigure]

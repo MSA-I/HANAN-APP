@@ -48,6 +48,24 @@ const EXPECTED: Record<Category, SubtitleMode> = {
 
 const modeOf = (entry: CatalogEntry): SubtitleMode => entry.librarySubtitle ?? DEFAULT_MODE
 
+/**
+ * One category-wide answer has an exception, and it is a RULE rather than an id.
+ *
+ * 'size' is on `decor` because "the dimensions decide whether the piece fits".
+ * An entry carrying `placeAnywhere` has no such question — it fits everywhere by
+ * construction, zones and walls included (catalog/types.ts) — so its footprint
+ * decides nothing and printing it only invites the wrong reading. On the human
+ * figure that reading is concrete: the model is a T-pose, so its width is the ARM
+ * SPAN, and a tile saying "1.55 × 0.28 מ׳" under a person looks like a claim
+ * about how big the person is.
+ *
+ * Deriving it from the flag keeps this file doing what its header says: the
+ * mapping is still stated here rather than read back out of the entries, and a
+ * new entry that quietly declares 'none' still fails.
+ */
+const expectedFor = (entry: CatalogEntry): SubtitleMode =>
+  entry.placeAnywhere ? 'none' : EXPECTED[entry.category]
+
 describe('library subtitle', () => {
   it('maps every category the library renders', () => {
     expect(CATEGORY_ORDER.length).toBeGreaterThan(0)
@@ -58,8 +76,8 @@ describe('library subtitle', () => {
     const entries = listCatalog()
     expect(entries.length).toBeGreaterThan(0)
     const wrong = entries
-      .filter((e) => modeOf(e) !== EXPECTED[e.category])
-      .map((e) => `${e.id} is '${modeOf(e)}', ${e.category} wants '${EXPECTED[e.category]}'`)
+      .filter((e) => modeOf(e) !== expectedFor(e))
+      .map((e) => `${e.id} is '${modeOf(e)}', ${e.category} wants '${expectedFor(e)}'`)
     expect(wrong).toEqual([])
   })
 

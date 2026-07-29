@@ -207,6 +207,27 @@ export interface CatalogEntry {
   /** The item must stand against a wall: at most N cm from the venue contour. */
   nearWall?: number
   /**
+   * This item answers to NO placement rule: it may stand in a restricted zone, on
+   * top of other furniture, and off the venue floor entirely. Source doc §17, in
+   * the user's words: "it can be placed anywhere, including places other elements
+   * are not allowed."
+   *
+   * It is a catalog property rather than a special case in the rules because that
+   * is the only place the exemption is a fact about the ITEM. The two mechanisms
+   * that already look like it are both the wrong shape:
+   *
+   *  - `zoneKind` also skips the check (collision.ts's early `return []`), but it
+   *    means "fixed station", and `clampToVenue` reads it as licence to TELEPORT
+   *    the object into that zone from anywhere in the hall. "Allowed everywhere"
+   *    would become "allowed in exactly one rectangle".
+   *  - `allowedZones` widens which zones an item may enter, but it also NARROWS it
+   *    to those zones and nothing else, which is the opposite of the request.
+   *
+   * Set on exactly one entry, the human figure: it is a person standing in the
+   * render for scale, not furniture that has to fit anywhere.
+   */
+  placeAnywhere?: boolean
+  /**
    * The item cannot stand alone — it sits ON another catalog item, which must
    * already be on the same table. Dropping it lays one copy per host (the
    * napkins, which stack on the place settings; source doc §27).

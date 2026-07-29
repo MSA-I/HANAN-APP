@@ -561,6 +561,14 @@
       "pxPerCm": 3.2385,
       "w": 1024,
       "h": 803
+    },
+    "/props/figure-woman.glb": {
+      "file": "figure-woman.webp",
+      "cmW": 94.3,
+      "cmD": 17.24,
+      "pxPerCm": 3.998,
+      "w": 377,
+      "h": 69
     }
   },
   "failed": []

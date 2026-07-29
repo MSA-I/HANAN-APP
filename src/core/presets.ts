@@ -253,6 +253,14 @@ export const TABLE_DESIGNS: TableDesign[] = [
  */
 export const HALL_DESIGNS: HallDesign[] = [
   { id: 'hall.pendants', labelKey: 'hallPendants', catalogId: 'lamp.pendant', spacing: 250, floorDistance: 440 },
+  // ⚠ THIS DESIGN NOW OVERREACHES ITS OWN FIXTURE, and the fix is not in this file.
+  // Source doc §29 confines `lamp.pendant-cluster` to the bar zone, which
+  // entries/hanging.ts now states as `allowedZones`, so every cluster this design
+  // drops outside that rectangle lands illegal-where-it-stands: legal to drag,
+  // refused if re-dropped, red in the status bar. Narrowing the design to the bar
+  // means narrowing the AREAS it fills, and those come from `ceilingAreas()` inside
+  // `applyHallDesign` (state/actions.ts:1249-1262) — a file PLAN-02 may not touch.
+  // Written up with the exact change in Plans/R3/handoff/FOUND-02.md.
   { id: 'hall.pendant-clusters', labelKey: 'hallPendantClusters', catalogId: 'lamp.pendant-cluster', spacing: 350, floorDistance: 450 },
   { id: 'hall.chandeliers-diamond', labelKey: 'hallChandeliersDiamond', catalogId: 'lamp.chandelier-diamond', spacing: 400, floorDistance: 480 },
   { id: 'hall.chandeliers-basket', labelKey: 'hallChandeliersBasket', catalogId: 'lamp.chandelier-basket', spacing: 500, floorDistance: 500 },
