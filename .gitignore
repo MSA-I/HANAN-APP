@@ -3,3 +3,9 @@ dist/
 *.local
 .tmp/
 cad_mcp.log
+
+# agent tooling, machine-local. .claude/skills/verify/ stays tracked on purpose:
+# it is the verification skill every plan document points at.
+.agents/
+.claude/skills/higgsfield-*/
+skills-lock.json
