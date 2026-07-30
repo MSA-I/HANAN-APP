@@ -443,6 +443,13 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>, mode: ClampMode = 's
     }
 
     if (mode === 'strict') continue
+    // The other half of `ignoresZones`, and it has to be here rather than higher up:
+    // the floor re-seat at the top of this pass must still run, so a decoration
+    // dropped half outside the building is pulled back in, and only the zone PUSH is
+    // skipped. Without this line the entry would be judged legal in the pool by
+    // `checkPlacement` and shoved out of it by `addObject` a moment later — a green
+    // ghost and then an object somewhere else, the exact fault §57 is about.
+    if (getCatalogEntry(obj.catalogId).ignoresZones) continue
     // The other half of the rule collision.ts applies when it JUDGES a drop: a zone
     // an entry may stand ONLY in must not be the zone that ejects it. Vegetation 1
     // is allowed nowhere but the pool surround, so without this `addObject` would

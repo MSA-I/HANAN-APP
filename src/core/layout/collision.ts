@@ -423,6 +423,14 @@ export function allowedOnDeck(entry: CatalogEntry): boolean {
     // into the clamp: state/actions.ts reads this same function, so a figure
     // dropped on the deck settles onto it instead of being shoved back down.
     entry.placeAnywhere === true ||
+    // An entry the zone loop does not apply to (the chuppah decorations) is
+    // mechanically forced onto this list: once `check` skips the loop, a "no"
+    // here would make `checkPlacement` say yes while `clampToVenue` shoved the
+    // piece off the deck — the two halves of one rule disagreeing again, which is
+    // the whole reason this function is shared. It is also right on its own: the
+    // resort has a second ceremony pad up here, and a ceremony that may have its
+    // canopy on the deck but not what dresses it is incoherent.
+    entry.ignoresZones === true ||
     entry.zoneKind === 'chuppah' ||
     entry.category === 'seating' ||
     // Guest tables belong up there with the chairs. Round-2 corrections §27, in the
@@ -659,20 +667,27 @@ function check(index: Index, candidate: PlacementCandidate): Violation[] {
   // Either way the zone stops being a no-go for that one entry and stays a no-go
   // for everyone else — which is why neither can be expressed by dropping the
   // rectangle from the pack.
-  for (const zone of index.zones) {
-    if (!boxOverlapsZone(box, zone)) continue
-    // An entry that may stand ONLY in this zone obviously may stand IN it. Without
-    // this the two halves of `allowedZones` contradict each other: the band rule
-    // below demands the item be in its zone, and the line under it would refuse the
-    // item for being there. It exempts nothing else — `pool` in particular keeps
-    // refusing the vegetation ring's own overlap with the water, because the pool
-    // is not the zone the entry named.
-    if (zone.kind && entry.allowedZones?.some((rule) => rule.kind === zone.kind)) continue
-    if (zone.kind === 'kabalatPanim') {
-      if (!allowedOnDeck(entry)) out.push({ kind: 'forbiddenZone', zone: zone.kind })
-      continue
+  //
+  // `ignoresZones` lifts THIS LOOP and nothing else (source doc round 4 §7). It is
+  // wrapped rather than returned early on purpose: the bounds check above and the
+  // band, wall and clearance rules below all still run for such an entry, which is
+  // the whole difference between it and `placeAnywhere`.
+  if (!entry.ignoresZones) {
+    for (const zone of index.zones) {
+      if (!boxOverlapsZone(box, zone)) continue
+      // An entry that may stand ONLY in this zone obviously may stand IN it. Without
+      // this the two halves of `allowedZones` contradict each other: the band rule
+      // below demands the item be in its zone, and the line under it would refuse the
+      // item for being there. It exempts nothing else — `pool` in particular keeps
+      // refusing the vegetation ring's own overlap with the water, because the pool
+      // is not the zone the entry named.
+      if (zone.kind && entry.allowedZones?.some((rule) => rule.kind === zone.kind)) continue
+      if (zone.kind === 'kabalatPanim') {
+        if (!allowedOnDeck(entry)) out.push({ kind: 'forbiddenZone', zone: zone.kind })
+        continue
+      }
+      out.push({ kind: 'forbiddenZone', zone: zone.kind ?? zone.label ?? '' })
     }
-    out.push({ kind: 'forbiddenZone', zone: zone.kind ?? zone.label ?? '' })
   }
 
   // "around the pool", not "in the pool" — see `bandViolations`
