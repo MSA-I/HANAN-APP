@@ -903,6 +903,61 @@ export function addObject(catalogId: string, position: Vec2, seating?: Partial<S
 }
 
 /**
+ * Does this drop have to lay its own host first, and may it?
+ *
+ * `lay` is the catalog id to put down before the rider; `refuse` is the reason
+ * NOTHING may be put down. At most one of them is set, and both absent is the
+ * ordinary case — an entry with no `autoHost`, or one whose host is already on
+ * the table.
+ *
+ * ⚠ ONLY INTO A REAL OPENING. `holeRadius(parent) > 0` is a condition and not a
+ * convenience: `requiresHost` says "this stands on that", it does not say the
+ * host fits here. Laying a ⌀156 table on a ⌀180 top because the urn asked for one
+ * would be inventing a piece of furniture the venue never puts there (BRIEF §1.1).
+ * On a solid top the drop is refused as it always was, and the message now names
+ * the inner table.
+ *
+ * Answered on the COMMITTED scene, before any producer opens — see the note on
+ * `indexOf` in collision.ts.
+ */
+function autoHostFor(
+  scene: SceneState,
+  catalogId: string,
+  parentId: Id,
+): { lay?: string; refuse?: Violation } {
+  const entry = getCatalogEntry(catalogId)
+  const requires = entry.requiresHost
+  if (!entry.autoHost || !requires) return {}
+  const parent = scene.objects[parentId]
+  if (!parent || parent.parentId) return {}
+  if (holeRadius(getCatalogEntry(parent.catalogId).footprint(parent.size).outline) <= 0) return {}
+  if (surfaceChildren(scene, parentId).some((c) => c.catalogId === requires)) return {}
+
+  // A world-frame ghost of the host, which is the frame a drop speaks. The host is
+  // `surfaceAnchor: 'center'`, so `siblingOverlaps` judges it at the middle of the
+  // table and in the well — the spot `clampToSurface` is about to put it in, not
+  // the pointer. Asking about the pointer would refuse a legal drop and allow an
+  // illegal one, in both directions.
+  const blocking = checkPlacement(scene, {
+    catalogId: requires,
+    transform: { position: worldCentreOf(parent), rotation: 0, elevation: 0 },
+    size: getCatalogEntry(requires).defaultSize,
+    parentId,
+  })
+  return blocking.length ? { refuse: blocking[0] } : { lay: requires }
+}
+
+/** The middle of a table's top in WORLD cm — where a centre-anchored piece lands. */
+function worldCentreOf(parent: SceneObject): Vec2 {
+  const mid = surfaceCentre(getCatalogEntry(parent.catalogId))
+  const turned = rotateVec(mid, parent.transform.rotation)
+  return {
+    x: parent.transform.position.x + turned.x,
+    y: parent.transform.position.y + turned.y,
+  }
+}
+
+/**
  * Drop a surface-placement catalog item onto a table top. `worldPos` is the drop
  * point in plan space; the object becomes an attached child (kind 'surface'),
  * standing on the parent's height and clamped to its outline.
@@ -921,6 +976,18 @@ export function addObject(catalogId: string, position: Vec2, seating?: Partial<S
  * views send a `placement: 'seat'` entry (the cover and the three napkins) to
  * `addSeatItemsToTable` instead, which does its own linking
  * (Stage2D.tsx:393-397, Placement3D.tsx:119-129).
+ *
+ * ## `autoHost` — the drop that lays its own host
+ *
+ * An entry carrying `autoHost` beside `requiresHost` (only `ring.floral`) is not
+ * refused on a bare table: the host is laid HERE, in the same producer, so the
+ * gesture is one undo entry. Both drop paths already call this function
+ * (Stage2D.tsx, Placement3D.tsx), so neither view needed a line.
+ *
+ * `autoHostFor` below decides, on the COMMITTED scene, whether to lay one — the
+ * same rule every other gate in this file follows, and here it is also forced:
+ * `checkPlacement` caches its obstacle index by scene identity, so it must never
+ * be asked about a scene half-way through a mutation.
  */
 export function addObjectToSurface(
   catalogId: string,
@@ -929,11 +996,34 @@ export function addObjectToSurface(
   /** dropped through the open centre of a ring table — stands on the floor */
   inHole = false,
 ): Id | null {
+  const bedding = autoHostFor(get().scene, catalogId, parentId)
+  if (bedding.refuse) {
+    // half a gesture is worse than none: laying the urn on nothing, or the table
+    // and not the urn, leaves the user holding a state they did not ask for and
+    // cannot name. Publish the reason the HOST could not go down — it is the real
+    // obstacle, and the status bar says which one it is.
+    refusal = bedding.refuse
+    publishRefusal()
+    return null
+  }
   const obj = createObject(catalogId, { x: 0, y: 0 })
   let placed = false
   mutateScene((scene) => {
     const parent = scene.objects[parentId]
     if (!parent || parent.parentId) return
+    if (bedding.lay) {
+      const host = createObject(bedding.lay, { x: 0, y: 0 })
+      host.parentId = parentId
+      host.attachment = { kind: 'surface' }
+      // seeded only, exactly like the rider below: `clampToSurface` is the
+      // authority. It pins the piece to the middle of the table, sets `inHole`
+      // from the PARENT's own opening and drops it to elevation 0 — so the well
+      // and the table top stay one rule rather than two.
+      host.transform = { position: { x: 0, y: 0 }, rotation: 0, elevation: parent.size.height }
+      scene.objects[host.id] = host
+      unhideCategoryOf(scene, host.catalogId)
+      clampToSurface(scene, host)
+    }
     const local = relativeTransform(parent.transform, {
       position: worldPos,
       rotation: parent.transform.rotation,

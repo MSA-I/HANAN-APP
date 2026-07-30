@@ -626,11 +626,26 @@ function check(index: Index, candidate: PlacementCandidate): Violation[] {
   // do not apply to it. It answers to two rules of its own — its host must
   // already be on the same table, and it may not stand in another item there.
   if (entry.placement === 'surface' || entry.placement === 'seat') {
+    // `autoHost` changes exactly one thing: whether a missing host REFUSES. The
+    // drop lays the host in the same gesture (state/actions.ts `addObjectToSurface`),
+    // so saying `missingHost` here would paint a red ghost over a placement that is
+    // about to succeed. Everything else `requiresHost` does — the sibling skip
+    // below, the `stackedOn` link, `surfaceBase` — is untouched by it.
+    //
+    // ⚠ It lifts the refusal only where the host will REALLY be laid, and that is
+    // where the table has an opening to lay it in — the same condition
+    // `autoHostFor` applies, and it applies it because laying a ⌀156 table on a
+    // solid ⌀180 top would be inventing furniture (BRIEF §1.1). A bare
+    // `!entry.autoHost` here would paint the ghost green over every solid table
+    // while the drop put a floating urn on the cloth: the ghost and the drop have
+    // to read the same rule, which is the whole reason this file exists.
     if (entry.requiresHost && candidate.parentId) {
       const hasHost = (index.children.get(candidate.parentId) ?? []).some(
         (o) => o.catalogId === entry.requiresHost,
       )
-      if (!hasHost) return [{ kind: 'missingHost', requires: entry.requiresHost }]
+      const parent = index.scene.objects[candidate.parentId]
+      const willLay = entry.autoHost === true && !!parent && holeRadius(outlineOf(parent)) > 0
+      if (!hasHost && !willLay) return [{ kind: 'missingHost', requires: entry.requiresHost }]
     }
     return siblingOverlaps(index, candidate, entry, excluded)
   }

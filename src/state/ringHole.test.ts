@@ -15,7 +15,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { getCatalogEntry } from '../core/catalog/registry'
 import { holeRadius } from '../core/layout/bounds'
-import { addObject, addObjectToSurface, newProject, setPosition } from './actions'
+import { checkPlacement } from '../core/layout/collision'
+import { useOverlayStore } from '../editor2d/overlayStore'
+import { strings } from '../ui/strings'
+import { addObject, addObjectToSurface, newProject, redo, setPosition, undo } from './actions'
 import { useEditorStore } from './store'
 
 const scene = () => useEditorStore.getState().scene
@@ -137,6 +140,123 @@ describe('§26 — the ring-centre table covers the whole opening', () => {
     // and the placed instance is still hole-wide, so the gap cannot come back via
     // a resize the inspector allowed
     expect(Math.max(obj.size.width, obj.size.depth) / 2).toBeGreaterThanOrEqual(R_INNER())
+  })
+})
+
+/**
+ * Round 4 §9 — dropping the floral on a BARE ⌀380 lays the inner table under it,
+ * in the same gesture.
+ *
+ * `requiresHost` is untouched and stays load-bearing three times over (the
+ * sibling-overlap skip, the `stackedOn` link, `surfaceBase`'s 75 instead of 0).
+ * `autoHost` changes one thing: a missing host is no longer a refusal.
+ */
+describe('§9 — the floral lays its own table', () => {
+  const RING_TABLE = 'ring.table'
+  const FLORAL = 'ring.floral'
+
+  const childrenOnTop = (tableId: string) =>
+    Object.values(scene().objects).filter(
+      (o) => o.parentId === tableId && o.attachment?.kind === 'surface',
+    )
+  const ofKind = (tableId: string, catalogId: string) =>
+    childrenOnTop(tableId).filter((o) => o.catalogId === catalogId)
+
+  it('lays the inner table under a floral dropped on a bare ⌀380', () => {
+    const table = addObject(RING, { x: 1000, y: 700 })
+    expect(childrenOnTop(table)).toHaveLength(0)
+
+    const floral = addObjectToSurface(FLORAL, table, { x: 1000, y: 700 })!
+    expect(ofKind(table, RING_TABLE)).toHaveLength(1)
+    expect(ofKind(table, FLORAL).map((o) => o.id)).toEqual([floral])
+
+    // the host went where `clampToSurface` puts it — the middle of the table,
+    // through the opening, standing on the floor
+    const bed = ofKind(table, RING_TABLE)[0]
+    expect(bed.transform.position).toEqual({ x: 0, y: 0 })
+    expect(bed.transform.elevation).toBe(0)
+    expect(bed.attachment).toEqual({ kind: 'surface', inHole: true })
+  })
+
+  /** §46b: the urn stands ON the small table, not on the floor beside it. */
+  it('links them, so the urn stands at table height and not at 0', () => {
+    const table = addObject(RING, { x: 1000, y: 700 })
+    const floral = addObjectToSurface(FLORAL, table, { x: 1000, y: 700 })!
+    const bed = ofKind(table, RING_TABLE)[0]
+
+    const urn = scene().objects[floral]
+    if (urn.attachment?.kind !== 'surface') throw new Error('expected a surface child')
+    expect(urn.attachment.stackedOn).toBe(bed.id)
+    expect(urn.transform.elevation).toBe(bed.size.height)
+    expect(urn.transform.elevation).toBeGreaterThan(0)
+  })
+
+  it('is ONE gesture — a single undo removes both', () => {
+    const table = addObject(RING, { x: 1000, y: 700 })
+    addObjectToSurface(FLORAL, table, { x: 1000, y: 700 })
+    expect(childrenOnTop(table)).toHaveLength(2)
+    undo()
+    expect(childrenOnTop(table)).toHaveLength(0)
+    redo()
+    expect(childrenOnTop(table)).toHaveLength(2)
+  })
+
+  it('adds nothing when the inner table is already there', () => {
+    const table = addObject(RING, { x: 1000, y: 700 })
+    const bed = addObjectToSurface(RING_TABLE, table, { x: 1000, y: 700 })!
+    addObjectToSurface(FLORAL, table, { x: 1000, y: 700 })
+    expect(ofKind(table, RING_TABLE).map((o) => o.id)).toEqual([bed])
+    expect(childrenOnTop(table)).toHaveLength(2)
+  })
+
+  /**
+   * Half a gesture is worse than none. When the host cannot go down, NOTHING goes
+   * down — and the status bar names the real obstacle rather than the urn.
+   */
+  it('lays nothing when the well is occupied, and says why', () => {
+    const table = addObject(RING, { x: 1000, y: 700 })
+    // a centre-anchored piece hand-dropped on this table lands IN the well (§28+§48)
+    const squatter = addObjectToSurface(DECOR, table, { x: 1000, y: 700 })!
+    expect(scene().objects[squatter].attachment).toEqual({ kind: 'surface', inHole: true })
+
+    useOverlayStore.setState({ violation: null })
+    expect(addObjectToSurface(FLORAL, table, { x: 1000, y: 700 })).toBeNull()
+    expect(ofKind(table, RING_TABLE)).toHaveLength(0)
+    expect(ofKind(table, FLORAL)).toHaveLength(0)
+    expect(useOverlayStore.getState().violation).toMatchObject({
+      kind: 'overlapsSibling',
+      id: squatter,
+    })
+  })
+
+  /**
+   * The exemption is tied to there being a well. A solid top gets the old refusal
+   * — now naming the inner table, which is what the message was always about.
+   */
+  it('still refuses on a table with no opening, naming the inner table', () => {
+    const table = addObject(SOLID, { x: 1000, y: 700 })
+    expect(holeRadius(outlineOf(SOLID))).toBe(0)
+    const v = checkPlacement(scene(), {
+      catalogId: FLORAL,
+      transform: { position: { x: 1000, y: 700 }, rotation: 0, elevation: 0 },
+      size: getCatalogEntry(FLORAL).defaultSize,
+      parentId: table,
+    })
+    expect(v).toEqual([{ kind: 'missingHost', requires: RING_TABLE }])
+    expect(strings.status.violation.missingHost(strings.catalog.items.ringTable)).toBe(
+      'יש להניח שולחן פנימי קודם',
+    )
+  })
+
+  /**
+   * The message the napkins get must not have moved. It was hard-coded to the
+   * place setting and is now resolved from the violation's own `requires`, so this
+   * is the byte-for-byte check that the change is invisible where it should be.
+   */
+  it('renders the napkin refusal exactly as it did before', () => {
+    expect(strings.status.violation.missingHost(strings.catalog.items.decorPlaceSetting)).toBe(
+      'יש להניח ערכת סכו״ם קודם',
+    )
   })
 })
 

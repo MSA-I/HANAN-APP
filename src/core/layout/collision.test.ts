@@ -600,6 +600,38 @@ describe('two items on the same table (PLAN-06)', () => {
     expect(kinds(v)).toEqual(['missingHost'])
   })
 
+  /**
+   * `autoHost` (round 4 §9). `ring.floral` keeps `requiresHost` — it is what the
+   * sibling skip below, the `stackedOn` link and `surfaceBase` all read — but a
+   * missing host no longer refuses, because the drop lays the inner table in the
+   * same gesture. So the ghost over a BARE ⌀380 is green.
+   *
+   * ⚠ And only over a ⌀380. The exemption is tied to the table having a well to
+   * lay the host in, so on a solid top the refusal stands — and now names the
+   * inner table rather than the cutlery.
+   */
+  it('lets the ring arrangement onto a BARE ⌀380 — the drop lays its own table', () => {
+    const table = addObject('table.round-large', { x: 1200, y: 1200 })
+    expect(getCatalogEntry('ring.floral').requiresHost).toBe('ring.table')
+    expect(getCatalogEntry('ring.floral').autoHost).toBe(true)
+    const onTop = Object.values(scene().objects).filter(
+      (o) => o.parentId === table && o.attachment?.kind === 'surface',
+    )
+    expect(onTop).toEqual([])
+    expect(checkPlacement(scene(), surfaceGhost('ring.floral', table, { x: 0, y: 0 }))).toEqual([])
+  })
+
+  it('still refuses it on a table with no well, and names the inner table', () => {
+    const table = addObject('table.round', { x: 1000, y: 1000 })
+    const outline = getCatalogEntry('table.round').footprint(
+      getCatalogEntry('table.round').defaultSize,
+    ).outline
+    expect(holeRadius(outline)).toBe(0)
+    const v = checkPlacement(scene(), surfaceGhost('ring.floral', table, { x: 0, y: 0 }))
+    expect(kinds(v)).toEqual(['missingHost'])
+    expect(v[0]).toMatchObject({ requires: 'ring.table' })
+  })
+
   it('keeps the ring arrangement and the table it stands on out of each other (§46)', () => {
     const table = addObject('table.round-large', { x: 1200, y: 1200 })
     expect(getCatalogEntry('ring.floral').requiresHost).toBe('ring.table')

@@ -96,5 +96,18 @@ export const ringCenterEntries: CatalogEntry[] = [
       'a fluted urn filled with white rose buds and dense green foliage',
       P('ring-center-floral.glb'), { width: 72, depth: 63.5, height: 86 }, '#697151'),
     requiresHost: 'ring.table',
+    // …and the missing host is not a REFUSAL. `autoHost` makes the drop lay the
+    // inner table in the same gesture, one `mutateScene` and therefore one undo
+    // entry. The two pieces are bought and used as a pair — the well is 156 cm of
+    // open floor and nothing else in the catalogue fills it — so "the urn needs a
+    // table under it" is a fact about how it stands, not a step the user should
+    // have to know about. `requiresHost` STAYS: it is what the sibling-overlap
+    // skip, the `stackedOn` link and `surfaceBase` all read, and without it the
+    // urn is refused against the very table it stands on.
+    //
+    // The napkins deliberately do NOT take this flag. A napkin without a place
+    // setting is a mistake, and auto-laying one would mean laying 22 covers off a
+    // single drop — a gesture nobody asked for.
+    autoHost: true,
   },
 ]
