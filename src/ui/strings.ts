@@ -952,6 +952,17 @@ export const strings = {
     corridor: 'מעבר',
     passage: 'מעבר',
     kabalatPanim: 'קבלת פנים',
+    /**
+     * ZONE_SHVIL_HUPA — the aisle to the ceremony, painted 2026-07-29.
+     *
+     * ⚠ A NO-OP TODAY, and listed anyway. The zone is 140 cm wide, which leaves a
+     * 108 cm tag box, and `labelFits` refuses anything under 132 cm at the drawn
+     * font size (core/layout/zoneLabels.ts) — so nothing is printed and this
+     * string is never read. BRIEF §1.2 is that every user-facing string lives
+     * here regardless; without it, the day the aisle widens the plan silently
+     * falls back to the pack's own inline Hebrew instead.
+     */
+    shvilHupa: 'שביל החופה',
     /** the ring of deck the user drew around the pool — PLAN-01 adds the zone itself */
     saviv: 'סביב הבריכה',
     /**

@@ -19,6 +19,17 @@ const zones = resort.restricted!
 const inside = (box: ZoneLabelBox, z: RestrictedZone) =>
   box.x >= z.x && box.y >= z.y && box.x + box.w <= z.x + z.width && box.y + box.h <= z.y + z.depth
 
+/**
+ * Does a tag sit on a zone RECTANGLE — not on another tag?
+ *
+ * The second cost the packer scores against (zoneLabels.ts's header): a zone
+ * painted OVER this one puts its tint under this tag, which is ink on ink even
+ * though no two texts touch.
+ */
+const overlapsRect = (box: ZoneLabelBox, z: RestrictedZone) =>
+  Math.min(box.x + box.w, z.x + z.width) - Math.max(box.x, z.x) > 0 &&
+  Math.min(box.y + box.h, z.y + z.depth) - Math.max(box.y, z.y) > 0
+
 /** what the layer used to do: centre the tag in its zone, and hope */
 const centred = (z: RestrictedZone, w: number, h: number): ZoneLabelBox => ({
   kind: z.kind ?? '',
@@ -58,7 +69,7 @@ describe('zoneLabelBoxes on the resort pack', () => {
     expect(pool.h).toBe(LABEL_BASE_HEIGHT)
   })
 
-  it('still nests the chuppah inside the pool, and now both tags fit centred', () => {
+  it('drops the pool tag off the ceremony pad it was printed on', () => {
     const pool = zones.findIndex((z) => z.kind === 'pool')
     const chuppah = zones.findIndex((z) => z.kind === 'chuppah')
     // The nesting itself is load-bearing — venuePacks orders `restricted` around
@@ -68,18 +79,47 @@ describe('zoneLabelBoxes on the resort pack', () => {
       c.x >= p.x && c.y >= p.y && c.x + c.width <= p.x + p.width && c.y + c.depth <= p.y + p.depth,
     ).toBe(true)
 
-    // Source doc §17 was demonstrated on this pair: `pool` used to start at y 1408
-    // and its centred tag landed 29cm off the chuppah's, so the layout had to push
-    // the pool tag out of the way. The 19:47 re-import narrowed `pool` to the water
-    // alone (y 1611…2544), dropping its centre 101cm and opening ~131cm between the
-    // two — so neither tag has to move now, and both keep the centred slot.
-    // The displacement branch itself is covered, geometry-independently, by
-    // 'zoneLabelBoxes on full containment' below.
     const naive = zones.map((z, i) => centred(z, boxes[i].w, boxes[i].h))
+    // Source doc §17 was demonstrated on this pair, and the TEXT-on-TEXT half of
+    // it is genuinely solved: the 19:47 re-import narrowed `pool` to the water
+    // alone (y 1611…2544), dropping its centre and opening ~131 cm between the
+    // two centred tags. Neither has to move for the other, and the chuppah keeps
+    // its centre. That is asserted, not assumed, because it is the reason the
+    // second cost below had nothing to fight over when it was written.
     expect(labelBoxesOverlap(naive[pool], naive[chuppah])).toBe(false)
     expect(naive[pool].y - (naive[chuppah].y + naive[chuppah].h)).toBeGreaterThan(100)
     expect(boxes[chuppah]).toEqual(naive[chuppah])
-    expect(boxes[pool]).toEqual(naive[pool])
+
+    // ⚠ WHAT WAS STILL WRONG, and what this test now pins: clearing the chuppah's
+    // TAG is not clearing the chuppah. Centred, the pool's box runs y 2047.5…
+    // 2107.5 and the ceremony pad's rectangle ends at y 2076 — 380 × 28.5 cm of
+    // "בריכה" printed on the pad's tint, with no tag anywhere near it. The
+    // packer now scores the zone rectangles too, and the `bottom` candidate that
+    // was 392 cm clear the whole time is the one it takes.
+    expect(overlapsRect(naive[pool], zones[chuppah])).toBe(true)
+    expect(overlapsRect(boxes[pool], zones[chuppah])).toBe(false)
+    expect(boxes[pool].y).toBeGreaterThan(zones[chuppah].y + zones[chuppah].depth)
+  })
+
+  /**
+   * The general form of the rule, over the whole pack rather than one pair.
+   *
+   * VenueLayer draws zone fills biggest-first, so a SMALLER zone's tint is
+   * painted on top of a bigger one's. A tag sitting on a zone smaller than its
+   * own is therefore ink under ink, whatever the two zones happen to be called.
+   * Measured on the resort today: zero such overlaps, and exactly one tag — the
+   * pool's — had to leave its centre to get there.
+   */
+  it('puts no tag on a zone that will be painted over its own', () => {
+    const bad: string[] = []
+    boxes.forEach((box, i) => {
+      const mine = zones[i].width * zones[i].depth
+      zones.forEach((zone, j) => {
+        if (i === j || zone.width * zone.depth >= mine) return
+        if (overlapsRect(box, zone)) bad.push(`${box.kind} on ${zone.kind ?? j}`)
+      })
+    })
+    expect(bad).toEqual([])
   })
 
   it('is deterministic', () => {
@@ -111,6 +151,32 @@ describe('zoneLabelBoxes on full containment', () => {
     const [innerFirst, outerFirst] = zoneLabelBoxes([inner, outer])
     expect(outerFirst).toEqual(outerBox)
     expect(innerFirst).toEqual(innerBox)
+  })
+
+  it('moves the big zone off the small one even when no two TAGS clash', () => {
+    // The precedence the resort cannot demonstrate: there, the pool's tag has a
+    // slot clear of both costs at once, so the two never actually fight.
+    //
+    // Here the small zone is a tall narrow strip whose CENTRE — and therefore its
+    // tag — sits well below the big zone's centred tag, while its RECTANGLE still
+    // crosses that band. So the label term is zero for every candidate the big
+    // zone has, and the zone-rect term is the only thing choosing.
+    const big: RestrictedZone = { x: 0, y: 0, width: 1000, depth: 400, kind: 'big' }
+    const small: RestrictedZone = { x: 400, y: 200, width: 30, depth: 400, kind: 'small' }
+    const [bigBox, smallBox] = zoneLabelBoxes([big, small])
+
+    // proof the label term is NOT what moves it: the two tags miss each other in
+    // the centred layout, so a packer that only scored tags would leave it there
+    const naiveBig = centred(big, bigBox.w, bigBox.h)
+    expect(labelBoxesOverlap(naiveBig, smallBox)).toBe(false)
+    // …and the centred slot really would have printed on the small zone
+    expect(overlapsRect(naiveBig, small)).toBe(true)
+
+    // solved, and the tag is still inside its own zone
+    expect(overlapsRect(bigBox, small)).toBe(false)
+    expect(inside(bigBox, big)).toBe(true)
+    // the small zone keeps its centre, as always — it is placed first
+    expect(smallBox).toEqual(centred(small, smallBox.w, smallBox.h))
   })
 
   it('falls back to the least-bad slot when a zone has nowhere clear to go', () => {
