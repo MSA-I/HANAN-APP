@@ -372,6 +372,9 @@ export const strings = {
       'בופה',
       'צמחייה',
       'מחיצה',
+      // the one chip that is an adjective rather than a thing, and it earns its
+      // place: shape is how a venue manager asks for a table
+      'עגול',
     ] as const,
   },
   presets: {
