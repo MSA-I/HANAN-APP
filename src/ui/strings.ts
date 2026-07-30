@@ -128,6 +128,15 @@ export const strings = {
         ? 'פריט אחד לא הסתובב — אין לו מקום חוקי בזווית הזו'
         : `${n} פריטים לא הסתובבו — אין להם מקום חוקי בזווית הזו`,
     /**
+     * Same shape as the rotation refusal above, and for the same reason: a mirror
+     * MOVES a table's chairs, so it can be refused even though the table's own
+     * outline reflects onto itself. Without this the click reads as broken.
+     */
+    mirrorRefused: (n: number) =>
+      n === 1
+        ? 'פריט אחד לא שוקף — אין לו מקום חוקי בכיוון הזה'
+        : `${n} פריטים לא שוקפו — אין להם מקום חוקי בכיוון הזה`,
+    /**
      * Why a placement was refused (core/layout/collision.ts `Violation`). `{…}`
      * placeholders are filled by StatusBar: numbers from the violation itself,
      * zone names from the venue pack's own Hebrew labels.
@@ -777,6 +786,7 @@ export const strings = {
       dragItem: 'הזזת פריט על הרצפה',
       snapBypass: 'עקיפת הצמדה',
       dragDuplicate: 'שכפול הפריט תוך כדי גרירה',
+      mirror: 'שיקוף הנבחרים',
       keepRatio: 'שמירה על יחס הצלעות',
       resizeFromCenter: 'שינוי גודל מהמרכז',
       /**
@@ -824,6 +834,8 @@ export const strings = {
     rotate90: 'סיבוב 90°',
     /** the other direction — `Shift+R` has always existed, the menu only offered one way */
     rotate90ccw: 'סיבוב 90° נגד כיוון השעון',
+    /** a real reflection, which is why it is not called 'היפוך' — see Transform2D.mirrored */
+    mirror: 'שיקוף',
     replace: 'החלפת פריט…',
     bringForward: 'הבא קדימה',
     sendBackward: 'שלח אחורה',

@@ -2128,6 +2128,53 @@ export function rotateObjectsBy(ids: Id[], delta: number): void {
   })
 }
 
+/**
+ * Reflect each selected TOP-LEVEL object about its own local x-axis.
+ *
+ * The children are deliberately NOT touched. `mirrored` composes
+ * (`core/space.ts`), so a table's chairs, its place settings and every piece of a
+ * laid design land where a real mirrored table's would, from one bit on the
+ * parent. Writing the reflection into each child instead would have to survive
+ * `reconcileSeats`, which rewrites every non-manual chair from the catalog's own
+ * seat walk on the next edit — it would undo itself.
+ *
+ * A child id passed in is ignored rather than refused: a mirrored place setting
+ * on an unmirrored table is not a thing the user can mean, and the selection
+ * often holds both after a drill-in.
+ *
+ * The gate is per object and mirrors `rotateObjectsBy`'s: a mirror MOVES the
+ * chairs, so it can genuinely become illegal even though the table's own outline
+ * is symmetric about the axis it is reflected in — which is why nothing here
+ * special-cases collision.
+ */
+export function mirrorObjects(ids: Id[]): void {
+  const before = get().scene
+  const targets = editable(before, ids).filter((obj) => !obj.parentId)
+  const turning = targets
+    .filter((obj) =>
+      poseAllowed(before, obj, {
+        transform: { ...obj.transform, mirrored: !obj.transform.mirrored },
+      }),
+    )
+    .map((obj) => obj.id)
+  const refusedCount = targets.length - turning.length
+  if (refusedCount) notify(strings.status.mirrorRefused(refusedCount))
+  if (refusedCount && !turning.length) {
+    publishRefusal()
+    return
+  }
+  mutateScene((scene) => {
+    for (const obj of editable(scene, turning)) {
+      // deleted rather than set to false — an unmirrored object must serialise
+      // exactly as it did before the flag existed (see Transform2D.mirrored)
+      if (obj.transform.mirrored) delete obj.transform.mirrored
+      else obj.transform.mirrored = true
+    }
+    clampToVenue(scene, turning)
+    clampSurfaceChildrenIn(scene, turning)
+  })
+}
+
 export function setSize(id: Id, size: Partial<Size3D>): void {
   const before = get().scene
   const source = before.objects[id]

@@ -17,6 +17,7 @@ import {
   duplicateObjects,
   removeObjects,
   reorder,
+  mirrorObjects,
   rotateObjectsBy,
   select,
   setLocked,
@@ -753,6 +754,9 @@ export function Stage2D() {
           shortcut: 'Shift+R',
           onClick: () => rotateObjectsBy(sel, -90),
         },
+        // Beside the rotations because that is where the user looks for it, and
+        // because the whole point is that no rotation does this.
+        { label: strings.menu.mirror, shortcut: 'M', onClick: () => mirrorObjects(sel) },
         {
           // arms the library's replace mode — the actual pick happens there
           label: strings.menu.replace,

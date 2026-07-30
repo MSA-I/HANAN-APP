@@ -245,6 +245,19 @@ export const SHORTCUTS: readonly Shortcut[] = [
     labelKey: 'help.keys.rotate90ccw',
   },
   /**
+   * A real reflection, which is why it sits next to rotation rather than among
+   * the transforms: no amount of `R` produces it. `KeyM` was free in both the 2D
+   * and the 3D branch and is not in FlyControls' KEYMAP.
+   */
+  {
+    id: 'mirror',
+    scope: 'both',
+    group: 'edit',
+    codes: ['KeyM'],
+    chord: 'M',
+    labelKey: 'help.keys.mirror',
+  },
+  /**
    * The 3D branch returns before it reaches the arrows, and they belong to
    * FlyControls' KEYMAP there — so nudging is 2D-only. Shift and Alt only
    * resize the step (`useEditorShortcuts.ts:216`), so they stay in the label

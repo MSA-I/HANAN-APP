@@ -24,14 +24,38 @@ export function rotateVec(v: Vec2, deg: number): Vec2 {
   return { x: v.x * cos - v.y * sin, y: v.x * sin + v.y * cos }
 }
 
-/** World transform of a child given its parent's world transform. */
+/**
+ * World transform of a child given its parent's world transform.
+ *
+ * ⚠ A MIRRORED PARENT IS NOT JUST A SIGN ON X. A reflection reverses orientation,
+ * so it does three things and all three are needed for a table's chairs to end up
+ * where a real mirrored table's chairs would be:
+ *
+ *  1. the child's local x is flipped BEFORE the parent's rotation is applied —
+ *     reflect first, then turn, which is `Rot(θ)·R`;
+ *  2. every angle measured inside the reflection is NEGATED, because
+ *     `R · Rot(ρ) · R⁻¹ = Rot(−ρ)`. A chair that faces 30° off its table's heading
+ *     on the original faces −30° off it in the mirror;
+ *  3. the flag itself propagates by XOR, so a mirrored piece on a mirrored table
+ *     reads as unmirrored — which is what two reflections are.
+ *
+ * Fixing it HERE is what makes the feature one change rather than twenty: every
+ * consumer of a world transform — collision's occupant shapes, `worldTransform`,
+ * the prompt refs, the inspector's child readouts, the 3D surface-child drag —
+ * goes through this function and its inverse.
+ */
 export function composeTransform(parent: Transform2D, local: Transform2D): Transform2D {
-  const rotated = rotateVec(local.position, parent.rotation)
-  return {
+  const flipped = parent.mirrored ? { x: -local.position.x, y: local.position.y } : local.position
+  const rotated = rotateVec(flipped, parent.rotation)
+  const out: Transform2D = {
     position: { x: parent.position.x + rotated.x, y: parent.position.y + rotated.y },
-    rotation: parent.rotation + local.rotation,
+    rotation: parent.mirrored ? parent.rotation - local.rotation : parent.rotation + local.rotation,
     elevation: parent.elevation + local.elevation,
   }
+  // XOR, and the key is only ever ADDED — an unmirrored result must stay
+  // byte-identical to what this returned before the flag existed.
+  if (!!parent.mirrored !== !!local.mirrored) out.mirrored = true
+  return out
 }
 
 /** Inverse of composeTransform: express a world transform relative to a parent. */
@@ -39,11 +63,13 @@ export function relativeTransform(parent: Transform2D, world: Transform2D): Tran
   const dx = world.position.x - parent.position.x
   const dy = world.position.y - parent.position.y
   const unrotated = rotateVec({ x: dx, y: dy }, -parent.rotation)
-  return {
-    position: unrotated,
-    rotation: world.rotation - parent.rotation,
+  const out: Transform2D = {
+    position: parent.mirrored ? { x: -unrotated.x, y: unrotated.y } : unrotated,
+    rotation: parent.mirrored ? parent.rotation - world.rotation : world.rotation - parent.rotation,
     elevation: world.elevation - parent.elevation,
   }
+  if (!!parent.mirrored !== !!world.mirrored) out.mirrored = true
+  return out
 }
 
 /** cm → three.js meters. */

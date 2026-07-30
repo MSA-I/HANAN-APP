@@ -28,6 +28,26 @@ export interface Transform2D {
   position: Vec2
   rotation: number
   elevation: number
+  /**
+   * Reflected about its own local x-axis — a real mirror image, not a half turn.
+   * A corner bar modelled to stand on the left of a doorway becomes the one that
+   * stands on the right, which no rotation can produce.
+   *
+   * Optional and additive: a scene written before round 4 simply has none, and an
+   * unmirrored object still serialises byte-for-byte as it always did, because
+   * `mirrorObjects` DELETES the key rather than writing `false`. Same shape as
+   * `Attachment.stackedOn`, and for the same reason — no migration.
+   *
+   * It COMPOSES: `composeTransform` flips a child's local x, negates the angle
+   * measured inside the reflection, and XORs the flag down the tree, so a table's
+   * chairs, covers and design pieces mirror with it and nothing has to be
+   * rewritten on the children themselves.
+   *
+   * ⚠ It lives on the TRANSFORM and not in `meta` because `replaceObject` resets
+   * `meta` when it swaps a non-seated item — a mirror stored there would vanish
+   * the moment the user swapped one bar for another.
+   */
+  mirrored?: boolean
 }
 
 export type Attachment =

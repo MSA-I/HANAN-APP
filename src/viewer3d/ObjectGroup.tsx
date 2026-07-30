@@ -194,6 +194,11 @@ export function ObjectGroup({ id }: { id: Id }) {
   const catalogId = useEditorStore((s) => s.scene.objects[id]?.catalogId)
   const size = useEditorStore((s) => s.scene.objects[id]?.size)
   const appearance = useEditorStore((s) => s.scene.objects[id]?.appearance)
+  // A BOOLEAN selector on purpose. The transform is applied transiently through
+  // the store subscription below so a drag costs one matrix write and no render;
+  // selecting `transform` here to read one bit of it would put every drag frame
+  // back through React. This one re-renders only when the mirror actually flips.
+  const mirrored = useEditorStore((s) => !!s.scene.objects[id]?.transform.mirrored)
   const hasSeating = useEditorStore((s) => !!s.scene.objects[id]?.seating)
   const seatingHidden = useEditorStore((s) => isLayerHidden(s.scene, 'seating'))
   const isSelected = useEditorStore((s) => s.selection.includes(id))
@@ -496,38 +501,57 @@ export function ObjectGroup({ id }: { id: Id }) {
         onPointerOver={muted ? undefined : handlePointerOver}
         onPointerOut={muted ? undefined : handlePointerOut}
       >
-        {entry.model ? (
-          <ModelFallback fallback={procedural}>
-            <ModelParts
-              catalogId={catalogId}
-              url={entry.model}
-              size={size}
-              slots={slots}
+        {/*
+          THE MIRROR. Everything the object IS goes inside; everything used to
+          EDIT it stays outside.
+
+          Inside: the model, the procedural fallback, the suspension cords, the
+          instanced chairs and the surface decor — so a mirrored cluster takes its
+          cords with it and a mirrored table takes its covers, from one bit on the
+          parent (see composeTransform).
+
+          Outside: SelectionOutline and RotateHandle. A reflected gizmo drags the
+          wrong way round, and the outline is a statement about where the object
+          is rather than a part of it.
+
+          ⚠ No DoubleSide and no recomputed normals are needed: WebGLRenderer reads
+          matrixWorld.determinant() < 0 and flips the face winding itself, and the
+          inverse-transpose normal matrix flips the normals with it. Shadows go
+          through the same path. And because the mirror is a GROUP scale it is
+          never baked into geometry, so propModel.partCache stays keyed correctly.
+        */}
+        <group scale={[mirrored ? -1 : 1, 1, 1]}>
+          {entry.model ? (
+            <ModelFallback fallback={procedural}>
+              <ModelParts
+                catalogId={catalogId}
+                url={entry.model}
+                size={size}
+                slots={slots}
+                muted={muted}
+              />
+            </ModelFallback>
+          ) : (
+            procedural
+          )}
+          {/* ⚠ THE CORDS BELONG WHEREVER THE MODEL GOES. They stand over the drums,
+              so anything that moves the drums has to move them too — and they are
+              now INSIDE the mirror group, which is what makes a mirrored cluster
+              take its cords with it. */}
+          {drop > 0 && (
+            <HangingCord
+              from={size.height}
+              length={drop}
+              anchors={cordAnchorPoints(entry, size)}
+              radius={cordRadiusCm(size)}
+              color={cordColor}
               muted={muted}
             />
-          </ModelFallback>
-        ) : (
-          procedural
-        )}
+          )}
+          {hasSeating && !seatingHidden && <ChairInstances tableId={id} muted={muted} />}
+          <SurfaceChildren parentId={id} muted={muted} />
+        </group>
         {isSelected && !muted && <SelectionOutline outline={entry.footprint(size).outline} />}
-        {/* ⚠ THE CORDS BELONG WHEREVER THE MODEL GOES. They stand over the drums,
-            so anything that moves the drums has to move them too — in particular
-            the mirror group A3 is adding for source doc item 4: a cluster mirrored
-            about its own axis takes its cords with it only if HangingCord is
-            INSIDE that group. Left as a sibling of the model here because the
-            group does not exist yet and an empty wrapper would be worse. */}
-        {drop > 0 && (
-          <HangingCord
-            from={size.height}
-            length={drop}
-            anchors={cordAnchorPoints(entry, size)}
-            radius={cordRadiusCm(size)}
-            color={cordColor}
-            muted={muted}
-          />
-        )}
-        {hasSeating && !seatingHidden && <ChairInstances tableId={id} muted={muted} />}
-        <SurfaceChildren parentId={id} muted={muted} />
         {/* INSIDE the group, unlike the gizmo it replaces. That is what lets the
             band's own `stopPropagation()` block the floor-drag underneath it —
             R3F bubbles up the object tree — and it means the band inherits the

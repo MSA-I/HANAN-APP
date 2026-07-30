@@ -247,50 +247,68 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
       onDragMove={(e) => (isChild ? onChildDragMove(id, e) : onObjectDragMove(id, e))}
       onDragEnd={(e) => (isChild ? onChildDragEnd(id, e) : onObjectDragEnd(id, e))}
     >
-      {/* hidden, not removed, when a plan image covers it: this is still the hit
-          region and still the geometry snapping and collisions are built on */}
-      {footprint.parts.map((part, i) => (
-        <FootprintPartShape
-          key={i}
-          part={part}
-          style={{
-            fill: slotColor(entry, obj.appearance, part.slot),
-            stroke,
-            dash,
-            opacity: plan ? 0 : 1,
-          }}
-        />
-      ))}
-      {plan && (
-        <KonvaImage
-          image={plan.image}
-          width={planW}
-          height={planD}
-          offsetX={planW / 2}
-          offsetY={planD / 2}
-          listening={false}
-          perfectDrawEnabled={false}
-        />
-      )}
-      {isSelected && <OutlineRing outline={footprint.outline} stroke={SELECTED_STROKE} />}
-      {/* A preview of the selection ring, drawn only when there is no real one to
-          preview. `effectiveLocked`/`muted` are re-asked here because the object
-          can be locked or the mode entered while the pointer sits still, and no
-          mouseleave would ever arrive to take the promise back. */}
-      {hovered && !isSelected && !effectiveLocked && !muted && (
-        <OutlineRing
-          outline={footprint.outline}
-          stroke={SELECTED_STROKE}
-          opacity={HOVER_OPACITY}
-        />
-      )}
-      {/* Why the drag stopped, said on the canvas the user is looking at rather
-          than only in the status bar: the piece that refused it goes red for as
-          long as the refusal stands (cleared on drag end). */}
-      {refused && <OutlineRing outline={footprint.outline} stroke={REFUSED_STROKE} />}
-      {childIds.map((cid) => (
-        <ObjectNode key={cid} id={cid} isChild />
-      ))}
+      {/*
+        THE MIRROR LIVES HERE, one level in.
+
+        Everything that is DRAWN reflects; everything the rest of the app LOOKS UP
+        stays on the outer group. SelectionTransformer finds this node by `#id`,
+        Stage2D walks ancestors by `name`, dragController reads `node.position()`
+        and the PNG export finds `.selection-visual` by name — all of that has to
+        keep meeting an unreflected node, or a mirrored table would drag the wrong
+        way and export blank.
+
+        The LABEL is outside for a plainer reason: inside, it would read backwards.
+
+        Children are inside, so they mirror with the parent for free — and each of
+        them reads only its OWN flag here, which is the XOR that `composeTransform`
+        states for the geometry.
+      */}
+      <Group scaleX={obj.transform.mirrored ? -1 : 1}>
+        {/* hidden, not removed, when a plan image covers it: this is still the hit
+            region and still the geometry snapping and collisions are built on */}
+        {footprint.parts.map((part, i) => (
+          <FootprintPartShape
+            key={i}
+            part={part}
+            style={{
+              fill: slotColor(entry, obj.appearance, part.slot),
+              stroke,
+              dash,
+              opacity: plan ? 0 : 1,
+            }}
+          />
+        ))}
+        {plan && (
+          <KonvaImage
+            image={plan.image}
+            width={planW}
+            height={planD}
+            offsetX={planW / 2}
+            offsetY={planD / 2}
+            listening={false}
+            perfectDrawEnabled={false}
+          />
+        )}
+        {isSelected && <OutlineRing outline={footprint.outline} stroke={SELECTED_STROKE} />}
+        {/* A preview of the selection ring, drawn only when there is no real one to
+            preview. `effectiveLocked`/`muted` are re-asked here because the object
+            can be locked or the mode entered while the pointer sits still, and no
+            mouseleave would ever arrive to take the promise back. */}
+        {hovered && !isSelected && !effectiveLocked && !muted && (
+          <OutlineRing
+            outline={footprint.outline}
+            stroke={SELECTED_STROKE}
+            opacity={HOVER_OPACITY}
+          />
+        )}
+        {/* Why the drag stopped, said on the canvas the user is looking at rather
+            than only in the status bar: the piece that refused it goes red for as
+            long as the refusal stands (cleared on drag end). */}
+        {refused && <OutlineRing outline={footprint.outline} stroke={REFUSED_STROKE} />}
+        {childIds.map((cid) => (
+          <ObjectNode key={cid} id={cid} isChild />
+        ))}
+      </Group>
       {showLabel && (
         <Text
           text={displayName(obj.name, obj.catalogId, obj.meta.number)}
