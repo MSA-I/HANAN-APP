@@ -41,6 +41,13 @@ const DJ_BOOTH_MODEL_SIZE = { width: 309.9, depth: 242.9, height: 183.8 }
 const DJ_BOOTH_SCALE = 0.7
 
 /**
+ * Library search words shared by the three pieces of the resort's bar. Singular
+ * and short — matching is by substring over normalised text (ui/librarySearch.ts).
+ * The DJ stand and the buffet are different objects and carry their own lists.
+ */
+const BAR_KEYWORDS = ['בר', 'דלפק', 'שתייה', 'עמדה', 'אלכוהול']
+
+/**
  * The resort's own bar, as three separately placeable pieces. Sizes are the EXACT
  * prepped bounds of each GLB (measured per vertex, not read off a glb-prep log),
  * and the slot colours are the area-weighted mean of each baked texture — the same
@@ -62,6 +69,7 @@ export const barResortLeft: CatalogEntry = {
   category: 'bars',
   labelKey: 'barResortLeft',
   promptFragment: 'an L-shaped mobile bar counter, cream stone top over a fluted beige front in a black frame',
+  keywords: [...BAR_KEYWORDS, 'שמאל'],
   defaultSize: { width: 259.8, depth: 139.5, height: 157 },
   resizable: [],
   minSize: {},
@@ -94,6 +102,7 @@ export const barResortRight: CatalogEntry = {
   ...barResortLeft,
   id: 'bar.resort-right',
   labelKey: 'barResortRight',
+  keywords: [...BAR_KEYWORDS, 'ימין'],
   model: P('bar-resort-right.glb'),
   thumbnail: '/thumbs/bar-resort-right.webp',
 }
@@ -104,6 +113,7 @@ export const barBackWall: CatalogEntry = {
   category: 'bars',
   labelKey: 'barBackWall',
   promptFragment: 'a tall open oak shelving unit used as the back wall of a bar',
+  keywords: [...BAR_KEYWORDS, 'מדף', 'ארון', 'גב'],
   defaultSize: { width: 188.9, depth: 85.9, height: 240 },
   resizable: [],
   minSize: {},
@@ -129,6 +139,9 @@ export const djBooth: CatalogEntry = {
   category: 'bars',
   labelKey: 'djBooth',
   promptFragment: 'a dark DJ booth',
+  // 'dj' is in the id and the label already; these are the words a Hebrew speaker
+  // types instead. The gershayim in 'דיג׳יי' is stripped before matching.
+  keywords: ['דיג׳יי', 'תקליטן', 'מוזיקה', 'עמדה', 'הגברה'],
   // 2026-07-28: re-modelled. `dj-resort.glb` REPLACES `dj-booth.glb` on this same
   // entry rather than arriving as a second one, because it is the same physical
   // stand: this entry's thumbnail is already DJ2.png, the reference the user named
@@ -243,6 +256,7 @@ export const buffetTable: CatalogEntry = {
   labelKey: 'buffet',
   promptFragment:
     'a wheeled catering counter with a dark stone top, a fluted taupe front with an oval medallion, and a tall overhead frame',
+  keywords: ['בופה', 'מזנון', 'אוכל', 'הגשה', 'עגלה', 'עמדה'],
   defaultSize: { width: 180.5, depth: 83.1, height: 185 },
   // real inventory: one product, one size. Every other GLB-backed entry does this
   // — a resizable box would stretch the model away from the thing in the store.

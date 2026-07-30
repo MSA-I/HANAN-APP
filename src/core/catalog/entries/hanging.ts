@@ -102,6 +102,10 @@ function ceilingProp(
     // user sets that on the hang-height slider (§13) — the plan width decides
     // nothing, so printing it only makes the tile taller.
     librarySubtitle: 'none',
+    // Library search, on the factory so all five fixtures share it. 'נברשת' and
+    // 'מנורה' are the two nouns in real use for what hangs here, and 'תלייה' /
+    // 'תקרה' are how someone describes the position rather than the object.
+    keywords: ['תאורה', 'נברשת', 'מנורה', 'תלייה', 'תקרה', 'אור'],
     materialSlots: [{ name: 'body', labelKey: 'body', defaultColor: color }],
     footprint: (s) =>
       shape === 'round'

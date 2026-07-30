@@ -290,6 +290,22 @@ export interface CatalogEntry {
    * which reads badly in a prompt and is meant to.
    */
   promptFragment?: string
+  /**
+   * Hebrew synonyms the library search should find this item by, beyond its own
+   * label. Matched as a SUBSTRING over normalised text (ui/librarySearch.ts), so
+   * write the SHORT, SINGULAR form and the longer ones come free: 'שולחן' finds
+   * 'שולחנות', and not the other way round. Where both spellings are in real use
+   * and neither contains the other — 'כסא' / 'כיסא' — both have to be listed.
+   *
+   * Authored on the ENTRY FACTORIES wherever one exists, so a family of twenty
+   * items is one edit and cannot go half-done. Per-entry lists say what is true
+   * of that one item and nothing else.
+   *
+   * They are search keys, not user-visible text, so they do NOT live in
+   * ui/strings.ts (BRIEF §1.2 is about strings the user READS). Nothing renders
+   * them.
+   */
+  keywords?: string[]
 }
 
 export function defaultAppearance(entry: CatalogEntry): Record<string, { color?: string }> {

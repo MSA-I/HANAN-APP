@@ -92,6 +92,10 @@ function chuppah(
     minSize: {},
     maxSize: {},
     linkWidthDepth: shape === 'round',
+    // Library search, on the factory so all eight canopies share it. Both numbers
+    // of 'חופה' are listed because the plural drops the final he for a vav
+    // (חופה → חופות) and so is not a substring of the singular.
+    keywords: ['חופה', 'חופות', 'טקס', 'קידושין', 'כילה'],
     materialSlots: [
       // Tripo returns these as a single baked material, so both slots start from
       // the same measured mean; they are split so the plan view can tell the

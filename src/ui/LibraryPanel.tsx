@@ -7,6 +7,10 @@ import { canReplaceObject, replaceObject } from '../state/actions'
 import { isEffectivelyLocked } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { SliderField } from './fields'
+// The matching itself is a pure module so it can be tested at all — vitest runs
+// `environment: 'node'` and collects only `src/**` /*.test.ts (BRIEF §1.7), so a
+// filter written inline here would have no test.
+import { entryMatchesQuery, itemLabel, searchTokens } from './librarySearch'
 import { strings } from './strings'
 
 const SIZE_KEY = 'hanan.librarySize'
@@ -32,10 +36,6 @@ function readSizeStep(): number {
   return Number.isInteger(parsed) && parsed >= 1 && parsed <= SIZE_STOPS.length
     ? parsed
     : DEFAULT_STEP
-}
-
-function itemLabel(entry: CatalogEntry): string {
-  return strings.catalog.items[entry.labelKey as keyof typeof strings.catalog.items] ?? entry.id
 }
 
 function formatFootprint(entry: CatalogEntry): string {
@@ -190,17 +190,14 @@ export function LibraryPanel() {
   const selectedId = selectedObject?.id ?? null
   const replacing = !!selectedId && replaceTarget === selectedId
 
-  const categories = useMemo(
-    () =>
-      CATEGORY_ORDER.map((cat) => ({
-        cat,
-        label: strings.catalog.categories[cat],
-        items: listByCategory(cat).filter(
-          (e) => !query || itemLabel(e).includes(query.trim()),
-        ),
-      })).filter((c) => c.items.length > 0),
-    [query],
-  )
+  const categories = useMemo(() => {
+    const tokens = searchTokens(query)
+    return CATEGORY_ORDER.map((cat) => ({
+      cat,
+      label: strings.catalog.categories[cat],
+      items: listByCategory(cat).filter((e) => entryMatchesQuery(e, tokens)),
+    })).filter((c) => c.items.length > 0)
+  }, [query])
 
   if (collapsed) {
     return (
@@ -246,6 +243,34 @@ export function LibraryPanel() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+        </div>
+        {/* Quick filters. A chip IS its query (see strings.library.chips), so
+            clicking one is exactly typing the word — which is what lets the
+            active chip be decided by comparing it to the box, with no second
+            piece of state to keep in step. Clicking the active chip clears it.
+            ⚠ RTL: `flex-wrap` + `gap` only. No ml-/mr-/left-/right- anywhere in
+            this row — the panel is inside `dir="rtl"` and a physical margin
+            would put the gap on the wrong side (BRIEF §1.6). */}
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {strings.library.chips.map((chip) => {
+            const active = query === chip
+            return (
+              <button
+                key={chip}
+                type="button"
+                data-library-chip={chip}
+                aria-pressed={active}
+                onClick={() => setQuery(active ? '' : chip)}
+                className={`rounded-full border px-2.5 py-1 text-[13px] transition-colors ${
+                  active
+                    ? 'border-accent bg-accent text-white'
+                    : 'border-line text-ink-soft hover:border-accent/50 hover:bg-accent-tint hover:text-accent'
+                }`}
+              >
+                {chip}
+              </button>
+            )
+          })}
         </div>
         {selectedId && (
           <button

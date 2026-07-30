@@ -345,6 +345,34 @@ export const strings = {
      */
     seatsSuffix: 'כסאות',
     seatsLabel: (n: number) => `${n} כסאות`,
+    /**
+     * The quick-filter chips under the search box.
+     *
+     * ⚠ EACH CHIP IS BOTH THE LABEL AND THE QUERY. Clicking one types it into the
+     * search box, so every word here has to read as something the user could have
+     * typed — not as a category name and not as an abbreviation. That is also why
+     * they are singular: the search matches by substring over normalised text
+     * (ui/librarySearch.ts), so 'נר' finds 'נרות' and 'שולחן' finds 'שולחנות',
+     * while the plural would find only itself.
+     *
+     * About a dozen, because the row wraps and a third line of chips costs more
+     * screen than the filtering saves. They are the families a user actually
+     * hunts for; anything rarer is what the box itself is for.
+     */
+    chips: [
+      'שולחן',
+      'כסא',
+      'חופה',
+      'תאורה',
+      'נר',
+      'פרחים',
+      'ואזה',
+      'מפית',
+      'בר',
+      'בופה',
+      'צמחייה',
+      'מחיצה',
+    ] as const,
   },
   presets: {
     tableDesign: 'עיצוב שולחן',

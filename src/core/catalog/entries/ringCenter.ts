@@ -55,7 +55,16 @@ const P = (file: string) => `/props/${file}`
  * "a guest table" by "category is tables".
  */
 function ringCenter(...args: Parameters<typeof surfaceProp>): CatalogEntry {
-  return { ...surfaceProp(...args), category: 'tables' }
+  const base = surfaceProp(...args)
+  return {
+    ...base,
+    category: 'tables',
+    // The library search words for the pair. Extends what `surfaceProp` already
+    // gave them: these two are found by the HOLE they fill, which is how the
+    // user names them, and 'שולחן' has to be here now that the category heading
+    // no longer says it (the `ringCenter` category is gone — see below).
+    keywords: [...(base.keywords ?? []), 'שולחן', 'עגול גדול', 'חור', 'טבעת', 'פנימי'],
+  }
 }
 
 export const ringCenterEntries: CatalogEntry[] = [
@@ -107,7 +116,8 @@ export const ringCenterEntries: CatalogEntry[] = [
   {
     ...ringCenter('ring.floral', 'ringFloral',
       'a fluted urn filled with white rose buds and dense green foliage',
-      P('ring-center-floral.glb'), { width: 72, depth: 63.5, height: 86 }, '#697151'),
+      P('ring-center-floral.glb'), { width: 72, depth: 63.5, height: 86 }, '#697151',
+      'round', ['פרחים', 'פרח', 'ורדים', 'זר']),
     requiresHost: 'ring.table',
   },
 ]

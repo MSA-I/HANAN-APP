@@ -18,6 +18,8 @@ function vegetationEntry(
     promptFragment,
     ...siting,
     defaultSize: size,
+    // Library search, on the factory so both plants share it
+    keywords: ['צמח', 'צמחייה', 'ירוק', 'עציץ', 'עץ', 'ירק'],
     resizable: ['width', 'depth', 'height'],
     minSize: { width: 30, depth: 30, height: 80 },
     maxSize: { width: 200, depth: 200, height: 300 },
@@ -163,6 +165,7 @@ export const dividerScreen: CatalogEntry = {
   category: 'decor',
   labelKey: 'divider',
   promptFragment: 'a mobile room divider — a beige pleated curtain in a black wheeled frame',
+  keywords: ['מחיצה', 'פרגוד', 'וילון', 'הפרדה', 'חוצץ', 'בד'],
   defaultSize: { width: 155.9, depth: 31.9, height: 180 },
   // real inventory: one product, one size, like every other GLB-backed entry
   resizable: [],
@@ -214,6 +217,9 @@ export const arcLampCrystal: CatalogEntry = {
   labelKey: 'lampArcCrystal',
   promptFragment:
     'an arched brass floor lamp with a crystal basket shade on a weighted disc base',
+  // 'רצפה' and 'עומדת' because it is the one lamp that is NOT hung — the five in
+  // entries/hanging.ts answer to 'תלייה'/'תקרה' and this one must not
+  keywords: ['תאורה', 'מנורה', 'אור', 'קשת', 'רצפה', 'עומדת'],
   defaultSize: { width: 81.6, depth: 131.1, height: 240 },
   resizable: [],
   minSize: {},
@@ -271,6 +277,7 @@ export const humanFigure: CatalogEntry = {
   category: 'decor',
   labelKey: 'humanFigure',
   promptFragment: 'a woman standing, in a plain long-sleeved top and jeans',
+  keywords: ['דמות', 'אדם', 'איש', 'אישה', 'אנשים', 'קנה מידה', 'גודל'],
   defaultSize: { width: 155.3, depth: 28.4, height: 165 },
   modelSize: { width: 92.4, depth: 16.9, height: 98.2 },
   // Source doc §17. See CatalogEntry.placeAnywhere for why this is a flag of its
