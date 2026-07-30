@@ -167,6 +167,30 @@ export interface EditableSlot {
   defaultTexture?: string
 }
 
+/**
+ * Where ONE suspension cord of a ceiling fixture stands, and how much of it the
+ * GLB already draws.
+ *
+ * `x`/`y` are fractions of `width`/`depth` from the object's centre, in its own
+ * local plan frame, so they turn with its yaw for free.
+ *
+ * `top` is the fraction of the entry's HEIGHT at which this cord's OWN modelled
+ * rod ends — i.e. where the procedural cord has to take over. Absent means 1: the
+ * rod reaches the top of the bounding box, so the procedural cord starts exactly
+ * where the model stops and there is nothing to bridge. That is the case for every
+ * single-drum fixture and is why the field is optional.
+ *
+ * ⚠ IT IS NOT ALWAYS 1, AND THAT IS THE WHOLE REASON THIS FIELD EXISTS. The
+ * four-drum cluster is catalogued as being on "staggered cords" and the file means
+ * it: measured, its four rods reach 0.6897 · 1.0000 · 0.6426 · 0.6654 of the
+ * model's height. Only one touches the top. Drawing all four procedural cords from
+ * the top of the bbox left the other three floating with a third of the model's
+ * height of clear air under them.
+ */
+export interface CordAnchor extends Vec2 {
+  top?: number
+}
+
 export interface CatalogEntry {
   id: string
   category: Category
@@ -251,7 +275,7 @@ export interface CatalogEntry {
    * Read through `cordAnchorPoints` (core/layout/beams.ts), never directly.
    * ------------------------------------------------------------------------------
    */
-  cordAnchors?: Vec2[]
+  cordAnchors?: CordAnchor[]
   // --- end ceiling fixtures ------------------------------------------------------
   /**
    * Fixed-station entries (bar, DJ booth): when the venue pack has a restricted

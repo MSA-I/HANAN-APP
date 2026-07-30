@@ -210,8 +210,19 @@ export function cordLength(
   return Math.max(0, (pack?.hangHeight ?? wallHeight) - (elevation + height))
 }
 
+/** One cord's foot, in the fixture's own local frame. */
+export interface CordPoint extends Vec2 {
+  /**
+   * Plan cm above the fixture's BASE where this cord's own modelled rod ends, and
+   * therefore where the procedural cord has to start. `size.height` for a rod that
+   * reaches the top of the bbox, which is every fixture but the cluster.
+   */
+  from: number
+}
+
 /**
- * Where this fixture's cords stand, in plan cm from its own centre.
+ * Where this fixture's cords stand, in plan cm from its own centre, and where each
+ * one has to be picked up.
  *
  * `HangingCord` drew ONE cylinder at local (0, 0) for every fixture. On a single
  * drum that is right — `decor-pendant-lamp.glb`'s own cord is measurably on the
@@ -221,13 +232,26 @@ export function cordLength(
  * The entry states the anchors as fractions, so this is the multiplication and the
  * absent case in one place rather than at the call site: a fixture with nothing
  * declared gets the single axial cord it always had.
+ *
+ * `from` is the second half of the same problem and is why this returns a shape of
+ * its own rather than a `Vec2`. Every cord used to be drawn from the TOP of the
+ * bounding box, which is right only for a rod that actually reaches it. Three of
+ * the cluster's four stop between 0.64 and 0.69 of the model's height, so those
+ * three were drawn starting a third of the model ABOVE where the file's own rod
+ * ended — a floating wire with clear air under it. Each cord now starts where its
+ * own rod stops, and `HangingCord` gives it back the shortfall on top of the
+ * shared drop.
  */
 export function cordAnchorPoints(
   entry: Pick<CatalogEntry, 'cordAnchors'>,
-  size: Pick<Size3D, 'width' | 'depth'>,
-): Vec2[] {
-  if (!entry.cordAnchors?.length) return [{ x: 0, y: 0 }]
-  return entry.cordAnchors.map((a) => ({ x: a.x * size.width, y: a.y * size.depth }))
+  size: Pick<Size3D, 'width' | 'depth' | 'height'>,
+): CordPoint[] {
+  if (!entry.cordAnchors?.length) return [{ x: 0, y: 0, from: size.height }]
+  return entry.cordAnchors.map((a) => ({
+    x: a.x * size.width,
+    y: a.y * size.depth,
+    from: (a.top ?? 1) * size.height,
+  }))
 }
 
 /**

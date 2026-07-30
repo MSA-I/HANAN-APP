@@ -234,26 +234,28 @@ export const hangingEntries: CatalogEntry[] = [
   // given in the tool's header and repeated here, because it also bounds what
   // these anchors can fix:
   //
-  // ⚠ THE FOUR CORDS ARE FOUR DIFFERENT LENGTHS. They reach 0.690, 1.000, 0.643
-  // and 0.665 of the model's height — the entry name says "staggered cords" and
-  // this is what that means. Only one of them touches the top of the bbox, which
-  // is the plane the procedural cord starts from, so three of the four drums hang
-  // from cords that stop about a third of the model below the truss. That is the
-  // FILE's doing and is visible today with no cords drawn at all.
-  // ponytail: one cord per drum, all starting at the top of the bbox. Fixing the
-  // three short ones needs a per-anchor start height (the fractions above are
-  // measured and would go straight in) and a `cordLength` that answers per anchor
-  // instead of once. Not done here because it changes the shape of `cordAnchors`
-  // and of `HangingCord` for a fault the model already ships.
+  // ⚠ THE FOUR CORDS ARE FOUR DIFFERENT LENGTHS, which is what `top` is for. They
+  // reach 0.6897, 1.0000, 0.6426 and 0.6654 of the model's height — the entry name
+  // says "staggered cords" and this is what that means. Only ONE touches the top of
+  // the bbox, and the top of the bbox is the plane the procedural drop is measured
+  // from, so drawing all four from there left three of them starting a third of the
+  // model ABOVE where the file's own rod ends: three wires with clear air under
+  // them. Each now starts at its own rod's top and is given that shortfall back on
+  // top of the shared drop (`HangingCord`), so at the seeded elevation — where the
+  // drop is zero and the tall one correctly draws nothing — the other three draw
+  // exactly the gap the file leaves.
+  //
+  // The tops come from the same run as the anchors; the tool prints them under
+  // "CORD TOPS". Re-measure with the command above after any re-prep.
   ceilingProp('lamp.pendant-cluster', 'lampPendantCluster', 'a cluster of four lattice drum pendant lamps on staggered cords', P('decor-pendant-geometric.glb'), { width: 18.1, depth: 42.6, height: 60 }, '#d4c5aa', {
     scale: PENDANT_SCALE,
     shape: 'rect',
     siting: { allowedZones: [{ kind: 'bar', within: 0 }] },
     cordAnchors: [
-      { x: 0.1448, y: -0.3511 },
-      { x: 0.1174, y: -0.0581 },
-      { x: -0.3209, y: 0.0795 },
-      { x: 0.1283, y: 0.3547 },
+      { x: 0.1445, y: -0.3517, top: 0.6897 },
+      { x: 0.1176, y: -0.0574, top: 1 },
+      { x: -0.3212, y: 0.0799, top: 0.6426 },
+      { x: 0.1285, y: 0.3545, top: 0.6654 },
     ],
   }),
   // --- chandeliers (2026-07-20) ---

@@ -20,11 +20,18 @@ import { useShallow } from 'zustand/react/shallow'
 import { shallow } from 'zustand/shallow'
 import { getCatalogEntry } from '../core/catalog/registry'
 import { slotColor, type Outline } from '../core/catalog/types'
-import { beamGrid, cordAnchorPoints, cordLength, cordRadiusCm, snapToBeam } from '../core/layout/beams'
+import {
+  beamGrid,
+  cordAnchorPoints,
+  cordLength,
+  cordRadiusCm,
+  snapToBeam,
+  type CordPoint,
+} from '../core/layout/beams'
 import { snapValue } from '../core/layout/snapping'
 import { standingHeightAt } from '../core/layout/groundHeight'
 import { attachedChairs } from '../core/model/seatingReconciler'
-import type { Id, SceneState, Size3D, Vec2 } from '../core/model/types'
+import type { Id, SceneState, Size3D } from '../core/model/types'
 import { cmToM, relativeTransform, threeToPlan } from '../core/space'
 import { getVenuePack } from '../core/venuePacks'
 import { useOverlayStore } from '../editor2d/overlayStore'
@@ -299,6 +306,10 @@ export function ObjectGroup({ id }: { id: Id }) {
 
   if (!catalogId || !size || !appearance) return null
   const entry = getCatalogEntry(catalogId)
+  // Derived, not subscribed: it reads only the catalogue and the size, both of
+  // which this render already has. Not memoised — it is a map over at most four
+  // anchors, and it sits below an early return where a hook cannot go.
+  const cords = cordAnchorPoints(entry, size)
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     if (suppressClick.current) {
@@ -538,11 +549,15 @@ export function ObjectGroup({ id }: { id: Id }) {
               so anything that moves the drums has to move them too — and they are
               now INSIDE the mirror group, which is what makes a mirrored cluster
               take its cords with it. */}
-          {drop > 0 && (
+          {/* ⚠ NOT `drop > 0`. A cord whose own rod stops short of the bbox has a
+              gap to bridge even at the seeded elevation, where the drop is zero —
+              which is exactly the cluster's three short rods. `HangingCord` skips
+              the individual cords that have nothing to draw. */}
+          {(drop > 0 || cords.some((c) => c.from < size.height)) && (
             <HangingCord
-              from={size.height}
-              length={drop}
-              anchors={cordAnchorPoints(entry, size)}
+              topCm={size.height}
+              drop={drop}
+              anchors={cords}
               radius={cordRadiusCm(size)}
               color={cordColor}
               muted={muted}
@@ -1074,8 +1089,16 @@ function ModelFallback({ children, fallback }: { children: ReactNode; fallback: 
  * is measurably on the axis — and wrong for the four-drum cluster, where it is a
  * wire through the middle of the group with no drum under it and none of the
  * model's four cords beside it (source doc item 14b). `cordAnchorPoints` hands
- * back `[{x:0,y:0}]` for everything that declares nothing, so the single-cord case
- * is the same code path rather than a branch.
+ * back one axial anchor for everything that declares nothing, so the single-cord
+ * case is the same code path rather than a branch.
+ *
+ * EACH CORD IS THE SHARED DROP PLUS ITS OWN SHORTFALL, which is the whole of the
+ * per-anchor arithmetic: `drop` is measured from the top of the bounding box, and a
+ * cord whose own rod stops below that has to make up the difference as well. The
+ * cluster's four rods reach 0.6897 · 1.0000 · 0.6426 · 0.6654 of its height, so at
+ * the seeded elevation — where `drop` is 0 and the tall one correctly draws nothing
+ * — the other three draw exactly the gap the file leaves. A cord with nothing to
+ * bridge and nothing to drop renders no mesh at all rather than a zero-height one.
  *
  * The anchors are in the object's LOCAL PLAN frame and this group already carries
  * the object's yaw, so the cords turn with the fixture for nothing.
@@ -1092,17 +1115,19 @@ function ModelFallback({ children, fallback }: { children: ReactNode; fallback: 
  * polished steel, and a shinier cord next to a matte beam looks like a mistake.
  */
 function HangingCord({
-  from,
-  length,
+  topCm,
+  drop,
   anchors,
   radius,
   color,
   muted,
 }: {
-  from: number
-  length: number
-  /** plan cm from the object's centre — already multiplied out of the fractions */
-  anchors: Vec2[]
+  /** the fixture's own height — the plane `drop` is measured down from */
+  topCm: number
+  /** plan cm from the top of the bounding box up to the truss */
+  drop: number
+  /** local plan cm and rod-top height, from `cordAnchorPoints` */
+  anchors: CordPoint[]
   /** plan cm */
   radius: number
   color: string
@@ -1110,11 +1135,14 @@ function HangingCord({
 }) {
   return (
     <>
-      {anchors.map((a) => (
+      {anchors.map((a) => {
+        const length = drop + (topCm - a.from)
+        if (length <= 0) return null
+        return (
         // plan y is three z (core/space.ts), so the third component is a.y
         <mesh
           key={`${a.x},${a.y}`}
-          position={[cmToM(a.x), cmToM(from + length / 2), cmToM(a.y)]}
+          position={[cmToM(a.x), cmToM(a.from + length / 2), cmToM(a.y)]}
           raycast={() => null}
           castShadow={!muted}
         >
@@ -1132,7 +1160,8 @@ function HangingCord({
             depthWrite={!muted}
           />
         </mesh>
-      ))}
+        )
+      })}
     </>
   )
 }
