@@ -236,20 +236,28 @@ export const TABLE_DESIGNS: TableDesign[] = [
  * `[max(0, 510 − height), 895 − height]`, and `transform.elevation` is the BOTTOM
  * of the fixture — so `floorDistance` is literally the distance from the floor.
  *
- *   design                fixture height   legal band     floorDistance   cord
- *   pendants                    125        [385, 770]         440          330
- *   pendant clusters            150        [360, 745]         450          295
- *   chandeliers diamond         225        [285, 670]         480          190
- *   chandeliers basket          275        [235, 620]         500          120
- *   chandeliers candelabra      300        [210, 595]         520           75
+ *   design                fixture height   legal band       floorDistance   cord
+ *   pendants                  312.5        [197.5, 582.5]       440         142.5
+ *   pendant clusters          375          [135,   520]         450          70
+ *   chandeliers diamond       225          [285,   670]         480         190
+ *   chandeliers basket        275          [235,   620]         500         120
+ *   chandeliers candelabra    300          [210,   595]         520          75
  *
- * Two readings of the same table. Bottoms rise with the fixture: the ⌀229
- * candelabra needs more air under it than a ⌀32 pendant before the room reads as
- * low. Tops rise faster: the last column is the procedural cord `cordLength`
- * opens above the fixture, and it shortens from 3.3 m to 0.75 m as the piece gets
- * heavier — a small pendant is cord-hung by design and drops far, a 2.5 m
- * candelabra hangs off a short chain close to the truss. Every value is strictly
- * inside its band, so none of them is a number that would silently clamp.
+ * ⚠ Re-derived for round-4 item 14a, which put the two drum pendants at ×6.25 of
+ * their file bounds instead of ×2.5. Only the two `height` figures moved; the five
+ * `floorDistance` values below are UNCHANGED and every one of them is still
+ * strictly inside its band, so nothing silently clamps — which is the property
+ * this table exists to check, and the reason it is worth re-deriving by hand.
+ *
+ * What the rescale DID break is the reading that used to follow. Bottoms still
+ * rise with the fixture — the ⌀229 candelabra needs more air under it than a
+ * pendant before the room reads as low — but the last column no longer falls
+ * monotonically with it. That column is the procedural cord `cordLength` opens
+ * above the fixture, and the two pendants are now the TALLEST things that hang
+ * (312.5 and 375, against 225-300 for the chandeliers), so their tops are the
+ * closest to the truss and their cords the shortest: the cluster hangs 70 cm
+ * below the steel, where it used to hang 2.95 m below it. The old "a small
+ * pendant is cord-hung and drops far" is simply no longer what these two are.
  */
 export const HALL_DESIGNS: HallDesign[] = [
   { id: 'hall.pendants', labelKey: 'hallPendants', catalogId: 'lamp.pendant', spacing: 250, floorDistance: 440 },
