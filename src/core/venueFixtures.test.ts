@@ -90,21 +90,30 @@ describe('bake output', () => {
     expect(bakeSource('resort', [], NOW)).toContain('"resort": [')
   })
 
-  it('carries the resort bar, baked 2026-07-28, and every object frozen', () => {
+  it('carries the resort hall fittings, every root frozen', () => {
     // This used to assert the table was empty. It is not any more, and that is the
     // point of the bake: the bar, its mirrored half and the back wall belong to the
     // hall, so they ship with the repo instead of being placed per event.
+    //
+    // It then used to restate the whole inventory, which made every re-bake a test
+    // failure — the 2026-07-30 bake added the perimeter greenery and broke it. The
+    // inventory is the user's to grow; what a test may pin is what must never be
+    // LOST (the bar the bake was written for) and the invariants every entry obeys.
     expect(Object.keys(VENUE_FIXTURES)).toEqual(['resort'])
-    expect(VENUE_FIXTURES.resort.map((o) => o.catalogId)).toEqual([
-      'bar.back-wall',
-      'bar.resort-left',
-      'bar.resort-right',
-    ])
+    expect(VENUE_FIXTURES.resort.map((o) => o.catalogId)).toEqual(
+      expect.arrayContaining(['bar.back-wall', 'bar.resort-left', 'bar.resort-right']),
+    )
+    const ids = new Set(VENUE_FIXTURES.resort.map((o) => o.id))
     for (const o of VENUE_FIXTURES.resort) {
-      expect(o.flags).toEqual({ locked: true, visible: true, frozen: true })
       expect(o.meta.fixture).toBe(true)
-      expect(o.parentId).toBeNull()
       expect(o.id).toMatch(/^fixture-resort-\d{3}$/)
+      // A TREE, not a list: only roots are frozen, or the user could never dress a
+      // baked table (factory.ts `venueFixtures`). A child must name a real parent.
+      if (o.parentId === null) {
+        expect(o.flags).toEqual({ locked: true, visible: true, frozen: true })
+      } else {
+        expect(ids.has(o.parentId)).toBe(true)
+      }
     }
   })
 })

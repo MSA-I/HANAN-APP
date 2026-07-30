@@ -110,17 +110,26 @@ describe('frozen venue fixtures', () => {
 })
 
 describe('seeding fixtures into a new project', () => {
-  it('seeds the resort bar, and nothing for a venue that has no bake', () => {
-    // The bar was baked on 2026-07-28: two counter halves and the back wall.
-    // Every seeded object arrives frozen, which is what makes it a fitting rather
-    // than furniture the user happens to have been given.
+  it('seeds the resort hall fittings frozen, and nothing for a venue that has no bake', () => {
+    // The bar was baked on 2026-07-28: two counter halves and the back wall. The
+    // 2026-07-30 re-bake added the perimeter greenery, and the old spelling of this
+    // test — the whole inventory, restated — failed for it. The inventory grows
+    // whenever the user re-bakes; the invariant does not. Pin the invariant, and
+    // pin the bar as the thing that must never silently go missing.
     const resort = venueFixtures('resort')
-    expect(resort.map((o) => o.catalogId).sort()).toEqual([
-      'bar.back-wall',
-      'bar.resort-left',
-      'bar.resort-right',
-    ])
-    for (const o of resort) expect(o.flags).toEqual({ locked: true, visible: true, frozen: true })
+    expect(resort.map((o) => o.catalogId)).toEqual(
+      expect.arrayContaining(['bar.back-wall', 'bar.resort-left', 'bar.resort-right']),
+    )
+    // Roots frozen — that is what makes one a fitting rather than furniture the
+    // user happens to have been given. Children stay editable, or a baked table
+    // could never be dressed (factory.ts `venueFixtures`).
+    for (const o of resort) {
+      expect(o.flags).toEqual(
+        o.parentId
+          ? { locked: false, visible: true }
+          : { locked: true, visible: true, frozen: true },
+      )
+    }
     expect(venueFixtures(null)).toEqual([])
     expect(venueFixtures('no-such-venue')).toEqual([])
   })
