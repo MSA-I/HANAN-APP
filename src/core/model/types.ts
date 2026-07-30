@@ -68,8 +68,30 @@ export function childSortKey(o: { attachment?: Attachment }): number {
   return o.attachment?.kind === 'seat' ? o.attachment.seatIndex : Number.MAX_SAFE_INTEGER
 }
 
-/** Per-material-slot overrides; slot names come from the catalog entry. */
-export type AppearanceOverrides = Record<string, { color?: string }>
+/**
+ * Per-material-slot overrides; slot names come from the catalog entry.
+ *
+ * ⚠ THREE STATES, not two, and the picker has to be able to express all of them:
+ *
+ *  - `textureId: 'fabric-06'` — the user picked that swatch.
+ *  - `textureId: null` — the user picked "no texture". The slot wears its plain
+ *    baked surface even where the catalogue says otherwise.
+ *  - the key ABSENT — the user has not chosen, so the slot's own
+ *    `EditableSlot.defaultTexture` decides (and most slots declare none, which is
+ *    how the six tables come up on their own white drape).
+ *
+ * `null` and absent are therefore NOT interchangeable: on the three napkins,
+ * which are the only entries carrying a `defaultTexture`, absent means the weave
+ * the catalogue chose and `null` means the user took it off. `slotTextureId` in
+ * catalog/types.ts is the one place that collapses the three into an answer, and
+ * the persisted zod schema (migrations/index.ts) spells the field
+ * `.nullable().optional()` for exactly this reason.
+ *
+ * Additive and optional, so no SCHEMA_VERSION bump: a project written before the
+ * picker existed simply has no `textureId` anywhere, which is the ABSENT state
+ * and therefore reads as the catalogue default — the behaviour it already had.
+ */
+export type AppearanceOverrides = Record<string, { color?: string; textureId?: string | null }>
 
 export interface SeatingConfig {
   enabled: boolean

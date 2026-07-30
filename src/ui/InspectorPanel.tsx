@@ -20,8 +20,9 @@ import {
   listByCategory,
   listCatalog,
 } from '../core/catalog/registry'
-import type { Category } from '../core/catalog/types'
-import { slotColor } from '../core/catalog/types'
+import type { CatalogEntry, Category } from '../core/catalog/types'
+import { editableSlotsOf, slotColor, slotTextureId } from '../core/catalog/types'
+import { FABRIC_TEXTURE_IDS } from '../core/catalog/textures'
 import { maxGapForSeats, maxSeatsForEntry } from '../core/layout/seatLayout'
 import type { LightingMode, SceneObject, ShadowSharpness } from '../core/model/types'
 import { composeTransform, relativeTransform } from '../core/space'
@@ -47,12 +48,13 @@ import {
   setSeatCount,
   setSeatingConfig,
   setSize,
+  setSlotTexture,
 } from '../state/actions'
 import { categoryOf, isEffectivelyLocked, isFrozen, lightingOf, sceneCounts } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { useShallow } from 'zustand/react/shallow'
 import { LIGHTING_MODES } from '../viewer3d/lightingModes'
-import { ColorField, FieldRow, NumberField, Section, SliderField, Stepper } from './fields'
+import { ColorField, FieldRow, NumberField, Section, SliderField, Stepper, TextureField } from './fields'
 import { LayersSection } from './LayersSection'
 import {
   HallLayoutsSection,
@@ -362,9 +364,6 @@ function ChairInspector({ obj }: { obj: SceneObject }) {
   if (!entry) return null
   const world = parent ? composeTransform(parent.transform, obj.transform) : obj.transform
   const parentName = parent ? displayName(parent.name, parent.catalogId, parent.meta.number) : ''
-  const editableSlot = entry.editableColorSlot
-    ? entry.materialSlots.find((slot) => slot.name === entry.editableColorSlot)
-    : undefined
   const isChair = obj.attachment?.kind === 'seat'
   // A child's transform is PARENT-RELATIVE while these fields read world cm, so a
   // typed X has to be converted back. `relativeTransform` is `composeTransform`'s
@@ -416,22 +415,61 @@ function ChairInspector({ obj }: { obj: SceneObject }) {
         )}
         {!locked && !isChair && <ReplaceButton id={obj.id} />}
       </Section>
-      {editableSlot && (
-        <Section title={T.appearance}>
-          <ColorField
-            label={strings.catalog.slots[editableSlot.labelKey as keyof typeof strings.catalog.slots] ?? editableSlot.name}
-            value={slotColor(entry, obj.appearance, editableSlot.name)}
-            allowCustom={editableSlot.allowCustomColor}
-            onChange={(c) => setAppearance([obj.id], editableSlot.name, c)}
-          />
-        </Section>
-      )}
+      <AppearanceSection obj={obj} entry={entry} />
       <Section title={obj.attachment?.kind === 'surface' ? strings.drill.decor : strings.drill.chair}>
         <p className="text-[14px] text-ink-soft">
           {T.belongsTo} <span className="font-semibold text-ink">{parentName}</span>
         </p>
       </Section>
     </>
+  )
+}
+
+/**
+ * The Appearance section: one colour palette, and one texture picker beside it,
+ * per slot the catalogue lets the user restyle.
+ *
+ * ONE COMPONENT, rendered from BOTH inspectors. The top-level inspector and the
+ * drilled-in child inspector each carried their own copy of this block, character
+ * for character, and each read a single `entry.editableColorSlot`. Round 4 turned
+ * that field into a LIST and added a second control to every row, so two copies
+ * would have been two places to forget the picker — and the child inspector is the
+ * one a napkin is edited from, which is where the defaults live.
+ *
+ * The slot label falls back to the raw slot name: `strings.catalog.slots` is
+ * indexed by `labelKey`, and a new slot whose key has no Hebrew string yet must
+ * show something rather than `undefined`.
+ */
+function AppearanceSection({ obj, entry }: { obj: SceneObject; entry: CatalogEntry }) {
+  const slots = editableSlotsOf(entry)
+  if (slots.length === 0) return null
+  return (
+    <Section title={T.appearance}>
+      {slots.map((editable) => {
+        const def = entry.materialSlots.find((s) => s.name === editable.slot)
+        const label =
+          strings.catalog.slots[def?.labelKey as keyof typeof strings.catalog.slots] ?? editable.slot
+        return (
+          <div key={editable.slot} className="flex flex-col gap-2.5">
+            <ColorField
+              label={label}
+              value={slotColor(entry, obj.appearance, editable.slot)}
+              allowCustom={def?.allowCustomColor}
+              onChange={(c) => setAppearance([obj.id], editable.slot, c)}
+            />
+            {editable.texture && (
+              <TextureField
+                label={T.texture}
+                options={FABRIC_TEXTURE_IDS}
+                value={slotTextureId(entry, obj.appearance, editable.slot)}
+                noneLabel={T.textureNone}
+                onChange={(id) => setSlotTexture([obj.id], editable.slot, id)}
+              />
+            )}
+          </div>
+        )
+      })}
+    </Section>
   )
 }
 
@@ -513,9 +551,6 @@ function SingleInspector({ obj }: { obj: SceneObject }) {
   const canW = entry.resizable.includes('width')
   const canD = entry.resizable.includes('depth') && !entry.linkWidthDepth
   const canH = entry.resizable.includes('height')
-  const editableSlot = entry.editableColorSlot
-    ? entry.materialSlots.find((slot) => slot.name === entry.editableColorSlot)
-    : undefined
 
   return (
     <>
@@ -568,16 +603,7 @@ function SingleInspector({ obj }: { obj: SceneObject }) {
       <SeatingSection obj={obj} />
       <PlaceSettingsSection obj={obj} />
       <TableDesignSection obj={obj} />
-      {editableSlot && (
-        <Section title={T.appearance}>
-          <ColorField
-            label={strings.catalog.slots[editableSlot.labelKey as keyof typeof strings.catalog.slots] ?? editableSlot.name}
-            value={slotColor(entry, obj.appearance, editableSlot.name)}
-            allowCustom={editableSlot.allowCustomColor}
-            onChange={(c) => setAppearance([obj.id], editableSlot.name, c)}
-          />
-        </Section>
-      )}
+      <AppearanceSection obj={obj} entry={entry} />
     </>
   )
 }

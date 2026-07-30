@@ -116,8 +116,23 @@ const P = (file: string) => `/props/${file}`
  * napkin is matched to the linen of the day, which is not a house colour.
  * `allowCustomColor` rides on the slot so the inspector widens exactly this one
  * control (ui/fields.tsx) and nothing else.
+ *
+ * `defaultTexture` is REQUIRED, and the three call sites below pass the exact ids
+ * `viewer3d/slotTextures.ts` held before round 4 deleted that map: `fabric-13`
+ * mottled cream, `fabric-14` plain warm ivory, `fabric-19` the whitest and finest
+ * bouclé — which is the one the id `napkin-white` promises. Three DIFFERENT light
+ * weaves, so the napkins stay distinguishable from each other and from the cloth
+ * under them; the choice was looked at against all 22 rendered swatches and
+ * visually verified, so it moved here rather than being dropped. Moving it also
+ * makes it overridable: the picker can now take a napkin's weave off entirely
+ * (`textureId: null`), which is a thing neither dropping it nor leaving it in the
+ * renderer would have allowed. The napkins therefore render byte-identically to
+ * before this round — that is the point of passing the same three ids.
+ *
+ * Not defaulted here on purpose: a fourth napkin must state its weave rather than
+ * silently inherit one of these three.
  */
-function napkin(entry: CatalogEntry): CatalogEntry {
+function napkin(entry: CatalogEntry, defaultTexture: string): CatalogEntry {
   return {
     ...entry,
     category: 'tableware',
@@ -126,7 +141,7 @@ function napkin(entry: CatalogEntry): CatalogEntry {
     // singular: מפית ends in a tav that the plural drops for a vav (מפיות), so
     // the search's substring rule cannot bridge them the way it bridges נר/נרות.
     keywords: ['מפית', 'מפיות', 'קיפול'],
-    editableColorSlot: 'body',
+    editableSlots: [{ slot: 'body', texture: true, defaultTexture }],
     // A napkin is laid ON the place setting, never on the bare cloth (source doc
     // §27). That makes it a 'seat' item like the setting itself: one drop dresses
     // every cover, and each napkin is pinned to the setting it stands on, so
@@ -157,7 +172,7 @@ export const tableDecorEntries: CatalogEntry[] = [
   // 'מפית מקופלת' — the label says napkin, the id and labelKey still say fabric.
   // They are stable identifiers (stored projects and thumbnail filenames key off
   // them), so only the visible string changed.
-  napkin(surfaceProp('decor.fabric-folded', 'decorFabricFolded', 'a folded fabric napkin standing on the place setting', P('decor-fabric-folded.glb'), { width: 6, depth: 10.8, height: 12 }, '#e8e2d8', 'rect')),
+  napkin(surfaceProp('decor.fabric-folded', 'decorFabricFolded', 'a folded fabric napkin standing on the place setting', P('decor-fabric-folded.glb'), { width: 6, depth: 10.8, height: 12 }, '#e8e2d8', 'rect'), 'fabric-13'),
   // 'קיפול מפית מגולגל' — source doc §14: the third napkin, which only ever got
   // the colour slot bolted on and so stayed a centrepiece. It goes through
   // napkin() like the other two, which is what makes it tableware, laid per cover
@@ -192,7 +207,7 @@ export const tableDecorEntries: CatalogEntry[] = [
   // file's own bounds, and their diagonals (12.35 and 10.15) are well inside
   // ⌀20.75. Only this one was longer than the plate.
   {
-    ...napkin(surfaceProp('decor.napkin-folded', 'decorNapkinFolded', 'a rolled napkin laid on the place setting', P('decor-napkin-folded.glb'), { width: 7.56, depth: 19.08, height: 6.2 }, '#f0ece4', 'rect')),
+    ...napkin(surfaceProp('decor.napkin-folded', 'decorNapkinFolded', 'a rolled napkin laid on the place setting', P('decor-napkin-folded.glb'), { width: 7.56, depth: 19.08, height: 6.2 }, '#f0ece4', 'rect'), 'fabric-14'),
     // measured on the shipped GLB, 2026-07-29 (min [-6.1, 0, -15.39], max [6.1, 10, 15.39])
     modelSize: { width: 12.2, depth: 30.78, height: 10 },
   },
@@ -208,7 +223,7 @@ export const tableDecorEntries: CatalogEntry[] = [
   surfaceProp('decor.vases-rose-gold', 'decorVasesRoseGold', 'a group of rose-gold vases', P('decor-vases-rose-gold.glb'), { width: 51.9, depth: 71.7, height: 38 }, '#d2a08a', 'rect', ['ואזה', 'אגרטל', 'זהב']),
   surfaceProp('decor.vase-striped', 'decorVaseStriped', 'a striped stoneware vase', P('decor-vase-striped.glb'), { width: 17.9, depth: 18.9, height: 35 }, '#8f8a80', 'round', ['ואזה', 'אגרטל', 'פסים']),
   surfaceProp('decor.vases-white-ceramic', 'decorVasesWhiteCeramic', 'a group of white ceramic vases', P('decor-vases-white-ceramic.glb'), { width: 28.4, depth: 33.6, height: 35 }, '#e9e5dd', 'round', ['ואזה', 'אגרטל', 'קרמיקה', 'לבן']),
-  napkin(surfaceProp('decor.napkin-white', 'decorNapkinWhite', 'a small folded napkin', P('decor-napkin-white.glb'), { width: 8.6, depth: 5.4, height: 8 }, '#f3f0ea', 'rect')),
+  napkin(surfaceProp('decor.napkin-white', 'decorNapkinWhite', 'a small folded napkin', P('decor-napkin-white.glb'), { width: 8.6, depth: 5.4, height: 8 }, '#f3f0ea', 'rect'), 'fabric-19'),
   surfaceProp('decor.candleholders-wood', 'decorCandleholdersWood', 'a row of turned wooden candle holders', P('decor-candleholders-wood.glb'), { width: 5.3, depth: 21.1, height: 25 }, '#8a6b4f', 'rect', ['נר', 'נרות', 'פמוט', 'עץ']),
   surfaceProp('decor.candlestick-wood', 'decorCandlestickWood', 'a turned wooden candlestick', P('decor-candlestick-wood.glb'), { width: 6.3, depth: 25.1, height: 30 }, '#8a6b4f', 'rect', ['נר', 'נרות', 'פמוט', 'עץ']),
   // The only 'seat'-placement entry: dropping it on a table lays one out in front

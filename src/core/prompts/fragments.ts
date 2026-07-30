@@ -8,7 +8,7 @@
  * here is shown in the UI, so none of it belongs in ui/strings.ts.
  */
 import type { AppearanceOverrides } from '../model/types'
-import type { CatalogEntry } from '../catalog/types'
+import { editableSlotsOf, type CatalogEntry } from '../catalog/types'
 
 /**
  * The image budget, and the whole of its arithmetic.
@@ -150,13 +150,20 @@ export function hexToColorName(hex: string): string {
  * ` in gold`, or null when the colour is untouched (§44: mention the colour only
  * "if it was changed from the left-hand menu").
  *
- * Only an entry's ONE `editableColorSlot` can have been changed — every other
- * slot is fixed in the catalog and, for the entries that carry a real GLB, is
- * baked into the model anyway, so its slot colour describes the 2D footprint
+ * Only a slot on the entry's `editableSlots` list can have been changed — every
+ * other slot is fixed in the catalog and, for the entries that carry a real GLB,
+ * is baked into the model anyway, so its slot colour describes the 2D footprint
  * rather than anything the image model would see.
+ *
+ * THE FIRST such slot, when an entry has several. One phrase is what the sentence
+ * has room for, and the list is written most-significant-first: the divider's
+ * curtain is what the eye reads, its frame is not editable at all. A `match` is
+ * irrelevant here — the image model is being told what the object looks like, not
+ * which GLB parts to repaint. Nothing carries a texture into the prompt either:
+ * the 22 swatches have no names a language model could use.
  */
 export function colorPhrase(entry: CatalogEntry, appearance: AppearanceOverrides): string | null {
-  const slot = entry.editableColorSlot
+  const slot = editableSlotsOf(entry)[0]?.slot
   if (!slot) return null
   const chosen = appearance[slot]?.color
   const fallback = entry.materialSlots.find((s) => s.name === slot)?.defaultColor

@@ -154,11 +154,24 @@ export const pottedPlant2 = vegetationEntry(
  * eight frame parts (rail, two posts, foot bars, four casters) average #3f3d3b
  * over 0.75 m². Nothing sits between the two.
  *
- * ⚠ Agent A2 adds `editableSlots: [{ slot: 'fabric', match: 'fabric', texture:
- * true }]` to this entry in the same round, so the curtain can take a fabric
- * texture. Do not add it here. Note for whoever writes it: NO material in this
- * GLB is named 'fabric' — they are all `Material_tripo_part_N` — so a name match
- * has to be against that list, or the sixteen pleat materials will not be found.
+ * ONE OF THE TWO IS EDITABLE, and it owns only its own parts. `editableSlots`
+ * below gives the curtain the colour palette and the fabric texture picker while
+ * the frame stays the black steel it was modelled as. `match: 'fabric'` is what
+ * makes that possible: it is a GLB material-NAME prefix, and the names it matches
+ * are written by `tools/glb-prep/mark-fabric.mjs`, which renames the 25
+ * `Material_tripo_part_N` into `fabric-00…16` / `frame-00…07` by geometry. Before
+ * `match` existed an override tinted every part of a model, frame included.
+ * Re-run order and the warning that re-prepping erases the names:
+ * tools/glb-prep/README.md.
+ *
+ * ⚠ 2D DIVERGES HERE, deliberately. `editor2d/ObjectNode.tsx` tints the top-down
+ * plan image only when an editable slot owns the WHOLE model (no `match`), so the
+ * six tables and three napkins still tint and this entry does not. `planImage.tint`
+ * multiplies a whole cached canvas by one colour and the flat render carries no
+ * mask of which pixels are curtain, so tinting here would darken the black frame
+ * too. From directly above the divider is a 156 × 32 cm sliver; the colour of its
+ * curtain is not what the plan is for. Not a bug — do not "fix" it by widening the
+ * tint.
  */
 export const dividerScreen: CatalogEntry = {
   id: 'divider.screen',
@@ -175,6 +188,9 @@ export const dividerScreen: CatalogEntry = {
     { name: 'fabric', labelKey: 'fabric', defaultColor: '#b7a595' },
     { name: 'frame', labelKey: 'frame', defaultColor: '#3f3d3b' },
   ],
+  // No `defaultTexture`: the curtain's baked beige weave is the product, exactly
+  // as the tables' baked drape is theirs.
+  editableSlots: [{ slot: 'fabric', match: 'fabric', texture: true }],
   footprint: (s) => ({
     parts: [{ kind: 'rect', w: s.width, h: s.depth, slot: 'fabric' }],
     outline: { kind: 'rect', w: s.width, h: s.depth },
