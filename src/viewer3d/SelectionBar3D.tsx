@@ -32,7 +32,7 @@
  * The bar is a fixed screen-space strip, so it cannot say WHICH of forty tables
  * it is acting on; `TableLabel3D` pins that to the table itself.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronUp, CopyPlus, MoreHorizontal, RotateCcw, RotateCw, Trash2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
@@ -40,7 +40,7 @@ import type { SceneObject } from '../core/model/types'
 import { ROTATION_SNAP_DEG } from '../core/rotation'
 import { copySelection, cutSelection } from '../editor2d/clipboard'
 import { displayName } from '../editor2d/ObjectNode'
-import { useOverlayStore } from '../editor2d/overlayStore'
+import { overlay, useOverlayStore } from '../editor2d/overlayStore'
 import {
   duplicateObjects,
   removeObjects,
@@ -267,7 +267,27 @@ function RotationCluster({ id, canRotate }: { id: string; canRotate: boolean }) 
  * criticised for.
  */
 function OverflowMenu({ onClose, anchor }: { onClose: () => void; anchor: DOMRect }) {
-  const caps = useEditorStore((s) => menuCapabilities(s.scene, s.selection, s.selection[0] ?? null))
+  /**
+   * ⚠ SELECT THE SLICES, THEN COMPUTE — never `useEditorStore(s => menuCapabilities(…))`.
+   *
+   * `menuCapabilities` builds a fresh object on every call. zustand v5 reads
+   * through React's `useSyncExternalStore`, which compares snapshots with
+   * `Object.is`, so a selector returning a new object is never equal to the last
+   * one: React re-renders, re-selects, gets another new object, and loops until
+   * it gives up and unmounts the whole tree — a WHITE SCREEN, with the crash
+   * arriving as a render-depth bail-out rather than anything that names this
+   * function. That is exactly what shipped, and what the user hit on the `⋯`.
+   *
+   * `scene` and `selection` are safe to select because Immer keeps their
+   * references stable across unrelated updates, so this memo recomputes only
+   * when one of them genuinely changes.
+   */
+  const scene = useEditorStore((s) => s.scene)
+  const selection = useEditorStore((s) => s.selection)
+  const caps = useMemo(
+    () => menuCapabilities(scene, selection, selection[0] ?? null),
+    [scene, selection],
+  )
   const ids = caps.ids
   const M = strings.menu
 
@@ -286,6 +306,20 @@ function OverflowMenu({ onClose, anchor }: { onClose: () => void; anchor: DOMRec
     // Same gate as rotation: both are poses, and both are refused for the same
     // reasons (locked, frozen, or no legal room in the new pose).
     { label: M.mirror, shortcut: 'M', disabled: !caps.canRotate, onClick: () => mirrorObjects(ids) },
+    {
+      /**
+       * Arms the library's replace mode; the actual pick happens over there,
+       * exactly as the plan's menu does it (`Stage2D.tsx`). Worth knowing: the
+       * library is on screen in 3D too, so the whole gesture is visible without
+       * leaving the view — which is the point of the bar existing at all.
+       */
+      label: M.replace,
+      disabled: !caps.canReplace,
+      onClick: () => {
+        overlay.setReplaceTarget(ids[0] ?? null)
+        onClose()
+      },
+    },
     'separator',
     { label: M.bringToFront, disabled: !caps.canReorder, onClick: () => ids.forEach((id) => reorder(id, 'front')) },
     { label: M.sendToBack, disabled: !caps.canReorder, onClick: () => ids.forEach((id) => reorder(id, 'back')) },
