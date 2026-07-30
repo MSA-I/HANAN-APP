@@ -3,7 +3,8 @@
  * write path is what keeps undo, seat reconciliation and 2D/3D sync coherent.
  */
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
-import { isFloorTable, type CatalogEntry, type Category } from '../core/catalog/types'
+import { isEditableSlot, isFloorTable, type CatalogEntry, type Category } from '../core/catalog/types'
+import { isTextureId } from '../core/catalog/textures'
 import { createObject, createProject, newId, type NewProjectOptions } from '../core/model/factory'
 import { attachedChairs, reconcileSeats } from '../core/model/seatingReconciler'
 import type {
@@ -2176,11 +2177,46 @@ export function setSeatingConfig(id: Id, patch: Partial<SeatingConfig>): void {
 // appearance, naming, flags, order
 // ---------------------------------------------------------------------------
 
+/**
+ * ⚠ MERGES into the slot record. It used to REPLACE it (`obj.appearance[slot] =
+ * { color }`), which was harmless while `color` was the only field on it and is
+ * silent data loss now: picking a colour would wipe the texture the user had just
+ * chosen, and — worse — an absent `textureId` reads as "use the catalogue
+ * default", so a napkin would not merely lose the swatch but jump back to the
+ * weave the entry declares. Writing only the key this action owns is what keeps
+ * the two pickers independent.
+ */
 export function setAppearance(ids: Id[], slot: string, color: string): void {
   mutateScene((scene) => {
     for (const obj of editable(scene, ids)) {
-      if (getCatalogEntry(obj.catalogId).editableColorSlot !== slot) continue
-      obj.appearance[slot] = { color }
+      if (!isEditableSlot(getCatalogEntry(obj.catalogId), slot)) continue
+      const record = obj.appearance[slot] ?? (obj.appearance[slot] = {})
+      record.color = color
+    }
+  })
+}
+
+/**
+ * The other half of an appearance: which fabric swatch a slot wears.
+ *
+ * `null` is a VALUE, not a delete — "no texture", which is not the same as an
+ * absent key ("whatever the slot's `defaultTexture` says"). Clearing a napkin's
+ * weave has to survive a reload, so it is stored rather than removed; see the
+ * three-state note on `AppearanceOverrides`.
+ *
+ * Two guards, and the second is the load-bearing one: `isEditableSlot` is the
+ * same permission the colour action asks, and `isTextureId` is what keeps an
+ * unknown id out of the scene — a stored id becomes a URL, so an unvalidated one
+ * is a path the renderer would try to fetch and the picker would put in an
+ * `<img src>`.
+ */
+export function setSlotTexture(ids: Id[], slot: string, textureId: string | null): void {
+  if (textureId !== null && !isTextureId(textureId)) return
+  mutateScene((scene) => {
+    for (const obj of editable(scene, ids)) {
+      if (!isEditableSlot(getCatalogEntry(obj.catalogId), slot)) continue
+      const record = obj.appearance[slot] ?? (obj.appearance[slot] = {})
+      record.textureId = textureId
     }
   })
 }

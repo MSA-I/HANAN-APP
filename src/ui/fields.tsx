@@ -1,5 +1,6 @@
 import { ChevronDown, Minus, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { textureUrl } from '../core/catalog/textures'
 import { resolveOpenSections } from '../core/panelState'
 import { strings } from './strings'
 
@@ -349,6 +350,87 @@ export function ColorField({ label, value, onChange, allowCustom }: ColorFieldPr
             />
           </label>
         )}
+      </div>
+    </div>
+  )
+}
+
+interface TextureFieldProps {
+  label: string
+  /** FABRIC_TEXTURE_IDS, in catalogue order */
+  options: readonly string[]
+  /** the id in force — the user's pick or the slot default — or null for "no texture" */
+  value: string | null
+  noneLabel: string
+  onChange: (textureId: string | null) => void
+}
+
+/**
+ * The fabric swatch picker, beside `ColorField` on any slot whose `EditableSlot`
+ * says `texture: true` (round 4 §8: "in the previous round I asked to create a
+ * texture of tablecloths, but now when I go in and pick a table I don't even have
+ * the option to choose a texture — I only have the colours").
+ *
+ * The FIRST tile is "none", and it is not decoration: with 22 swatches and a
+ * catalogue that gives the three napkins a default weave, "take it off" is a
+ * choice the user has to be able to make, and it is a different answer from "I
+ * have not chosen" (see `AppearanceOverrides`). A diagonal rule rather than an
+ * icon, because the tile is 28px and any glyph at that size reads as a swatch.
+ *
+ * Same two border classes as `ColorField` so the two controls agree on what
+ * "selected" looks like, and `type="button"` for the reason recorded there — the
+ * inspector is not a form today, but the field is exported and the colour one is
+ * already used inside one.
+ *
+ * RTL: `flex-wrap` + `gap` only. No `ml-`/`mr-`/`left-`/`right-` anywhere, so the
+ * grid flows from the right in Hebrew without a mirrored stylesheet.
+ */
+export function TextureField({ label, options, value, noneLabel, onChange }: TextureFieldProps) {
+  const tile = 'h-7 w-7 shrink-0 overflow-hidden rounded-md border transition-colors'
+  const state = (on: boolean) => (on ? 'border-accent ring-1 ring-accent' : 'border-line')
+  return (
+    <div>
+      <div className="mb-1.5 text-[14px] text-ink-soft">{label}</div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          title={noneLabel}
+          aria-label={noneLabel}
+          aria-pressed={value === null}
+          onClick={() => onChange(null)}
+          className={`${tile} ${state(value === null)} relative bg-panel`}
+        >
+          {/* the rule is drawn corner to corner in the button's own box, so it
+              scales with the tile instead of being a fixed-size glyph */}
+          <span className="absolute inset-0" aria-hidden>
+            <svg viewBox="0 0 24 24" className="h-full w-full" preserveAspectRatio="none">
+              <line x1="2" y1="22" x2="22" y2="2" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
+          </span>
+        </button>
+        {options.map((id) => (
+          <button
+            key={id}
+            type="button"
+            title={id}
+            aria-label={id}
+            aria-pressed={value === id}
+            onClick={() => onChange(id)}
+            className={`${tile} ${state(value === id)}`}
+          >
+            {/* 22 swatches at ~300KB each: `loading="lazy"` keeps the ones below
+                the panel's fold off the wire until the section is scrolled to.
+                `draggable={false}` because the canvas behind accepts drops and a
+                dragged swatch image would land on it. */}
+            <img
+              src={textureUrl(id)}
+              alt=""
+              loading="lazy"
+              draggable={false}
+              className="h-full w-full rounded-[5px] object-cover"
+            />
+          </button>
+        ))}
       </div>
     </div>
   )

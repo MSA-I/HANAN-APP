@@ -1,4 +1,4 @@
-/**
+﻿/**
  * The venue's real tables. Sizes are the measured inventory (furniture-library-spec.md
  * §1), and each carries the resort's own Tripo GLB with the linen baked in — so the
  * `cloth`/`legs` slots below only colour the 2D footprint and the procedural fallback.
@@ -44,6 +44,17 @@ const DEFAULT_CHAIR = 'chair.x-white'
  * than built by a shared factory, so the field is repeated per entry. A seventh
  * table that forgets it would silently fall back to printing its size; that is
  * what catalog/librarySubtitle.test.ts sweeps for.
+ *
+ * ⚠ `editableSlots: [{ slot: 'cloth', texture: true }]` — WITH NO `defaultTexture`,
+ * on all six, and that absence is the whole of round 4 §8. Every table used to be
+ * registered in `viewer3d/slotTextures.ts` for `fabric-06`, so a freshly dropped
+ * table arrived wearing a cream damask trellis nobody had chosen: "it also loads a
+ * tablecloth texture automatically, when it should load on white by default". With
+ * the row gone and no default here, `ModelParts` builds no material override at all
+ * and the GLB's own baked drape renders untouched — the plain white the request
+ * asks for is the model as modelled, not a flat colour painted over it. `fabric-06`
+ * is still one click away in the picker. Locked in catalog/editableSlots.test.ts,
+ * which fails if any table ever declares a `defaultTexture` again.
  */
 
 export const roundTable: CatalogEntry = {
@@ -58,7 +69,7 @@ export const roundTable: CatalogEntry = {
   maxSize: {},
   linkWidthDepth: true,
   materialSlots: [CLOTH, LEGS],
-  editableColorSlot: 'cloth',
+  editableSlots: [{ slot: 'cloth', texture: true }],
   footprint: (s) => ({
     parts: [{ kind: 'circle', r: s.width / 2, slot: 'cloth' }],
     outline: { kind: 'circle', r: s.width / 2 },
@@ -100,7 +111,7 @@ export const roundTableLarge: CatalogEntry = {
   maxSize: {},
   linkWidthDepth: true,
   materialSlots: [CLOTH, LEGS],
-  editableColorSlot: 'cloth',
+  editableSlots: [{ slot: 'cloth', texture: true }],
   footprint: (s) => {
     const rInner = s.width * ROUND_LARGE_HOLE_RATIO
     return {
@@ -142,7 +153,7 @@ export const squareTable: CatalogEntry = {
   maxSize: {},
   linkWidthDepth: true,
   materialSlots: [CLOTH, LEGS],
-  editableColorSlot: 'cloth',
+  editableSlots: [{ slot: 'cloth', texture: true }],
   footprint: (s) => ({
     parts: [{ kind: 'rect', w: s.width, h: s.depth, cornerRadius: 3, slot: 'cloth' }],
     outline: { kind: 'rect', w: s.width, h: s.depth },
@@ -173,7 +184,7 @@ export const banquetTable: CatalogEntry = {
   minSize: {},
   maxSize: {},
   materialSlots: [CLOTH, LEGS],
-  editableColorSlot: 'cloth',
+  editableSlots: [{ slot: 'cloth', texture: true }],
   footprint: (s) => ({
     parts: [{ kind: 'rect', w: s.width, h: s.depth, cornerRadius: 2, slot: 'cloth' }],
     outline: { kind: 'rect', w: s.width, h: s.depth },
@@ -213,7 +224,7 @@ export const knightsTable: CatalogEntry = {
   minSize: {},
   maxSize: {},
   materialSlots: [CLOTH, LEGS],
-  editableColorSlot: 'cloth',
+  editableSlots: [{ slot: 'cloth', texture: true }],
   footprint: (s) => ({
     // two halves drawn separately so the join between the butted tables shows
     parts: [
@@ -274,7 +285,7 @@ export const serpentineTable: CatalogEntry = {
   minSize: {},
   maxSize: {},
   materialSlots: [CLOTH, LEGS],
-  editableColorSlot: 'cloth',
+  editableSlots: [{ slot: 'cloth', texture: true }],
   footprint: (s) => {
     const band = serpentineBounds()
     return {

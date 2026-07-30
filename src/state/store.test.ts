@@ -44,6 +44,7 @@ import {
   setRotation,
   setSeatCount,
   setSize,
+  setSlotTexture,
   undo,
 } from './actions'
 import { overlay, useOverlayStore } from '../editor2d/overlayStore'
@@ -341,7 +342,7 @@ describe('appearance permissions', () => {
       'table.serpentine',
     ]
     for (const catalogId of tableIds) {
-      expect(getCatalogEntry(catalogId).editableColorSlot).toBe('cloth')
+      expect(getCatalogEntry(catalogId).editableSlots?.map((s) => s.slot)).toEqual(['cloth'])
       const id = addObject(catalogId, { x: 800, y: 800 })
       setAppearance([id], 'cloth', '#33518f')
       setAppearance([id], 'legs', '#ffffff')
@@ -360,7 +361,7 @@ describe('appearance permissions', () => {
 
     const tableId = addObject('table.round', { x: 500, y: 500 })
     for (const catalogId of napkins) {
-      expect(getCatalogEntry(catalogId).editableColorSlot).toBe('body')
+      expect(getCatalogEntry(catalogId).editableSlots?.map((s) => s.slot)).toEqual(['body'])
       const id = addObjectToSurface(catalogId, tableId, { x: 500, y: 500 })!
       setAppearance([id], 'body', '#7a2e3f')
       setAppearance([id], 'cloth', '#ffffff')
@@ -374,6 +375,44 @@ describe('appearance permissions', () => {
     expect(scene().objects[chairId].appearance).toEqual({})
     expect(scene().objects[plantId].appearance).toEqual({})
     expect(scene().objects[decorId].appearance).toEqual({})
+  })
+
+  /**
+   * The regression the merge exists for. `setAppearance` used to REPLACE the slot
+   * record, so picking a colour after a texture dropped the texture — and dropping
+   * it does not merely blank the slot, it falls back to the catalogue default,
+   * which on a napkin is a visible jump back to another weave.
+   */
+  it('keeps colour and texture on the same slot, in either order', () => {
+    const id = addObject('table.round', { x: 800, y: 800 })
+    setAppearance([id], 'cloth', '#33518f')
+    setSlotTexture([id], 'cloth', 'fabric-06')
+    expect(scene().objects[id].appearance).toEqual({
+      cloth: { color: '#33518f', textureId: 'fabric-06' },
+    })
+    setAppearance([id], 'cloth', '#ffffff')
+    expect(scene().objects[id].appearance).toEqual({
+      cloth: { color: '#ffffff', textureId: 'fabric-06' },
+    })
+  })
+
+  it('stores an explicit null rather than deleting the key', () => {
+    // `null` = "no texture" and ABSENT = "the slot default" are different states,
+    // and only the first survives a reload as the user's answer — on a napkin,
+    // deleting the key would put the catalogue's weave straight back.
+    const tableId = addObject('table.round', { x: 500, y: 500 })
+    const napkinId = addObjectToSurface('decor.napkin-white', tableId, { x: 500, y: 500 })!
+    setSlotTexture([napkinId], 'body', null)
+    expect(scene().objects[napkinId].appearance).toEqual({ body: { textureId: null } })
+    expect('textureId' in scene().objects[napkinId].appearance.body).toBe(true)
+  })
+
+  it('refuses a non-editable slot and an unknown texture id', () => {
+    const id = addObject('table.round', { x: 800, y: 800 })
+    setSlotTexture([id], 'legs', 'fabric-06') // not on `editableSlots`
+    setSlotTexture([id], 'cloth', 'fabric-23') // only 22 exist
+    setSlotTexture([id], 'cloth', '../../etc/passwd') // a stored id becomes a URL
+    expect(scene().objects[id].appearance).toEqual({})
   })
 })
 

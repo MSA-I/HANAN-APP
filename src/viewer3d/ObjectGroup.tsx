@@ -53,7 +53,9 @@ import { applyPlanTransform, planTransformMatrix } from './planTransform'
 import { attachesToTable, commitPlacement3D, previewPlacement3D } from './Placement3D'
 import { RotateHandle } from './RotateHandle'
 import { useModelParts } from './propModel'
-import { slotTextureUrl, useSlotTexture } from './slotTextures'
+import { useSlotTextures } from './slotTextures'
+import { overrideForPart, slotAppearances, type SlotAppearance } from './appearance'
+import { textureUrl } from '../core/catalog/textures'
 
 const SELECT_COLOR = new THREE.Color(SELECT_TINT)
 
@@ -273,6 +275,15 @@ export function ObjectGroup({ id }: { id: Id }) {
     () => (catalogId && size ? objectSlotGeometries(catalogId, size) : []),
     [catalogId, size],
   )
+  // Above the early return, like `geometries`: hooks may not sit behind one. The
+  // memo is not an optimisation — `ModelParts` disposes and rebuilds its cloned
+  // materials whenever this array's identity changes, and `slotAppearances` would
+  // hand back a fresh one on every render. `appearance` is immer-stable between
+  // edits, so this changes exactly when the user restyles the object.
+  const slots = useMemo(
+    () => (catalogId && appearance ? slotAppearances(getCatalogEntry(catalogId), appearance) : []),
+    [catalogId, appearance],
+  )
 
   if (!catalogId || !size || !appearance) return null
   const entry = getCatalogEntry(catalogId)
@@ -462,8 +473,7 @@ export function ObjectGroup({ id }: { id: Id }) {
               catalogId={catalogId}
               url={entry.model}
               size={size}
-              slot={entry.editableColorSlot}
-              color={entry.editableColorSlot ? appearance[entry.editableColorSlot]?.color : undefined}
+              slots={slots}
               muted={muted}
             />
           </ModelFallback>
@@ -602,6 +612,15 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
   const geometries = useMemo(
     () => (catalogId && size ? objectSlotGeometries(catalogId, size) : []),
     [catalogId, size],
+  )
+  // Above the early return, like `geometries`: hooks may not sit behind one. The
+  // memo is not an optimisation — `ModelParts` disposes and rebuilds its cloned
+  // materials whenever this array's identity changes, and `slotAppearances` would
+  // hand back a fresh one on every render. `appearance` is immer-stable between
+  // edits, so this changes exactly when the user restyles the object.
+  const slots = useMemo(
+    () => (catalogId && appearance ? slotAppearances(getCatalogEntry(catalogId), appearance) : []),
+    [catalogId, appearance],
   )
 
   if (!catalogId || !size || !appearance) return null
@@ -796,8 +815,7 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
               catalogId={catalogId}
               url={entry.model}
               size={size}
-              slot={entry.editableColorSlot}
-              color={entry.editableColorSlot ? appearance[entry.editableColorSlot]?.color : undefined}
+              slots={slots}
               muted={muted}
             />
           </ModelFallback>
@@ -821,16 +839,6 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
   )
 }
 
-/**
- * The real GLB of a catalog entry. An editable appearance override gets private
- * cloned materials, keeping textures/PBR data intact without tinting other instances.
- *
- * An override is a tint, a `map`, or both. The map comes from `slotTextures.ts`,
- * which is empty today: with nothing registered for the slot this is the same
- * clone-and-tint it always was. Both are applied to the CLONE — the cached
- * material in `propModel.partCache` is never touched, so no cache key has to
- * carry the texture (BRIEF §1.8).
- */
 /**
  * Which parts are glass, and what glass looks like.
  *
@@ -864,25 +872,38 @@ const glassMaterial = () =>
     transparent: true,
   }))
 
+/**
+ * The real GLB of a catalog entry. An editable appearance override gets private
+ * cloned materials, keeping the baked maps and PBR data intact without touching
+ * other instances.
+ *
+ * An override is a tint, a `map`, or both, and it reaches only the parts its slot
+ * OWNS — `overrideForPart` matches the GLB material name against the slot's
+ * `match` prefix. That is what lets the divider's curtain change while its frame
+ * stays black. Both are written to the CLONE; the cached material in
+ * `propModel.partCache` is never touched, so no cache key has to carry the
+ * texture (BRIEF §1.8).
+ */
 function ModelParts({
   catalogId,
   url,
   size,
-  slot,
-  color,
+  slots,
   muted,
 }: {
   catalogId: string
   url: string
   size: Size3D
-  slot?: string
-  color?: string
+  /** what each editable slot is asking for; `[]` for an entry with none */
+  slots: SlotAppearance[]
   /** design-edit mode is arranging another table — ghost this one (source doc §52) */
   muted?: boolean
 }) {
   const parts = useModelParts(catalogId, url, size)
   const invalidate = useThree((s) => s.invalidate)
-  const map = useSlotTexture(slotTextureUrl(catalogId, slot))
+  const maps = useSlotTextures(
+    useMemo(() => slots.map((s) => (s.textureId ? textureUrl(s.textureId) : undefined)), [slots]),
+  )
   const hasGlass = useMemo(() => parts.some((p) => isGlassPart(p.material)), [parts])
   // ⚠ The dim is folded in HERE rather than through `dimmedMaterial`, because the
   // materials in this array are this component's OWN clones: the cache up top may
@@ -890,47 +911,64 @@ function ModelParts({
   // clone would grow it without bound and hand back a dimmed twin of a material
   // that has since been disposed. `muted` is a memo dependency, so leaving the
   // mode rebuilds these undimmed.
-  const overriddenMaterials = useMemo(
-    () =>
-      color || map || hasGlass || muted
-        ? parts.map(({ material }) => {
-            // A drinking vessel is not a tint of the mesh it was cut from — it is a
-            // different material class. The baked one is `metalness 1, roughness 1,
-            // OPAQUE`, and cloning it can never become glass: `transmission` lives on
-            // MeshPhysicalMaterial and the clone is Standard. So this one is BUILT,
-            // and the part's own baked texture is dropped on purpose — a transmissive
-            // surface has nothing to show it on.
-            //
-            // Muted, it has to be a COPY of that one: `sharedGlass` is every glass on
-            // every table, so ghosting it in place would ghost the whole hall.
-            if (isGlassPart(material)) {
-              return muted ? dimInPlace(glassMaterial().clone()) : glassMaterial()
-            }
-            const clone = material.clone()
-            const tintable = clone as THREE.Material & {
-              color?: THREE.Color
-              map?: THREE.Texture | null
-            }
-            if (color && tintable.color?.isColor) tintable.color.set(color)
-            if (map && 'map' in clone) {
-              tintable.map = map
-              clone.needsUpdate = true
-            }
-            if (muted) dimInPlace(clone)
-            return clone
-          })
-        : null,
-    [color, map, hasGlass, muted, parts],
-  )
+  //
+  // ⚠⚠ `null` FOR A PART MEANS "USE THE CACHED ORIGINAL", and it is the reason
+  // this array is nullable per entry rather than dense. `propModel.partCache`
+  // materials belong to drei's `useGLTF` cache and are SHARED across every instance
+  // and every size of that entry — so putting an unmatched part's own material into
+  // this array would make the cleanup below dispose it, and unmounting one divider
+  // would black out every other object built from the same GLB. Far from the cause,
+  // and only after a delete. The render line reads `overridden?.[i] ?? material`,
+  // which turns the sentinel back into exactly that shared material without ever
+  // taking ownership of it.
+  const overriddenMaterials = useMemo(() => {
+    const styled = slots.some((s, i) => s.color || maps[i])
+    if (!styled && !hasGlass && !muted) return null
+    return parts.map(({ material }) => {
+      // A drinking vessel is not a tint of the mesh it was cut from — it is a
+      // different material class. The baked one is `metalness 1, roughness 1,
+      // OPAQUE`, and cloning it can never become glass: `transmission` lives on
+      // MeshPhysicalMaterial and the clone is Standard. So this one is BUILT,
+      // and the part's own baked texture is dropped on purpose — a transmissive
+      // surface has nothing to show it on.
+      //
+      // Muted, it has to be a COPY of that one: `sharedGlass` is every glass on
+      // every table, so ghosting it in place would ghost the whole hall.
+      if (isGlassPart(material)) {
+        return muted ? dimInPlace(glassMaterial().clone()) : glassMaterial()
+      }
+      const own = overrideForPart(material.name, slots)
+      const color = own?.color
+      const map = own ? maps[slots.indexOf(own)] : null
+      // nothing to say about this part: the sentinel, NOT `material`
+      if (!color && !map && !muted) return null
+      const clone = material.clone()
+      const tintable = clone as THREE.Material & {
+        color?: THREE.Color
+        map?: THREE.Texture | null
+      }
+      if (color && tintable.color?.isColor) tintable.color.set(color)
+      if (map && 'map' in clone) {
+        tintable.map = map
+        clone.needsUpdate = true
+      }
+      if (muted) dimInPlace(clone)
+      return clone
+    })
+  }, [slots, maps, hasGlass, muted, parts])
   // frameloop is "demand": a texture that arrives after the object was drawn has
   // to ask for the frame that shows it
   useEffect(() => invalidate(), [overriddenMaterials, invalidate])
   useEffect(
     () => () => {
-      // the clones are ours; the texture is shared per URL and outlives them, and
-      // so does the one glass material every table's glasses point at
+      // Everything disposed here is ours and nothing else is. Three exclusions, and
+      // each names a different owner: `null` is a part still wearing the SHARED
+      // cached material from `propModel.partCache`; `sharedGlass` is the one glass
+      // material every table's glasses point at, which is never disposed at all; and
+      // what is left can only be a `.clone()` made a few lines above. The texture is
+      // shared per URL and outlives all of them.
       overriddenMaterials?.forEach((material) => {
-        if (material !== sharedGlass) material.dispose()
+        if (material && material !== sharedGlass) material.dispose()
       })
     },
     [overriddenMaterials],

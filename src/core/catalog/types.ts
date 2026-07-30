@@ -5,7 +5,7 @@
  * resize constraints and seating capability. Adding a furniture type means
  * adding an entry — never touching the renderers.
  */
-import type { SeatingConfig, Size3D, Transform2D, Vec2 } from '../model/types'
+import type { AppearanceOverrides, SeatingConfig, Size3D, Transform2D, Vec2 } from '../model/types'
 
 /**
  * Library groups, in no particular order here — CATEGORY_ORDER (registry.ts) is
@@ -129,6 +129,44 @@ export interface SeatingCapability {
   defaultOffset: number
 }
 
+/**
+ * One material slot the user is allowed to restyle, and how far that permission
+ * reaches into the GLB.
+ *
+ * REPLACES `editableColorSlot?: string`, which was a single slot name and said
+ * nothing about which parts of the model it owned. Keeping both would have given
+ * `setAppearance`'s guard two sources of truth for "may the user edit this".
+ */
+export interface EditableSlot {
+  /** must name a MaterialSlotDef on the same entry */
+  slot: string
+  /**
+   * GLB material-name PREFIX this slot owns; omitted = the whole model.
+   *
+   * This is the missing link the type exists for. Before it, an override tinted
+   * EVERY part of the model because nothing mapped a catalog slot onto a GLB
+   * material name — which is why the divider's frame could not stay black while
+   * its curtain changed colour. The prefix is written at prep time by
+   * tools/glb-prep/mark-fabric.mjs, the same marking-by-rename that
+   * mark-glass.mjs already uses and that `isGlassPart` reads.
+   */
+  match?: string
+  /** offer the fabric texture picker beside the colour palette */
+  texture?: boolean
+  /**
+   * The texture worn when the user has picked none. REPLACES viewer3d's
+   * SLOT_TEXTURES map, whose own header said moving it here is where it belongs
+   * once a catalog owner wanted it.
+   *
+   * ABSENT IS A DECISION, not an omission, on the six tables: source doc round 4
+   * §8 — "it also loads a tablecloth texture automatically, when it should load
+   * on white by default". With no default and no user pick, nothing builds an
+   * override at all and the table renders its own baked drape, which is the
+   * plain white the request asks for. catalog/editableSlots.test.ts locks it.
+   */
+  defaultTexture?: string
+}
+
 export interface CatalogEntry {
   id: string
   category: Category
@@ -143,16 +181,21 @@ export interface CatalogEntry {
   /** round tables etc.: diameter — width and depth stay equal */
   linkWidthDepth?: boolean
   materialSlots: MaterialSlotDef[]
-  /** the only material slot the user may recolor; omitted means appearance is fixed */
-  editableColorSlot?: string
+  /**
+   * The material slots the user may restyle; omitted or empty means appearance is
+   * fixed. It is the single permission list — `setAppearance` and
+   * `setSlotTexture` both refuse a slot that is not in it.
+   */
+  editableSlots?: EditableSlot[]
   footprint: (size: Size3D) => FootprintSpec
   buildMesh: (size: Size3D) => MeshPart[]
   /**
    * URL of a real GLB (public/props/, prepped by glb-prep --mode prop). When set,
-   * the 3D viewer renders this model instead of `buildMesh`. When
-   * `editableColorSlot` is set, an explicit override tints cloned model materials
-   * while preserving their textures and PBR properties. `buildMesh` stays as the
-   * loading/error fallback.
+   * the 3D viewer renders this model instead of `buildMesh`. An explicit override
+   * on an `editableSlots` entry tints and/or textures CLONED model materials while
+   * preserving their PBR properties — and only the parts whose material name
+   * carries that slot's `match` prefix. `buildMesh` stays as the loading/error
+   * fallback.
    */
   model?: string
   /**
@@ -441,6 +484,40 @@ export function slotColor(
   if (fromOverride) return fromOverride
   const def = entry.materialSlots.find((s) => s.name === slot)
   return def?.defaultColor ?? '#cccccc'
+}
+
+/** The slots the user may restyle, in catalogue order. Never null. */
+export function editableSlotsOf(entry: CatalogEntry): readonly EditableSlot[] {
+  return entry.editableSlots ?? []
+}
+
+/**
+ * May the user restyle this slot on this entry? The guard both appearance actions
+ * ask before writing — a `slot` that is merely a real `materialSlots` name is not
+ * enough, because most of those are fixed by the catalogue (a table's legs).
+ */
+export function isEditableSlot(entry: CatalogEntry, slot: string): boolean {
+  return editableSlotsOf(entry).some((s) => s.slot === slot)
+}
+
+/**
+ * The texture id in force for a slot: the user's pick, else the catalogue's
+ * default, else none. `null` rather than `undefined` because "no texture" is a
+ * state the user can choose and the renderer has to act on — see the three-state
+ * note on `AppearanceOverrides`.
+ *
+ * ⚠ `'textureId' in record` and not `record.textureId != null`: a stored `null`
+ * IS the user's answer and must beat `defaultTexture`, which is the whole reason
+ * the field is nullable in the schema.
+ */
+export function slotTextureId(
+  entry: CatalogEntry,
+  appearance: AppearanceOverrides,
+  slot: string,
+): string | null {
+  const record = appearance[slot]
+  if (record && 'textureId' in record) return record.textureId ?? null
+  return editableSlotsOf(entry).find((s) => s.slot === slot)?.defaultTexture ?? null
 }
 
 export function anchorOf(_size: Size3D): Vec2 {

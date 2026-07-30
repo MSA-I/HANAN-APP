@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { Circle, Group, Image as KonvaImage, Rect, Text } from 'react-konva'
 import { useShallow } from 'zustand/react/shallow'
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
-import { slotColor, type Outline } from '../core/catalog/types'
+import { editableSlotsOf, slotColor, type Outline } from '../core/catalog/types'
 import { childSortKey, type Id } from '../core/model/types'
 import { notify } from '../state/notice'
 import {
@@ -141,12 +141,23 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
     [entry, obj],
   )
 
-  // Same value ObjectGroup hands the 3D model (ObjectGroup.tsx:303), where three
-  // multiplies the base texture by it — the 2D image is tinted the same way, or
-  // the two views disagree on the colour the user just picked.
-  const planColor = entry?.editableColorSlot
-    ? (obj?.appearance[entry.editableColorSlot]?.color ?? null)
-    : null
+  // Same value ObjectGroup hands the 3D model, where three multiplies the base
+  // texture by it — the 2D image is tinted the same way, or the two views disagree
+  // on the colour the user just picked.
+  //
+  // ⚠ ONLY a slot that owns the WHOLE model (no `match`), which is the six tables
+  // and the three napkins — unchanged. `planImage.tint` multiplies a whole cached
+  // canvas by one colour, keyed `model|color`, and the flat top-down render carries
+  // no mask of which pixels belong to which slot: tinting the divider by its
+  // curtain colour would darken its black frame too. Widening this needs a
+  // per-slot mask and a third cache dimension, for a piece that is a 156 × 32 cm
+  // sliver from directly above. See the note on `dividerScreen`.
+  //
+  // The TEXTURE is deliberately not drawn here at all, for the same reason plus
+  // one more: a tiled fabric would need a per-texture canvas, and a tablecloth
+  // pattern at plan zoom is sub-pixel.
+  const wholeModelSlot = entry ? editableSlotsOf(entry).find((s) => s.match === undefined) : undefined
+  const planColor = wholeModelSlot ? (obj?.appearance[wholeModelSlot.slot]?.color ?? null) : null
   const plan = usePlanImage(entry?.model, planColor)
 
   // Deleting the object under the pointer unmounts this node without ever firing

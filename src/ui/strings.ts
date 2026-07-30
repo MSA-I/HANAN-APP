@@ -597,9 +597,14 @@ export const strings = {
     selectedCount: (n: number) => `${n} פריטים נבחרו`,
     selectAll: 'בחירת הכול',
     /**
-     * PLAN-05 item 14 — the 22 cloth/napkin textures, if they get a picker. The
-     * loading machinery already exists and is unused (`slotTextures.ts:36, 51-90`),
-     * so whether this becomes visible UI is PLAN-05's call.
+     * The 22 fabric swatches. LIVE since round 4 §8 — `ui/fields.tsx`'s
+     * `TextureField`, rendered by `AppearanceSection` for every slot whose
+     * `EditableSlot` says `texture: true` (the six tables, the three napkins, the
+     * divider's curtain). They were seeded a round earlier with no reader.
+     *
+     * `textureNone` labels the first tile, and it is a real choice rather than a
+     * reset: "no texture" is stored, and is not the same as never having picked
+     * (see `AppearanceOverrides`).
      */
     texture: 'טקסטורה',
     textureNone: 'ללא טקסטורה',
