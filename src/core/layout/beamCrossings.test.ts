@@ -68,29 +68,38 @@ describe('beamSpans', () => {
   })
 
   /**
-   * The drawing and the snap have to describe the same rectangle, because they
-   * are the same promise made twice: a line says "a fixture can hang here" and
+   * The drawing and the snap have to describe the same figure, because they are
+   * the same promise made twice: a line says "a fixture can hang here" and
    * `snapToBeam` decides whether one actually can.
    *
-   * ⚠ They did not agree before 2026-07-29. The spans were stretched across the
-   * PACK rectangle, so on the resort the three cross-runs were drawn from x 0 to
-   * x 6051 — 1.8 m past the outermost tube and straight over the open reception
-   * deck, where there is no roof, no truss, and no reachable position at all.
+   * ⚠ They have now disagreed twice, in opposite directions. First the spans were
+   * stretched across the PACK rectangle, so the three cross-runs were drawn from
+   * x 0 to x 6051 — straight over the open reception deck. Then both were bounded
+   * by the outermost members of the OTHER family, which drew the truss RECTANGLE
+   * (x 158…4208 by y 102…1306) and, worse, ENFORCED it: the eleven tubes really
+   * run the depth of the hall, so that pinned every fixture to the northern half.
+   * Both now read the family's own declared `span`, so the figure is one fact.
    */
   it('draws each beam over exactly the stretch a fixture can slide along', () => {
+    const runY = beams.find((b) => b.axis === 'y')!.span!
+    const runX = beams.find((b) => b.axis === 'x')!.span!
     const spans = beamSpans(beams, resort.size)
     for (const s of spans.filter((v) => v.axis === 'y')) {
-      // the far end of a vertical beam is bounded by the outermost cross-run …
-      expect([s.y1, s.y2]).toEqual([Math.min(...ys), Math.max(...ys)])
+      // a vertical beam is drawn over its own run …
+      expect([s.y1, s.y2]).toEqual(runY)
       // … which is where the snap holds a fixture sliding past either end
       expect(snapToBeam({ x: s.x1, y: -9999 }, beams)).toEqual({ x: s.x1, y: s.y1 })
       expect(snapToBeam({ x: s.x1, y: 9999 }, beams)).toEqual({ x: s.x1, y: s.y2 })
     }
     for (const s of spans.filter((v) => v.axis === 'x')) {
-      expect([s.x1, s.x2]).toEqual([Math.min(...xs), Math.max(...xs)])
+      expect([s.x1, s.x2]).toEqual(runX)
       expect(snapToBeam({ x: -9999, y: s.y1 }, beams)).toEqual({ x: s.x1, y: s.y1 })
       expect(snapToBeam({ x: 9999, y: s.y1 }, beams)).toEqual({ x: s.x2, y: s.y1 })
     }
+    // and the run really is longer than the rectangle it replaced, in both
+    // directions — otherwise this test would pass on the old behaviour too
+    expect(runY[1] - runY[0]).toBeGreaterThan(Math.max(...ys) - Math.min(...ys))
+    expect(runX[1] - runX[0]).toBeGreaterThan(Math.max(...xs) - Math.min(...xs))
   })
 
   it('never draws a beam over the reception deck, which has no truss', () => {

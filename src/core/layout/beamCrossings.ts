@@ -25,21 +25,25 @@ export interface BeamSpan {
 }
 
 /**
- * Every beam of every family, drawn over the TRUSS rectangle — the stretch each
- * beam is bounded by the outermost members of the other family, which is exactly
- * the range `withinSpan` holds a sliding fixture to (`beams.ts`).
+ * Every beam of every family, drawn over exactly the stretch a fixture may slide
+ * along. That stretch is the family's declared `span` (venuePacks.ts) — the same
+ * field `withinRun` holds a sliding fixture to (`beams.ts`) — so the drawing and
+ * the snap describe the same figure by construction. They are the same promise
+ * made twice: a line says "a fixture can hang here", and `snapToBeam` decides
+ * whether one actually can. Change one without the other and the 2D lighting plan
+ * starts lying.
  *
- * ⚠ It used to stretch them across the venue rectangle instead, and on the resort
- * that drew the three cross-runs from x 0 to x 6051 — straight over the reception
- * deck, which starts at 4432, is open to the sky and carries no truss at all. The
- * outermost tube is at 4208, so `snapToBeam` can never put a fixture out there:
- * the plan was drawing beams into a region where nothing can hang, which is the
- * source doc's item 9b ("the warp and weft in the 2D plan does not reflect the
- * real state of the beams"). Now the picture and the snap agree by construction.
+ * ⚠ Two wrong answers preceded this one, in opposite directions. First the spans
+ * were stretched across the venue RECTANGLE, so on the resort the three cross-runs
+ * ran from x 0 to x 6051 — 1.8 m past the outermost tube and straight over the
+ * open reception deck (source doc item 9b). Then they were bounded by the
+ * outermost members of the OTHER family, which drew the truss RECTANGLE, x
+ * 158…4208 by y 102…1306: honest about the crossings but 12 m short along the
+ * eleven tubes, which really do run the full depth of the hall. A beam's length is
+ * a property of the beam, so the pack now states it and this reads it.
  *
- * The tubes really do run further than this — y −193…2531, the full depth and
- * 193 cm past the north wall (handoff/01-beams.md §5). What is drawn is the part
- * a fixture can use, not the mill length of the steel.
+ * The fallbacks below are for hand-built families in tests and for any future pack
+ * that omits `span`: the old other-family rectangle first, then the venue.
  */
 export function beamSpans(
   beams: CeilingBeams[],
@@ -47,16 +51,23 @@ export function beamSpans(
 ): BeamSpan[] {
   const alongY = beams.find((b) => b.axis === 'y')?.positions ?? []
   const alongX = beams.find((b) => b.axis === 'x')?.positions ?? []
-  // a lone family bounds nothing, and `withinSpan` leaves that axis free, so the
+  // a lone family bounds nothing, and `withinRun` leaves that axis free, so the
   // drawing follows it across the whole room rather than collapsing to a point
-  const [top, bottom] = alongX.length ? [Math.min(...alongX), Math.max(...alongX)] : [0, venue.depth]
-  const [left, right] = alongY.length ? [Math.min(...alongY), Math.max(...alongY)] : [0, venue.width]
+  const inferredY: [number, number] = alongX.length
+    ? [Math.min(...alongX), Math.max(...alongX)]
+    : [0, venue.depth]
+  const inferredX: [number, number] = alongY.length
+    ? [Math.min(...alongY), Math.max(...alongY)]
+    : [0, venue.width]
   const spans: BeamSpan[] = []
   for (const family of beams) {
+    // `span` is measured along the family's OWN axis, which is the coordinate the
+    // segment sweeps; the position it stands at is on the perpendicular one
+    const [from, to] = family.span ?? (family.axis === 'y' ? inferredY : inferredX)
     for (const at of family.positions) {
       // a family running along y stands at x = at and reaches across the depth
-      if (family.axis === 'y') spans.push({ axis: 'y', x1: at, y1: top, x2: at, y2: bottom })
-      else spans.push({ axis: 'x', x1: left, y1: at, x2: right, y2: at })
+      if (family.axis === 'y') spans.push({ axis: 'y', x1: at, y1: from, x2: at, y2: to })
+      else spans.push({ axis: 'x', x1: from, y1: at, x2: to, y2: at })
     }
   }
   return spans

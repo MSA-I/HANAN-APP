@@ -24,6 +24,9 @@ describe('ceiling placement', () => {
     expect(obj.transform.elevation + obj.size.height).toBe(1160)
   })
 
+  // ⚠ At wallHeight 350 this now asserts a NEGATIVE elevation — the cluster's drop
+  // is 375 since round-4 item 14a. That is the honest reading of the arithmetic and
+  // is left alone; the consequence is stated outright in `catalogued scale` below.
   it('scales the drop to whatever ceiling it is given', () => {
     const drop = dropOf('lamp.pendant-cluster')
     expect(createObject('lamp.pendant-cluster', at, { wallHeight: 350 }).transform.elevation).toBe(350 - drop)
@@ -86,18 +89,20 @@ describe('chandelier entries', () => {
     expect(getCatalogEntry(id).placement).toBe('ceiling')
   })
 
-  // The GLBs still model a 60–120 cm drop; corrections document §8 catalogues
-  // every ceiling fixture at 2.5× that, so the drop the app uses is 150–300.
+  // The GLBs still model a 90–120 cm drop; corrections document §8 catalogues the
+  // three CHANDELIERS at 2.5× that, so the drop the app uses is 225–300. (The two
+  // pendants went to ×6.25 in round-4 item 14a and are not in this sweep — the
+  // per-family scales are pinned in `catalogued scale` below.)
   // Both ends are asserted because the PAIR is what the 3D fit divides by
   // (`size / (modelSize ?? defaultSize)`, propModel.ts:56-66): an entry that
   // grew its defaultSize without declaring the file's own modelSize would draw
   // large in 2D and render small in 3D, silently.
-  it.each(ids)('%s drops between 150 and 300 cm, from a file that models 60 to 120', (id) => {
+  it.each(ids)('%s drops between 225 and 300 cm, from a file that models 90 to 120', (id) => {
     const { defaultSize, modelSize } = getCatalogEntry(id)
-    expect(defaultSize.height).toBeGreaterThanOrEqual(150)
+    expect(defaultSize.height).toBeGreaterThanOrEqual(225)
     expect(defaultSize.height).toBeLessThanOrEqual(300)
     if (!modelSize) throw new Error(`${id}: a rescaled entry must state its file's own size`)
-    expect(modelSize.height).toBeGreaterThanOrEqual(60)
+    expect(modelSize.height).toBeGreaterThanOrEqual(90)
     expect(modelSize.height).toBeLessThanOrEqual(120)
   })
 
@@ -139,6 +144,90 @@ describe('every ceiling fixture still has a band to hang in', () => {
     // createObject seeds without clamping, so the two must already agree
     expect(obj.transform.elevation).toBe(hangRange(pack, pack.wallHeight, height).max)
     expect(clampHang(pack, pack.wallHeight, height, obj.transform.elevation)).toBe(obj.transform.elevation)
+  })
+})
+
+/**
+ * The scale each family is catalogued at, and what it costs.
+ *
+ * There was NO coverage of this before round 4: five suspected tests were checked
+ * and not one of them would have failed if a fixture's scale had been changed by
+ * hand — the chandelier sweep runs on the three chandeliers, the band test only
+ * cares that the width is the venue's, and `dropOf` reads whatever the catalogue
+ * says. That absence is why these exist.
+ */
+describe('catalogued scale', () => {
+  const pack = getVenuePack('resort')!
+  const PENDANT_SCALE = 6.25
+  const CHANDELIER_SCALE = 2.5
+  const families: [string, number][] = [
+    ['lamp.pendant', PENDANT_SCALE],
+    ['lamp.pendant-cluster', PENDANT_SCALE],
+    ['lamp.chandelier-diamond', CHANDELIER_SCALE],
+    ['lamp.chandelier-basket', CHANDELIER_SCALE],
+    ['lamp.chandelier-candelabra', CHANDELIER_SCALE],
+  ]
+
+  it('covers every ceiling fixture, so a sixth one cannot slip past unscaled', () => {
+    expect(families.map(([id]) => id).sort()).toEqual(
+      listCatalog().filter((e) => e.placement === 'ceiling').map((e) => e.id).sort(),
+    )
+  })
+
+  /**
+   * ⚠ `toBeCloseTo`, not `toBe`, and only because of ONE product: 18.1 × 6.25 comes
+   * out 113.12500000000001, since 25/4 is exact but 18.1 is not a double. The error
+   * is 1.4e-14 cm. The alternative was writing the two `defaultSize`s out as
+   * literals, which would have broken the property this file relies on — that the
+   * ratio the 3D loader fits by (`size / modelSize`) is the same number the plan
+   * draws with.
+   */
+  it.each(families)('%s is its file bounds × %d on all three axes', (id, scale) => {
+    const { defaultSize, modelSize } = getCatalogEntry(id)
+    if (!modelSize) throw new Error(`${id}: a rescaled entry must state its file's own size`)
+    for (const axis of ['width', 'depth', 'height'] as const) {
+      expect(defaultSize[axis] / modelSize[axis]).toBeCloseTo(scale, 9)
+    }
+  })
+
+  /**
+   * `hangRange`'s band is `[max(0, wallHeight − MAX_DROP_FROM_CEILING − height),
+   * hangHeight − height]`. The `max(0, …)` is the cliff: past it the bottom of the
+   * band stops moving with the fixture and the slider starts to shrink. In the
+   * resort that is height 510, and the tallest fixture is now 375 — so the margin
+   * is 135 cm, where before ×6.25 the tallest was 300 and it was 210.
+   */
+  it('leaves every fixture short of the height where its slider starts to shrink', () => {
+    const cliff = pack.wallHeight - MAX_DROP_FROM_CEILING
+    for (const [id] of families) {
+      expect(getCatalogEntry(id).defaultSize.height, id).toBeLessThan(cliff)
+    }
+    // and the tallest really is close enough for this to be worth asserting
+    const tallest = Math.max(...families.map(([id]) => getCatalogEntry(id).defaultSize.height))
+    expect(cliff - tallest).toBeLessThan(MAX_DROP_FROM_CEILING)
+  })
+
+  /**
+   * The price of ×6.25, stated so it cannot be discovered by accident: the cluster
+   * is now TALLER than a default procedural room, and `createObject` seeds
+   * `wallHeight − height` with no clamp (factory.ts:155-157), so it seeds below the
+   * floor there. Nothing ships broken — the only pack is the resort at 1160/895 —
+   * but a procedural room is what every project gets before a venue is chosen.
+   */
+  it('no longer fits the 350 cm procedural room, and says so instead of hiding it', () => {
+    const drop = dropOf('lamp.pendant-cluster')
+    expect(drop).toBeGreaterThan(DEFAULT_WALL_HEIGHT)
+    expect(createObject('lamp.pendant-cluster', at, { wallHeight: DEFAULT_WALL_HEIGHT }).transform.elevation)
+      .toBeLessThan(0)
+    // the band has collapsed to a point at the floor, which is `hangRange` refusing
+    // to invert rather than a legal place to hang
+    expect(hangRange(undefined, DEFAULT_WALL_HEIGHT, drop)).toEqual({ min: 0, max: 0 })
+    // the pendant still fits, so this is about the cluster and not about ×6.25
+    expect(hangRange(undefined, DEFAULT_WALL_HEIGHT, dropOf('lamp.pendant')).max).toBeGreaterThan(0)
+    // and in the real hall both are fine — which is why nothing ships broken
+    for (const id of ['lamp.pendant', 'lamp.pendant-cluster']) {
+      expect(hangRange(pack, pack.wallHeight, dropOf(id)).max, id).toBeGreaterThan(0)
+    }
   })
 })
 

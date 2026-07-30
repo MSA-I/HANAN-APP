@@ -20,11 +20,11 @@ import { useShallow } from 'zustand/react/shallow'
 import { shallow } from 'zustand/shallow'
 import { getCatalogEntry } from '../core/catalog/registry'
 import { slotColor, type Outline } from '../core/catalog/types'
-import { beamGrid, cordLength, snapToBeam } from '../core/layout/beams'
+import { beamGrid, cordAnchorPoints, cordLength, cordRadiusCm, snapToBeam } from '../core/layout/beams'
 import { snapValue } from '../core/layout/snapping'
 import { standingHeightAt } from '../core/layout/groundHeight'
 import { attachedChairs } from '../core/model/seatingReconciler'
-import type { Id, SceneState, Size3D } from '../core/model/types'
+import type { Id, SceneState, Size3D, Vec2 } from '../core/model/types'
 import { cmToM, relativeTransform, threeToPlan } from '../core/space'
 import { getVenuePack } from '../core/venuePacks'
 import { useOverlayStore } from '../editor2d/overlayStore'
@@ -50,7 +50,7 @@ import {
   slotMaterial,
 } from './meshCache'
 import { applyPlanTransform, planTransformMatrix } from './planTransform'
-import { commitPlacement3D, previewPlacement3D } from './Placement3D'
+import { attachesToTable, commitPlacement3D, previewPlacement3D } from './Placement3D'
 import { RotateHandle } from './RotateHandle'
 import { useModelParts } from './propModel'
 import { slotTextureUrl, useSlotTexture } from './slotTextures'
@@ -59,6 +59,25 @@ const SELECT_COLOR = new THREE.Color(SELECT_TINT)
 
 /** No pack, no measured truss to match — the cord stays the near-black it always was. */
 const DEFAULT_CORD_COLOR = '#2a2a2a'
+
+/**
+ * Is the armed ghost this object's business at all?
+ *
+ * Only a `surface` or `seat` entry is placed BY asking a table where the pointer
+ * is; for everything else the answer comes from `Placement3D`'s pick surfaces, and
+ * an object that answers anyway answers with the point where the ray hit its own
+ * skin — a tabletop 75 cm up, not the floor or the ceiling plane the ghost is being
+ * measured against. Because R3F walks every intersection along the ray and the last
+ * writer wins, that is what made a chandelier's ghost stop following the pointer
+ * whenever a table lay behind it.
+ *
+ * ⚠ Where this returns false the handler must return WITHOUT `stopPropagation`, so
+ * the event carries on down the ray to the pick surface that does own it. Stopping
+ * and doing nothing is the same silent dead click, just tidier-looking.
+ */
+function placementWantsThisObject(placing: string | null): boolean {
+  return placing !== null && attachesToTable(getCatalogEntry(placing))
+}
 
 /**
  * How far back the rest of the hall falls while one table is being arranged
@@ -265,6 +284,7 @@ export function ObjectGroup({ id }: { id: Id }) {
       return
     }
     if (placing) {
+      if (!placementWantsThisObject(placing)) return
       e.stopPropagation()
       commitPlacement3D(e.point, e.nativeEvent.altKey, id)
       return
@@ -372,10 +392,9 @@ export function ObjectGroup({ id }: { id: Id }) {
   }
 
   const handlePointerMove = (e: ThreeEvent<PointerEvent>) => {
-    if (placing) {
-      e.stopPropagation()
-      previewPlacement3D(e.point, id)
-    }
+    if (!placing || !placementWantsThisObject(placing)) return
+    e.stopPropagation()
+    previewPlacement3D(e.point, id)
   }
 
   /**
@@ -452,7 +471,22 @@ export function ObjectGroup({ id }: { id: Id }) {
           procedural
         )}
         {isSelected && !muted && <SelectionOutline outline={entry.footprint(size).outline} />}
-        {drop > 0 && <HangingCord from={size.height} length={drop} color={cordColor} muted={muted} />}
+        {/* ⚠ THE CORDS BELONG WHEREVER THE MODEL GOES. They stand over the drums,
+            so anything that moves the drums has to move them too — in particular
+            the mirror group A3 is adding for source doc item 4: a cluster mirrored
+            about its own axis takes its cords with it only if HangingCord is
+            INSIDE that group. Left as a sibling of the model here because the
+            group does not exist yet and an empty wrapper would be worse. */}
+        {drop > 0 && (
+          <HangingCord
+            from={size.height}
+            length={drop}
+            anchors={cordAnchorPoints(entry, size)}
+            radius={cordRadiusCm(size)}
+            color={cordColor}
+            muted={muted}
+          />
+        )}
         {hasSeating && !seatingHidden && <ChairInstances tableId={id} muted={muted} />}
         <SurfaceChildren parentId={id} muted={muted} />
         {/* INSIDE the group, unlike the gizmo it replaces. That is what lets the
@@ -580,6 +614,7 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
       return
     }
     if (placing) {
+      if (!placementWantsThisObject(placing)) return
       e.stopPropagation()
       commitPlacement3D(e.point, e.nativeEvent.altKey, parentId)
       return
@@ -723,7 +758,7 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
     window.addEventListener('pointercancel', drag.end)
   }
 
-  const handlePointerMove = placing
+  const handlePointerMove = placementWantsThisObject(placing)
     ? (e: ThreeEvent<PointerEvent>) => {
         e.stopPropagation()
         previewPlacement3D(e.point, parentId)
@@ -943,9 +978,22 @@ function ModelFallback({ children, fallback }: { children: ReactNode; fallback: 
  * catalogued height — so at the top of the range nothing is added at all. That
  * last 15 cm to the beam was tried and photographed; see `cordLength`.
  *
- * 3 cm across and 6-sided: a cord reads as a line at any sane camera distance, so
- * a rounder or thicker one only costs triangles. `raycast` off, or the cord would
- * shield the fixture from clicks along its whole length.
+ * ONE CYLINDER PER ANCHOR. It used to draw exactly one, hard-coded at local
+ * (0, 0), which is right for a single drum — `decor-pendant-lamp.glb`'s own cord
+ * is measurably on the axis — and wrong for the four-drum cluster, where it is a
+ * wire through the middle of the group with no drum under it and none of the
+ * model's four cords beside it (source doc item 14b). `cordAnchorPoints` hands
+ * back `[{x:0,y:0}]` for everything that declares nothing, so the single-cord case
+ * is the same code path rather than a branch.
+ *
+ * The anchors are in the object's LOCAL PLAN frame and this group already carries
+ * the object's yaw, so the cords turn with the fixture for nothing.
+ *
+ * 6-sided: a cord reads as a line at any sane camera distance, so a rounder one
+ * only costs triangles. Its RADIUS now follows the fixture (`cordRadiusCm`) — the
+ * old fixed 3 cm was chosen against a 31 cm pendant and reads as rope on the 78 cm
+ * one ×6.25 made of it. `raycast` off, or the cord would shield the fixture from
+ * clicks along its whole length.
  *
  * `color` is the venue's own truss metal, so the cord reads as part of the roof
  * rather than as a black wire hung off it (source doc §16). Its metalness and
@@ -955,30 +1003,46 @@ function ModelFallback({ children, fallback }: { children: ReactNode; fallback: 
 function HangingCord({
   from,
   length,
+  anchors,
+  radius,
   color,
   muted,
 }: {
   from: number
   length: number
+  /** plan cm from the object's centre — already multiplied out of the fractions */
+  anchors: Vec2[]
+  /** plan cm */
+  radius: number
   color: string
   muted?: boolean
 }) {
   return (
-    <mesh position={[0, cmToM(from + length / 2), 0]} raycast={() => null} castShadow={!muted}>
-      <cylinderGeometry args={[cmToM(1.5), cmToM(1.5), cmToM(length), 6]} />
-      {/* This material is inline and private to this fixture, so the mute is set
-          on it directly — `dimmedMaterial`'s cache is for the shared ones. A
-          solid wire hanging out of a ghosted chandelier is the giveaway that a
-          dim was applied per mesh and one was missed. */}
-      <meshStandardMaterial
-        color={color}
-        metalness={0.5}
-        roughness={0.5}
-        transparent={muted}
-        opacity={muted ? DESIGN_EDIT_DIM : 1}
-        depthWrite={!muted}
-      />
-    </mesh>
+    <>
+      {anchors.map((a) => (
+        // plan y is three z (core/space.ts), so the third component is a.y
+        <mesh
+          key={`${a.x},${a.y}`}
+          position={[cmToM(a.x), cmToM(from + length / 2), cmToM(a.y)]}
+          raycast={() => null}
+          castShadow={!muted}
+        >
+          <cylinderGeometry args={[cmToM(radius), cmToM(radius), cmToM(length), 6]} />
+          {/* This material is inline and private to this fixture, so the mute is
+              set on it directly — `dimmedMaterial`'s cache is for the shared ones.
+              A solid wire hanging out of a ghosted chandelier is the giveaway that
+              a dim was applied per mesh and one was missed. */}
+          <meshStandardMaterial
+            color={color}
+            metalness={0.5}
+            roughness={0.5}
+            transparent={muted}
+            opacity={muted ? DESIGN_EDIT_DIM : 1}
+            depthWrite={!muted}
+          />
+        </mesh>
+      ))}
+    </>
   )
 }
 
@@ -1159,6 +1223,7 @@ function ChairSlot({
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     if (placing) {
+      if (!placementWantsThisObject(placing)) return
       e.stopPropagation()
       commitPlacement3D(e.point, e.nativeEvent.altKey, tableId)
       return
@@ -1198,7 +1263,7 @@ function ChairSlot({
     select([chairId])
   }
 
-  const handlePointerMove = placing
+  const handlePointerMove = placementWantsThisObject(placing)
     ? (e: ThreeEvent<PointerEvent>) => {
         e.stopPropagation()
         previewPlacement3D(e.point, tableId)

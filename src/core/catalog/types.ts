@@ -191,6 +191,25 @@ export interface CatalogEntry {
    * attached children that can only be dropped onto a table.
    */
   placement?: 'floor' | 'surface' | 'seat' | 'ceiling'
+  // --- ceiling fixtures only (round 4, item 14b) --------------------------------
+  /**
+   * Where the procedural suspension cords meet the truss, as FRACTIONS of `width`
+   * and `depth` measured from the object's centre — each component in [−0.5, 0.5],
+   * in the object's local plan frame (so they turn with its yaw for free).
+   * Absent or empty = one cord on the axis, which is what a single-drum pendant
+   * wants and what every fixture had before this existed.
+   *
+   * ⚠ FRACTIONS AND NOT CENTIMETRES, and the reason is not taste. The catalogued
+   * size is the file's own bounds times a scale that has now moved TWICE — ×2.5 in
+   * round 2 and ×6.25 for the pendants in round 4 — and a fraction survives both
+   * untouched, where a centimetre figure would have to be re-measured after each
+   * and would sit wrong and unnoticed in between.
+   *
+   * Read through `cordAnchorPoints` (core/layout/beams.ts), never directly.
+   * ------------------------------------------------------------------------------
+   */
+  cordAnchors?: Vec2[]
+  // --- end ceiling fixtures ------------------------------------------------------
   /**
    * Fixed-station entries (bar, DJ booth): when the venue pack has a restricted
    * zone of this kind, the object lives ONLY inside that zone — dropping it
