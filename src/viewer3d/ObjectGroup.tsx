@@ -28,7 +28,14 @@ import type { Id, SceneState, Size3D, Vec2 } from '../core/model/types'
 import { cmToM, relativeTransform, threeToPlan } from '../core/space'
 import { getVenuePack } from '../core/venuePacks'
 import { useOverlayStore } from '../editor2d/overlayStore'
-import { beginGesture, endGesture, select, setPosition, toggleSelect } from '../state/actions'
+import {
+  beginGesture,
+  duplicateObjects,
+  endGesture,
+  select,
+  setPosition,
+  toggleSelect,
+} from '../state/actions'
 import { notify } from '../state/notice'
 import {
   designEditTable,
@@ -373,9 +380,10 @@ export function ObjectGroup({ id }: { id: Id }) {
         const pack = getVenuePack(scene.venue.venuePackId)
         setPosition(id, snapToBeam({ x, y }, beamGrid(pack, scene.venue.size)))
       } else {
+        // CTRL, not Alt — Alt makes a copy here too. Mirrors dragController.ts.
         setPosition(
           id,
-          scene.settings.snapEnabled && !event.altKey
+          scene.settings.snapEnabled && !(event.ctrlKey || event.metaKey)
             ? { x: snapValue(x, scene.settings.gridSize), y: snapValue(y, scene.settings.gridSize) }
             : { x, y },
         )
@@ -395,6 +403,27 @@ export function ObjectGroup({ id }: { id: Id }) {
     }
     dragRef.current = drag
     beginGesture()
+    /**
+     * ALT+drag leaves a copy behind, exactly as it does in 2D
+     * (`dragController.onObjectDragStart`). The gesture was 2D-only for one
+     * commit, and a gesture that works in one pane and silently does nothing in
+     * the other is this repo.s most expensive recurring bug.
+     *
+     * IN PLACE, and the ORIGINAL is what travels: `drag` above already closed over
+     * this id and its grab offset, so handing the pointer to a freshly created
+     * object mid-gesture is the one way this goes wrong. `duplicateObjects` ends
+     * with `select(newIds)`, which would hand the drag.s selection to the copy
+     * parked at the start point — hence the re-select. And it must land AFTER
+     * `beginGesture()`, or the copy and the move become two undo entries and one
+     * Ctrl+Z leaves the copy behind.
+     *
+     * Top-level objects only, like 2D: a surface child is positioned by its host
+     * and a second copy of it would land inside the first.
+     */
+    if (e.nativeEvent.altKey) {
+      duplicateObjects([id], { x: 0, y: 0 })
+      select([id])
+    }
     capture.setPointerCapture(e.pointerId)
     gl.domElement.style.cursor = 'grabbing'
     window.addEventListener('pointermove', drag.move)

@@ -295,25 +295,33 @@ export const SHORTCUTS: readonly Shortcut[] = [
     chord: 'גרירת קליק שמאלי',
     labelKey: 'help.keys.dragItem',
   },
-  /** `dragController.ts:96` (2D) and `ObjectGroup.tsx:440` (3D) — the same rule twice */
+  /**
+   * `dragController.onObjectDragMove` (2D) and `ObjectGroup.tsx`'s `drag.move`
+   * (3D) — the same rule twice.
+   *
+   * CTRL and not Alt since round 4: the user was asked which modifier should copy
+   * and chose Alt, so the bypass is what moved.
+   */
   {
     id: 'snapBypass',
     scope: 'both',
     group: 'edit',
     codes: [],
-    chord: 'Alt בזמן גרירה',
+    chord: 'Ctrl בזמן גרירה',
     labelKey: 'help.keys.snapBypass',
   },
   /**
-   * NEW this round. 2D only: Konva owns the object drag, and the 3D drag is a
-   * different code path that is not gaining the gesture in the same wave.
+   * NEW this round, and in BOTH views — Konva owns the 2D object drag and the 3D
+   * drag is a separate pointer-capture path, so the fork is written twice, but a
+   * gesture that works in one pane and silently does nothing in the other is
+   * exactly the class of bug this project keeps paying for.
    */
   {
     id: 'dragDuplicate',
-    scope: '2d',
+    scope: 'both',
     group: 'edit',
     codes: [],
-    chord: 'Ctrl בגרירה',
+    chord: 'Alt בגרירה',
     labelKey: 'help.keys.dragDuplicate',
   },
   /**

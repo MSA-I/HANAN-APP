@@ -113,8 +113,17 @@ export function onObjectDragStart(id: Id, e: KonvaEventObject<DragEvent>): void 
   ctx = { ids, lines: collectSnapLines(staticBoxes) }
   beginGesture()
   /**
-   * Ctrl+drag duplicates. CTRL and not Alt — Alt is already snap-bypass, and it is
-   * documented as such in `core/shortcuts.ts` and shown in the help table.
+   * ALT+drag duplicates, and snap-bypass moved to CTRL to make room for it.
+   *
+   * This pair was the other way round for one commit, on the reasoning that Alt
+   * was already taken. The user was asked which he wanted and chose ALT for the
+   * copy — it is what every design tool he uses does — so the bypass is what moved.
+   *
+   * ⚠ `altKey` has a THIRD reader that is NOT this one: `commitPlacement3D(...,
+   * event.nativeEvent.altKey, ...)` means "keep the ghost armed after the drop".
+   * The two never collide, because a move-drag cannot start while a ghost is armed
+   * (`handlePointerDown` bails on `placing`) and no placement click happens while
+   * one is not. Do not "unify" them.
    *
    * The copies are made IN PLACE and the ORIGINALS are what travel. Konva is
    * already dragging the original nodes; handing the pointer to a different node
@@ -132,7 +141,7 @@ export function onObjectDragStart(id: Id, e: KonvaEventObject<DragEvent>): void 
    * behaviour we want: lines through objects sitting exactly under the pointer
    * would glue the drag to its own starting point.
    */
-  if (e.evt.ctrlKey || e.evt.metaKey) {
+  if (e.evt.altKey) {
     duplicateObjects(ctx.ids, { x: 0, y: 0 })
     select(ctx.ids)
   }
@@ -151,7 +160,8 @@ export function onObjectDragMove(id: Id, e: KonvaEventObject<DragEvent>): void {
   const boxes = ctx.ids
     .map((oid) => objectAABB(state.scene, oid))
     .filter((b): b is AABB => !!b)
-  if (boxes.length && !e.evt.altKey) {
+  // CTRL, not Alt — Alt now makes a copy. Mirrored in ObjectGroup.tsx for 3D.
+  if (boxes.length && !(e.evt.ctrlKey || e.evt.metaKey)) {
     const union = aabbUnion(boxes)
     const moved: AABB = {
       minX: union.minX + delta.x,
