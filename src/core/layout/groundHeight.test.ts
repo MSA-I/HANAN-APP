@@ -133,4 +133,19 @@ describe('standingHeightAt', () => {
   it('does not lift a hung fixture that happens to be over the deck', () => {
     expect(standingHeightAt(pendant, centre(deck), zones)).toBe(0)
   })
+
+  /**
+   * The other side of the same coin, new in round 4 (§7). The chuppah decorations
+   * gave up their `zoneKind` so they could be placed anywhere, and the price — the
+   * wanted one — is that they stop answering from a home rectangle and start
+   * answering from the ground, exactly as the chair above does. Found by the flag
+   * rather than by id, so a second entry that takes it is covered too.
+   */
+  it('reads the ground under an entry that ignores zones, not a home rectangle', () => {
+    const decor = listCatalog().find((e) => e.ignoresZones)!
+    expect(decor.zoneKind).toBeUndefined()
+    expect(standingHeightAt(decor, { x: 300, y: 300 }, zones)).toBe(0)
+    expect(standingHeightAt(decor, centre(hallPad), zones)).toBe(hallPad.elevation)
+    expect(standingHeightAt(decor, centre(deck), zones)).toBe(deck.elevation)
+  })
 })

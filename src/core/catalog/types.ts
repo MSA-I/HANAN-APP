@@ -284,6 +284,104 @@ export interface CatalogEntry {
    * which reads badly in a prompt and is meant to.
    */
   promptFragment?: string
+
+  // -------------------------------------------------------------------------
+  // ROUND-4 ADDITIONS (A5). Four fields, kept together in one block rather than
+  // filed beside the field each pairs with, because round 4 edits this file from
+  // two branches at once and a contiguous append merges without a conflict. Each
+  // one names its partner in its own comment; move them next to those partners
+  // once the round has landed if that reads better.
+  // -------------------------------------------------------------------------
+
+  /**
+   * The zone loop does not apply to this item: it may stand in a restricted
+   * rectangle (the pool, the dance floor, the ceremony pad) and it answers to
+   * EVERY other rule — collision, table clearance, the venue outline, the band
+   * rules, `nearWall`. Source doc round 4 §7, in the user's words: the chuppah
+   * decorations "should be placeable anywhere in the hall, in any zone".
+   *
+   * The narrowest of the three flags that look alike, and the other two are both
+   * the wrong shape for this:
+   *
+   *  - `zoneKind` means FIXED STATION. It skips the check with an early
+   *    `return []`, but `clampToVenue` also reads it as licence to TELEPORT the
+   *    object into that rectangle from anywhere in the hall, and `ruled()` exempts
+   *    it from the placement gate outright. "Anywhere" would become "in exactly
+   *    one rectangle, wherever you let go of it".
+   *  - `placeAnywhere` is a blanket `return []` at the top of `check()`: no
+   *    collision, no siblings, not even the venue outline. That is right for a
+   *    person standing in the render for scale and wrong for a 52 × 61 cm floral
+   *    column, which is furniture and has to stay off the tables and inside the
+   *    building.
+   *
+   * Deleting `zoneKind` alone would not do it either: a restricted zone refuses
+   * everything that TOUCHES it, so the decoration would then be pushed OUT of the
+   * chuppah pad, the aisle and the pool surround — the opposite of the request.
+   *
+   * Lifts the zone loop and nothing else. `allowedOnDeck` names it for the same
+   * reason it names `placeAnywhere`: once `check()` stops asking about zones, a
+   * "no" there would let `checkPlacement` say yes while `clampToVenue` shoved the
+   * piece off the deck.
+   */
+  ignoresZones?: boolean
+
+  /**
+   * Pairs with `requiresHost`: a missing host is not a refusal, the drop LAYS the
+   * host in the same gesture.
+   *
+   * `requiresHost` stays exactly as load-bearing as it was — it is what the
+   * sibling-overlap skip, the `stackedOn` link and `surfaceBase` all read. This
+   * flag changes one thing only: whether `checkPlacement` says `missingHost`.
+   * Set on `ring.floral`, which drops into the ⌀380's well onto a `ring.table`
+   * that the venue would always have put there anyway. NOT on the napkins: a
+   * napkin without a place setting under it is a mistake, and 22 auto-laid covers
+   * is not a gesture anybody asked for.
+   */
+  autoHost?: boolean
+
+  /**
+   * Pairs with `modelSize`: the width and depth of the model's USABLE TOP, in the
+   * file's own units, for a model whose widest point is not its top.
+   *
+   * `modelSize` is the file's whole bounding box, and for a draped table that box
+   * is the HEM near the floor. Fitting by it lands the top disc well short of the
+   * opening it is supposed to fill — 10…12 cm of bare floor showing round
+   * `ring.table` inside the ⌀380's ⌀156 well. Read by the 3D loader for the x and
+   * z factors ONLY; the height still fits the file's own height.
+   *
+   * ⚠ Deliberately NOT "`modelSize` with different numbers". `STACK_HEIGHTS` in
+   * state/actions.ts converts file cm to catalogue cm through
+   * `defaultSize.height / modelSize.height`, and `stackedPosition` does the same
+   * on x and z — so re-pointing `modelSize` at the top would silently mis-scale
+   * the place setting's charger height and the napkin's offset onto it. The two
+   * are different measurements of the same file and both are needed.
+   *
+   * Omit it whenever the file's box IS its top, which is every other entry.
+   */
+  modelTopSize?: { width: number; depth: number }
+
+  /**
+   * Pairs with `seats`: WHICH of the transforms `seats` produced take a place
+   * setting, by index. Absent means all of them, which is every other table.
+   *
+   * By index because `seats` already has an ordering contract — `reconcileSeats`
+   * maps a stored chair to a position by its index, so the serpentine's flanks own
+   * 0…n−1 and its two heads are APPENDED. Stating the subset in the same terms is
+   * what lets this file and layout/serpentine.ts agree without either re-deriving
+   * the other's numbers.
+   *
+   * ⚠ NOT `headSeats: number`. `serpentineSeats` appends the heads with
+   * `.slice(0, max(0, count − out.length))`, so a table configured for 15 chairs
+   * has ZERO heads and "drop the last two" would silently strip two FLANK covers.
+   * The index set is derived from the same `capacities()` the walk divides by, so
+   * it is empty of heads exactly when the walk is.
+   *
+   * Set on the serpentine, where the two head covers lie at 90° to their flank
+   * neighbours across the band and interpenetrate them by a measured 12…15 cm at
+   * every position inside it (layout/serpentine.ts's note on the head seats has
+   * the sweep). The CHAIRS are unaffected — all 22 stay.
+   */
+  seatItemSeats?: (seating: SeatingConfig, chair: Size3D) => number[]
 }
 
 export function defaultAppearance(entry: CatalogEntry): Record<string, { color?: string }> {

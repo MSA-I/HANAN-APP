@@ -3,13 +3,15 @@ import { getCatalogEntry } from '../catalog/registry'
 import type { SeatingConfig, Size3D } from '../model/types'
 import { rotateVec } from '../space'
 import { seatItemTransforms } from './seatItemLayout'
-import { seatsForEntry } from './seatLayout'
+import { seatItemSeatsForEntry, seatsForEntry } from './seatLayout'
 import {
+  ARC_TILE,
   SERPENTINE_ARCS,
   SERPENTINE_BAND,
   pointInSerpentineBand,
   serpentineArcs,
   serpentineBandDepth,
+  serpentineBandTiles,
   serpentineBounds,
   serpentineCentre,
   serpentineMaxSeats,
@@ -490,16 +492,22 @@ describe('serpentine seats', () => {
       expect(toCenterLine(h.position).dist).toBeLessThan(seatD - 1)
   })
 
-  it('lays one place setting per chair, and there really are 22 of both', () => {
-    // Corrections document item 27: "בשולחן נחש … אין שם 22 כמספר הכסאות".
-    // Measured, there are: chairs, settings and the declared count all agree, on
-    // the catalog's own config and through the same call path the app uses. So the
-    // complaint is about POSITIONS, not counts — pinned in the next test.
+  it('seats 22 chairs and sets 20 of them', () => {
+    // Corrections document item 27: "בשולחן נחש … אין שם 22 כמספר הכסאות". There
+    // WERE 22 covers all along; two of them had merged into their neighbours, so the
+    // eye counted short. Round 4 §15 is the user's decision on it — keep all 22
+    // chairs, lay 20 covers — because no position inside the band clears the head
+    // cover (the sweep is on `HEAD_SEATS` in serpentine.ts).
     const cover = getCatalogEntry('decor.place-setting').defaultSize
     const seats = seatsForEntry(entry, entry.defaultSize, seating(SEATS), chair)
+    const covered = seatItemSeatsForEntry(entry, entry.defaultSize, seating(SEATS), chair)
     const top = entry.footprint(entry.defaultSize).outline
     expect(seats).toHaveLength(SEATS)
-    expect(seatItemTransforms(seats, chair, cover, spec.defaultOffset, top)).toHaveLength(SEATS)
+    expect(covered).toHaveLength(FLANK_SEATS)
+    expect(SEATS - covered.length).toBe(HEADS)
+    expect(seatItemTransforms(covered, chair, cover, spec.defaultOffset, top)).toHaveLength(
+      FLANK_SEATS,
+    )
 
     // and the CHAIRS are not the problem either — none of them collides
     const pitch = Math.min(
@@ -514,42 +522,40 @@ describe('serpentine seats', () => {
     expect(pitch).toBeGreaterThan(chair.width)
   })
 
-  it('KNOWN OVERLAP, not a regression: the head settings merge into their neighbours', () => {
+  it('lays a cover on every FLANK seat and on neither head, and none of them touch', () => {
     /**
-     * The real item 27, and the reason the user counts fewer than 22.
+     * This replaces a test that asserted the defect (`KNOWN OVERLAP`), which its own
+     * docblock instructed be deleted the moment the overlap went away. The
+     * measurement that justified the fix is kept on `HEAD_SEATS` in serpentine.ts;
+     * what belongs here is the positive statement.
      *
-     * The two kinds of cover lie at 90° to each other across the band. A FLANK
-     * cover has its 31.3 depth radial and sits 21.35 off the centre line, so it
-     * occupies [5.70, 37.00] across the 80 band — the 37.0 against a 40 half-band
-     * being the 3 cm edge inset, which is correct. A HEAD cover sits ON the centre
-     * line with its 36 WIDTH across the band, spanning [−18.00, +18.00]. The free
-     * corridor down the middle is 2 × 5.70 = 11.4 cm wide and the cover is 36, so
-     * the two always interpenetrate — by 12.18…15.43 cm, measured by separating
-     * axis. Four covers therefore sit ~20 cm apart and read as merged blobs.
+     * Why the heads could never work: the two kinds of cover lie at 90° to each
+     * other across the band. A FLANK cover has its 31.3 depth radial and sits 21.35
+     * off the centre line, occupying [5.70, 37.00] across the 80 band. A HEAD cover
+     * sits ON the centre line with its 36 WIDTH across it, spanning [−18, +18]. The
+     * free corridor down the middle is 11.4 cm, so the two always interpenetrate.
      *
-     * NOT FIXABLE IN THIS FILE, established rather than assumed. Sweeping the head
-     * cover along the band from −60 to +160 cm never clears: the only clear
-     * positions are ≥ 9.85 cm PAST the end cap, over the floor — which is the very
-     * defect PLAN-05 exists to remove — and inside the band the penetration never
-     * drops below 10.61 cm. Insetting the flank walk away from the caps clears only
-     * at a cost of three chairs (22 → 19) and a 1.48 cm chair gap. Both sweeps are
-     * tabulated in handoff/05-serpentine.md. A real fix has to come from
-     * seatItemLayout.ts (skip the heads) or from a much narrower cover.
-     *
-     * Measured nearest-neighbour centre distances, all 22 covers, sorted:
-     *   20.2 20.2 21.3 21.3 29.1 40.6 42.7 42.7 42.9 42.9 42.9
-     *   44.9 44.9 45.6 45.6 46.2 46.2 46.8 46.8 46.8 50.2 50.2
-     *
-     * Asserted as a bounded range plus the identity of the offenders rather than
-     * pinned to 20.19: the number is produced by seatItemLayout.ts, which another
-     * agent owns, and a frozen tally against someone else's file is what cost round
-     * 2 two rounds (BRIEF §1.7). The range still fails loudly if the overlap ever
-     * disappears — at which point delete this test — or materially worsens.
+     * Nearest-neighbour distances before the fix, all 22 covers:
+     *   20.2 20.2 21.3 21.3 29.1 40.6 42.7 … 50.2
+     * The first four are the two heads against the flank cover at each end of the
+     * walk. Drop the heads and the minimum over the remaining 20 becomes the 29.1
+     * that was already there — comfortably clear of the 36 cm cover's own width in
+     * the direction that matters, which is what the assertion checks.
      */
     const cover = getCatalogEntry('decor.place-setting').defaultSize
     const seats = seatsForEntry(entry, entry.defaultSize, seating(SEATS), chair)
+    const covered = seatItemSeatsForEntry(entry, entry.defaultSize, seating(SEATS), chair)
     const top = entry.footprint(entry.defaultSize).outline
-    const covers = seatItemTransforms(seats, chair, cover, spec.defaultOffset, top)
+    const covers = seatItemTransforms(covered, chair, cover, spec.defaultOffset, top)
+
+    // it is the FLANKS that are covered, positionally and not merely by count: a
+    // flank seat sits exactly one seat-offset off the centre line, a head does not
+    expect(covers).toHaveLength(FLANK_SEATS)
+    expect(seats.length - covered.length).toBe(HEADS)
+    for (const s of covered) expect(toCenterLine(s.position).dist).toBeCloseTo(seatD, 0)
+    for (const h of seats.slice(FLANK_SEATS)) {
+      expect(covered.some((c) => c.position === h.position)).toBe(false)
+    }
 
     const nearest = covers.map((a, i) =>
       Math.min(
@@ -558,18 +564,157 @@ describe('serpentine seats', () => {
           .map((b) => Math.hypot(b.position.x - a.position.x, b.position.y - a.position.y)),
       ),
     )
-    const worst = Math.min(...nearest)
-    expect(worst).toBeLessThan(cover.width) // they really do interpenetrate
-    expect(worst).toBeGreaterThan(15) // …by about 16cm, not a total pile-up
+    // the whole point: no two covers are closer than one cover is wide. The old
+    // worst was 20.2 against a 36 cm cover; it is now the 29.1 that was fifth.
+    expect(Math.min(...nearest)).toBeGreaterThan(cover.depth)
+    expect(Math.min(...nearest)).toBeGreaterThan(29)
+  })
 
-    // and it is the two heads with the flank cover at each end of the walk — the
-    // four the geometry above predicts, not four arbitrary positions
-    const tightest = nearest
-      .map((v, i) => ({ v, i }))
-      .sort((a, b) => a.v - b.v)
-      .slice(0, 4)
-      .map((o) => o.i)
-      .sort((a, b) => a - b)
-    expect(tightest).toEqual([0, FLANK_SEATS - 1, FLANK_SEATS, FLANK_SEATS + 1])
+  /**
+   * ⚠ The subset is derived from `capacities()`, NOT expressed as "drop the last
+   * two" — and this is the case that tells them apart. `serpentineSeats` appends
+   * the heads with `.slice(0, max(0, count − out.length))`, so below the flank
+   * capacity there are NO heads and a "last two" rule would silently strip two
+   * flank covers from a table that never had a head problem.
+   */
+  it('drops nothing at a count the heads never reach', () => {
+    for (const count of [1, 10, FLANK_SEATS - 1, FLANK_SEATS]) {
+      const seats = serpentineSeats(seating(count), chair)
+      const covered = seatItemSeatsForEntry(entry, entry.defaultSize, seating(count), chair)
+      expect(seats).toHaveLength(count)
+      expect(covered).toHaveLength(count)
+    }
+    // and it starts dropping exactly when the heads start appearing
+    expect(
+      seatItemSeatsForEntry(entry, entry.defaultSize, seating(FLANK_SEATS + 1), chair),
+    ).toHaveLength(FLANK_SEATS)
+  })
+})
+
+/**
+ * The shapes COLLISION reads instead of the bounding box (round 4 §15b).
+ *
+ * The box is 17.99 m² around a 4.644 m² band and its own centre is 63 cm outside
+ * the drape, so `TABLE_CLEARANCE.rect = 170` measured off it refused a ⌀180 round
+ * table up to about three metres away. The outline stays for its nine consumers;
+ * collision alone tiles the sectors.
+ *
+ * One property matters above the rest and it is the first test here: the tiles must
+ * COVER the band. A tile may claim floor the table does not occupy — an object is
+ * then refused a centimetre early, which is safe and invisible — but a gap would
+ * let a table be placed through the drape.
+ */
+describe('the collision tiling', () => {
+  const tiles = serpentineBandTiles()
+
+  /** Is a point inside a tile? The same rotated-rect test collision.ts runs. */
+  const inTile = (p: { x: number; y: number }, t: (typeof tiles)[number]) => {
+    const l = rotateVec({ x: p.x - t.cx, y: p.y - t.cy }, -t.rot)
+    return Math.abs(l.x) <= t.w / 2 && Math.abs(l.y) <= t.h / 2
+  }
+
+  it('is 30 tiles, split the way the arcs are', () => {
+    expect(tiles).toHaveLength(30)
+    // derived from `serpentineArcs()` — the split follows a re-fit of CHAIN
+    const perArc = serpentineArcs().map((s) =>
+      Math.ceil((rad(s.sweep) * ((s.innerR + s.outerR) / 2)) / ARC_TILE),
+    )
+    expect(perArc).toEqual([12, 10, 8])
+    expect(perArc.reduce((a, b) => a + b, 0)).toBe(tiles.length)
+  })
+
+  it('covers the whole band and over-claims by at most ~5.4 cm', () => {
+    const { width, depth } = serpentineBounds()
+    let shortfall = 0
+    let excess = 0
+    let bandCells = 0
+    let tiledCells = 0
+    // 1.5 cm: fine enough to catch a real gap anywhere, coarse enough to sweep the
+    // 4.3 m box in well under a second. The excess creeps up with the sampling —
+    // 4.97 here, 5.30 at 0.4 cm — so the bound is stated with room.
+    const G = 1.5
+    for (let x = -width / 2 - 20; x <= width / 2 + 20; x += G) {
+      for (let y = -depth / 2 - 20; y <= depth / 2 + 20; y += G) {
+        const p = { x, y }
+        const d = serpentineBandDepth(p)
+        const hit = tiles.some((t) => inTile(p, t))
+        if (d >= 0) {
+          bandCells++
+          // THE property: every point of the band is inside some tile
+          shortfall = Math.max(shortfall, hit ? 0 : d)
+        }
+        if (hit) tiledCells++
+        if (d < 0 && hit) excess = Math.max(excess, -d)
+      }
+    }
+    expect(shortfall).toBe(0)
+    expect(excess).toBeLessThanOrEqual(5.5)
+    // and the price of covering it is under 1% of extra area
+    expect(bandCells).toBeGreaterThan(0)
+    expect(tiledCells / bandCells).toBeLessThan(1.02)
+  })
+
+  it('derives its area from the arcs rather than from a remembered number', () => {
+    // Σ ½·sweep·(outerR² − innerR²) — the exact area of the three sectors
+    const area = serpentineArcs().reduce(
+      (t, s) => t + 0.5 * rad(s.sweep) * (s.outerR * s.outerR - s.innerR * s.innerR),
+      0,
+    )
+    expect(area / 10000).toBeCloseTo(4.644, 2)
+    // the tiles are a cover, so their total area is at least the band's
+    const tiled = tiles.reduce((t, s) => t + s.w * s.h, 0)
+    expect(tiled).toBeGreaterThan(area)
+  })
+
+  /**
+   * ⚠ A SIDE EFFECT WORTH KNOWING, AND IT IS NOT ONE-SIDED.
+   * `unionBox(parts.map(shapeAABB))` for a serpentine now boxes the TILES rather
+   * than the declared outline, so `outOfBounds` — the one rule that reads that
+   * union — moves with it. Measured at the fitted arcs, tile extent against the
+   * outline's own half-extent:
+   *
+   *   −x  12.49 cm tighter      +x   4.39 cm tighter
+   *   +y  13.44 cm tighter      −y   0.33 cm WIDER
+   *
+   * So on three sides the table may now be pushed a few centimetres nearer a wall
+   * than before, and on the fourth it is refused a third of a centimetre earlier.
+   * The −y side is the one place a tile's outward over-claim (≤5.3 cm) beats the
+   * gap between the fitted band and the box drawn around it — the outline takes the
+   * LARGER of the GLB bbox and the arcs' own box per axis, and on this axis the
+   * arcs win by only 4.4 cm.
+   *
+   * Both directions are more accurate than what they replace: the box the table
+   * used to be judged by was never the table.
+   */
+  it('boxes the tiles, not the outline — three sides looser, one 0.33 cm tighter', () => {
+    const outline = getCatalogEntry('table.serpentine').footprint(
+      getCatalogEntry('table.serpentine').defaultSize,
+    ).outline
+    if (outline.kind !== 'rect') throw new Error('the serpentine declares a rect outline')
+    let minX = Infinity
+    let maxX = -Infinity
+    let minY = Infinity
+    let maxY = -Infinity
+    for (const t of tiles) {
+      for (const [sx, sy] of [
+        [-1, -1],
+        [1, -1],
+        [1, 1],
+        [-1, 1],
+      ]) {
+        const c = rotateVec({ x: (sx * t.w) / 2, y: (sy * t.h) / 2 }, t.rot)
+        minX = Math.min(minX, t.cx + c.x)
+        maxX = Math.max(maxX, t.cx + c.x)
+        minY = Math.min(minY, t.cy + c.y)
+        maxY = Math.max(maxY, t.cy + c.y)
+      }
+    }
+    // three sides genuinely tighter, by centimetres rather than by rounding
+    expect(minX - -outline.w / 2).toBeGreaterThan(10)
+    expect(outline.w / 2 - maxX).toBeGreaterThan(4)
+    expect(outline.h / 2 - maxY).toBeGreaterThan(10)
+    // …and the fourth is not, which is the half of this nobody expects
+    expect(-outline.h / 2 - minY).toBeGreaterThan(0)
+    expect(-outline.h / 2 - minY).toBeLessThan(1)
   })
 })

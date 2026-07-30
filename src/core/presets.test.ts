@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { getCatalogEntry, hasCatalogEntry } from './catalog/registry'
 import { HALL_LAYOUTS, layoutStats } from './hallLayouts'
 import { clampHang, hangRange } from './layout/beams'
+import { holeRadius } from './layout/bounds'
 import { checkPlacement } from './layout/collision'
 import { maxSeatsForEntry } from './layout/seatLayout'
 import { HALL_DESIGNS, TABLE_DESIGNS, TABLE_PRESETS, getTablePreset, presetSeating } from './presets'
@@ -230,6 +231,12 @@ describe('table designs lay clear of themselves', () => {
    */
   const CLASHES_WITH_ITS_COVERS: Record<string, string[]> = {
     'table.round': ['design.classic-gold', 'design.floral-pink', 'design.ceramic-low'],
+    // Round 4 §12: the ⌀380 used to fail on EVERY design and is now clean on all of
+    // them. `layTableDesign` decides `inHole` from where a piece lands instead of
+    // writing a bare surface attachment, so the well stops ejecting the design into
+    // itself. An empty list here rather than a missing key: `expectDesign` indexes
+    // this map, so the key is what says the table was considered.
+    'table.round-large': [],
     'table.square': [],
     'table.banquet': [
       'design.classic-gold',
@@ -254,51 +261,48 @@ describe('table designs lay clear of themselves', () => {
   })
 
   /**
-   * ⛔ THE ⌀380 IS BROKEN TODAY, AND THIS PINS IT SO A FIX IS NOTICED.
+   * The ⌀380 was excluded from this sweep for two rounds, and a companion test
+   * pinned the failure so it could not be forgotten. Both are gone: it passes.
    *
-   * The block below explains why it is excluded from the pass-case. Excluding it
-   * was right — it does not pass — but an exclusion is invisible: nothing then
-   * tells anyone whether the bug is still there, got worse, or was fixed. Round 2
-   * ended with this handed from PLAN-08 to PLAN-07 and PLAN-07 closing without it,
-   * so it now has no owner and would have had no safety net either.
-   *
-   * This asserts the CURRENT WRONG BEHAVIOUR on purpose. When `clampToSurface`
-   * learns what to do with a centre-anchored piece over a hole, this test fails —
-   * and failing is the message. Delete it then and move the table up into the
-   * pass-case above.
+   * What was wrong was never a design. `layTableDesign` wrote a bare
+   * `{ kind: 'surface' }`, so a design piece counted as standing on the TOP, and
+   * the ring clamp then pushed it out of the well to `hole + reach` — the
+   * centrepiece from 0 to 96.4 (with no radial direction at the origin it took the
+   * arbitrary +x) onto its own flanker at 84.25. `inHole` is now decided from where
+   * the piece lands, so all twelve stay where the design put them.
    */
-  it('⌀380: every design still self-collides — recorded, not fixed', () => {
-    const offenders: string[] = []
-    for (const design of TABLE_DESIGNS) {
-      newProject({ name: 'ring-overlap', venuePackId: 'resort' })
-      const tableId = addObject('table.round-large', { x: 600, y: 600 })
-      expect(applyTableDesign(design.id, tableId).length).toBeGreaterThan(0)
-      const scene = useEditorStore.getState().scene
-      const hit = laidOnTop(tableId).some((child) =>
-        checkPlacement(scene, {
-          catalogId: child.catalogId,
-          transform: child.transform,
-          size: child.size,
-          excludeId: child.id,
-          parentId: tableId,
-          parentLocal: true,
-          inHole: child.attachment?.kind === 'surface' ? child.attachment.inHole : undefined,
-        }).some((v) => v.kind === 'overlapsSibling'),
-      )
-      if (hit) offenders.push(design.id)
-    }
-    // ALL of them, not some — the cause is the clamp, so it cannot be design-specific
-    expect(offenders).toEqual(TABLE_DESIGNS.map((d) => d.id))
+  it.each(TABLE_DESIGNS)('$id on the ⌀380 round', (design) => {
+    expectDesign(design, 'table.round-large')
   })
 
-  // ⚠ `table.round-large` is deliberately NOT here. Every design — the four that
-  // shipped before this wave included — self-collides on it, and the cause is in
-  // `clampToSurface`, not in any design: the ⌀156 opening pushes a non-`inHole`
-  // child out to `hole + reach`, and a piece at the exact centre has no radial
-  // direction, so it takes the arbitrary +x and lands on the design's own +x
-  // flank. Measured for design.classic-gold: centrepiece 0 → 96.4, flank 38 →
-  // 84.25, i.e. 12.5 cm of overlap. actions.ts belongs to PLAN-07 this wave —
-  // written up in handoff/FOUND-08.md rather than fixed here.
+  /** The well is a different STOREY, and the point of the fix is that the design
+   *  stays in it rather than being ejected onto the band. */
+  it('lays the ⌀380 designs INSIDE the well, not out on the band', () => {
+    const hole = holeRadius(
+      getCatalogEntry('table.round-large').footprint(
+        getCatalogEntry('table.round-large').defaultSize,
+      ).outline,
+    )
+    expect(hole).toBeGreaterThan(0)
+    for (const design of TABLE_DESIGNS) {
+      newProject({ name: 'ring-design', venuePackId: 'resort' })
+      const tableId = addObject('table.round-large', { x: 600, y: 600 })
+      expect(applyTableDesign(design.id, tableId).length).toBeGreaterThan(0)
+      // the decor, not the covers: those are laid at r ≈ 152, out past the seats
+      const decor = laidOnTop(tableId).filter(
+        (o) => getCatalogEntry(o.catalogId).placement !== 'seat',
+      )
+      expect(decor.length).toBe(design.items.length)
+      for (const piece of decor) {
+        const r = Math.hypot(piece.transform.position.x, piece.transform.position.y)
+        expect(r).toBeLessThan(hole)
+        if (piece.attachment?.kind !== 'surface') throw new Error('expected a surface child')
+        expect(piece.attachment.inHole).toBe(true)
+        // through the opening means standing on the FLOOR, not on the cloth
+        expect(piece.transform.elevation).toBe(0)
+      }
+    }
+  })
 
   // the two rectangular tops clamp per-axis rather than radially, so they are a
   // different code path through clampToSurface and not implied by the round one

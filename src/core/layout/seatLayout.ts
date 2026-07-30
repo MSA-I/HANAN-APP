@@ -23,6 +23,33 @@ export function seatsForEntry(
 }
 
 /**
+ * The seats that take a PLACE SETTING — every one of them, unless the entry says
+ * otherwise through `seatItemSeats`.
+ *
+ * A separate function from `seatsForEntry` rather than a flag on it, because the
+ * two questions have different answers and both are asked of the same table: the
+ * CHAIRS are reconciled by index against `seats` and every one of them stays, and
+ * the covers are one-shot children laid in front of a subset. Filtering here — on
+ * the array, before `seatItemTransforms` ever sees it — is what keeps that subset
+ * out of `reconcileSeats`' index contract entirely.
+ *
+ * On the serpentine this drops the two heads, whose covers lie at 90° to their
+ * flank neighbours and interpenetrate them by a measured 12…15 cm at every
+ * position inside the band (layout/serpentine.ts). 22 chairs, 20 covers.
+ */
+export function seatItemSeatsForEntry(
+  entry: CatalogEntry,
+  size: Size3D,
+  seating: SeatingConfig,
+  chair: Size3D,
+): Transform2D[] {
+  const seats = seatsForEntry(entry, size, seating, chair)
+  if (!entry.seatItemSeats) return seats
+  const wanted = new Set(entry.seatItemSeats(seating, chair))
+  return seats.filter((_, i) => wanted.has(i))
+}
+
+/**
  * Capacity for a catalog entry. For a custom `seats` it asks for more chairs
  * than could possibly fit and counts what comes back, so capacity is defined by
  * the placement code itself and the two cannot drift apart.

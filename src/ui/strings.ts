@@ -148,7 +148,17 @@ export const strings = {
       // them is already "סביב הבריכה" — the old wording produced "רק סביב סביב הבריכה".
       wrongZone: 'פריט זה מותר רק באזור {zone}',
       nearWall: 'יש להניח צמוד לקיר (עד {within} ס״מ)',
-      missingHost: 'יש להניח ערכת סכו״ם קודם',
+      /**
+       * ⚠ It named the place setting outright and was shown for EVERY host. The
+       * violation has carried `requires` — the host's catalog id — since it was
+       * written (collision.ts), and StatusBar simply ignored it, so a floral
+       * arrangement refused for want of its inner table was told to lay cutlery.
+       *
+       * StatusBar resolves the id through `catalog.items`, so the napkins render
+       * byte-identical to before ('ערכת סכו״ם' is `decorPlaceSetting`) and
+       * `ring.table` finally says 'שולחן פנימי'.
+       */
+      missingHost: (item: string) => `יש להניח ${item} קודם`,
       duplicate: 'כבר קיימת חופה בסצנה',
       /** two decor items on the SAME table overlapping each other (PLAN-06) */
       overlapsSibling: 'חופף לקישוט אחר על השולחן',

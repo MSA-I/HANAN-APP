@@ -12,13 +12,33 @@
  * beside the canopy; it is not table decor. That makes it a top-level object with
  * its own position rather than an attached child of anything.
  *
- * `zoneKind: 'chuppah'`, the same string the eight canopies carry. The venue pack
- * marks one 760×425 rectangle as the ceremony spot, and `clampToVenue` teleports a
- * matching object INTO the nearest such zone on drop and never lets it be dragged
- * out (entries/chuppah.ts's header). ⚠ The string is compared as a STRING: a typo
- * does not degrade to "places freely", it makes the object get pushed OUT of every
- * restricted zone instead (layout/collision.ts:456). It is copied character for
- * character from entries/chuppah.ts.
+ * `ignoresZones: true`, and NO `zoneKind`. Round 4 §7: the user wants these
+ * placeable "anywhere in the hall, in any zone". They were pinned first to the
+ * canopy's own 760×425 ceremony rectangle and then, on 2026-07-29, to the 140×600
+ * aisle strip — and a `zoneKind` is not a permission but a HOME: `clampToVenue`
+ * teleports a matching object into that rectangle from wherever it was let go and
+ * never lets it be dragged out. Dropping the field alone would have been worse
+ * than either, because a restricted zone refuses everything that touches it: the
+ * decorations would then be pushed OUT of the aisle, the ceremony pad and the pool
+ * surround, which is the one place they are certainly wanted.
+ *
+ * So they carry the third flag instead. `ignoresZones` lifts the zone loop and
+ * NOTHING else (catalog/types.ts states the contrast with `zoneKind` and
+ * `placeAnywhere` in full): a decoration still collides with furniture, still
+ * keeps out of other objects, and still has to be inside the venue.
+ *
+ * Two consequences, both wanted and both worth knowing:
+ *
+ *  - Height now comes from the GROUND, not from the entity. `standingHeightAt`
+ *    falls through to the geometric answer with no `zoneKind` to key off, so a
+ *    decoration stands at +50 on the ceremony pad and +470 on the reception deck
+ *    instead of always at the ceremony pad's own level. Nothing already saved
+ *    moves: the aisle strip overlaps only `dancefloor` and `pool`, and neither
+ *    declares an `elevation`, so every point inside it still answers 0.
+ *  - The placement gate now APPLIES. `ruled()` exempts anything with a `zoneKind`,
+ *    so until now a decoration could be slid through a table; it now slides up to
+ *    contact and a rotation into a neighbour is refused. That is the requirement,
+ *    not a side effect.
  *
  * Deliberately NOT `unique`. The canopies all carry `unique: 'chuppah'` so that
  * placing any one blocks the other eight — one ceremony, one canopy. Decorations
@@ -74,13 +94,14 @@ function chuppahDecorProp(
     ],
     model,
     thumbnail: `/thumbs/${id.replaceAll('.', '-')}.webp`,
-    // ⚠ The AISLE, not the ceremony pad. The user painted ZONE_SHVIL_HUPA on
-    // 2026-07-29 and said in as many words that it is where the chuppah
-    // decorations go; before it existed they shared the canopy's own rectangle
-    // because there was nowhere else to put them. The canopy keeps `chuppah` —
-    // one ceremony, one canopy, on its podium — and what dresses the walk up to
-    // it now has its own ground.
-    zoneKind: 'shvilHupa',
+    // ⚠ NO HOME RECTANGLE — see the header. This replaced `zoneKind: 'shvilHupa'`
+    // (the aisle the user painted on 2026-07-29), which read as a permission and
+    // behaved as a leash: every decoration was teleported into a 140 × 600 cm strip
+    // however far from it the drop was. The canopy keeps `chuppah` — one ceremony,
+    // one canopy, on its podium — and what dresses it goes wherever the user puts
+    // it. The aisle rectangle stays in the pack: it is still drawn and labelled,
+    // and it is still the ground the walk is measured on.
+    ignoresZones: true,
   }
 }
 
