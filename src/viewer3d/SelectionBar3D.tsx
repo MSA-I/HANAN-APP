@@ -45,6 +45,7 @@ import {
   duplicateObjects,
   removeObjects,
   reorder,
+  mirrorObjects,
   rotateObjectsBy,
   setLocked,
   setSeatCount,
@@ -282,6 +283,9 @@ function OverflowMenu({ onClose, anchor }: { onClose: () => void; anchor: DOMRec
       disabled: !caps.canRotate,
       onClick: () => rotateObjectsBy(ids, -90),
     },
+    // Same gate as rotation: both are poses, and both are refused for the same
+    // reasons (locked, frozen, or no legal room in the new pose).
+    { label: M.mirror, shortcut: 'M', disabled: !caps.canRotate, onClick: () => mirrorObjects(ids) },
     'separator',
     { label: M.bringToFront, disabled: !caps.canReorder, onClick: () => ids.forEach((id) => reorder(id, 'front')) },
     { label: M.sendToBack, disabled: !caps.canReorder, onClick: () => ids.forEach((id) => reorder(id, 'back')) },

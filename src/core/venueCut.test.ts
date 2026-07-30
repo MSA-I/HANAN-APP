@@ -37,6 +37,30 @@ describe('the resort walls', () => {
     // the plan origin, which is why the PNG export carries a margin (Stage2D).
     expect(Math.min(...ys)).toBeLessThan(0)
   })
+
+  /**
+   * The data fact that VenueLayer's all-or-nothing decision rests on.
+   *
+   * ZONE_CUT is ONE marker over the whole building, so the poché is drawn with
+   * the hall and hidden with it. That is only tolerable because the deck's share
+   * of the wall is a minority of it — a real loss, worth stating, but not the
+   * drawing. If the user ever paints the reception its own marker, this count
+   * moves and the test fires, which is exactly when the split stops being an
+   * invention and becomes data.
+   */
+  it('puts a real minority of the wall inside the reception deck', () => {
+    const cut = parseVenueCut(asset)!
+    const deck = resort.restricted!.find((z) => z.kind === 'kabalatPanim')!
+    const inside = cut.tris.filter((t) => {
+      const cx = (t[0] + t[2] + t[4]) / 3
+      const cy = (t[1] + t[3] + t[5]) / 3
+      return cx >= deck.x && cx <= deck.x + deck.width && cy >= deck.y && cy <= deck.y + deck.depth
+    })
+    // measured 2026-07-30 on the shipped asset: 431 of 4,640 triangles,
+    // 9.8 m² of 28.5 m² of painted wall
+    expect(inside.length).toBeGreaterThan(100)
+    expect(inside.length).toBeLessThan(cut.tris.length / 2)
+  })
 })
 
 describe('parseVenueCut', () => {

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * The venue's real tables. Sizes are the measured inventory (furniture-library-spec.md
  * §1), and each carries the resort's own Tripo GLB with the linen baked in — so the
  * `cloth`/`legs` slots below only colour the 2D footprint and the procedural fallback.
@@ -7,12 +7,29 @@
  * have their own scanned model and their own seat count (12 vs 22); one resizable
  * entry would stretch the wrong drape over the wrong table.
  */
-import { serpentineArcs, serpentineBounds, serpentineSeats } from '../../layout/serpentine'
+import {
+  serpentineArcs,
+  serpentineBounds,
+  serpentineSeatItemSeats,
+  serpentineSeats,
+} from '../../layout/serpentine'
 import type { CatalogEntry } from '../types'
 import { leggedTable, pedestalTable } from '../builders'
 
 const CLOTH = { name: 'cloth', labelKey: 'cloth', defaultColor: '#f5f0e8' }
 const LEGS = { name: 'legs', labelKey: 'legs', defaultColor: '#a67b5b' }
+
+/**
+ * What every table in the family answers to in the library search, whatever its
+ * shape. Singular and short, because matching is by SUBSTRING over normalised
+ * text (ui/librarySearch.ts) — 'שולחן' already finds 'שולחנות'; each entry adds
+ * the words for its own shape.
+ *
+ * These six are the one family in the catalogue written out rather than built by
+ * a factory, so like `librarySubtitle` above the constant has to be spread by
+ * hand into each. A seventh table that forgets it is still findable by its label.
+ */
+const TABLE_KEYWORDS = ['שולחן', 'אירוח']
 
 /** The house chair — what a freshly-dropped table seats until the user picks another. */
 const DEFAULT_CHAIR = 'chair.x-white'
@@ -27,6 +44,17 @@ const DEFAULT_CHAIR = 'chair.x-white'
  * than built by a shared factory, so the field is repeated per entry. A seventh
  * table that forgets it would silently fall back to printing its size; that is
  * what catalog/librarySubtitle.test.ts sweeps for.
+ *
+ * ⚠ `editableSlots: [{ slot: 'cloth', texture: true }]` — WITH NO `defaultTexture`,
+ * on all six, and that absence is the whole of round 4 §8. Every table used to be
+ * registered in `viewer3d/slotTextures.ts` for `fabric-06`, so a freshly dropped
+ * table arrived wearing a cream damask trellis nobody had chosen: "it also loads a
+ * tablecloth texture automatically, when it should load on white by default". With
+ * the row gone and no default here, `ModelParts` builds no material override at all
+ * and the GLB's own baked drape renders untouched — the plain white the request
+ * asks for is the model as modelled, not a flat colour painted over it. `fabric-06`
+ * is still one click away in the picker. Locked in catalog/editableSlots.test.ts,
+ * which fails if any table ever declares a `defaultTexture` again.
  */
 
 export const roundTable: CatalogEntry = {
@@ -34,13 +62,14 @@ export const roundTable: CatalogEntry = {
   category: 'tables',
   labelKey: 'tableRound',
   promptFragment: 'a 180cm round banquet table under a floor-length tablecloth',
+  keywords: [...TABLE_KEYWORDS, 'עגול'],
   defaultSize: { width: 180, depth: 180, height: 75 },
   resizable: [],
   minSize: {},
   maxSize: {},
   linkWidthDepth: true,
   materialSlots: [CLOTH, LEGS],
-  editableColorSlot: 'cloth',
+  editableSlots: [{ slot: 'cloth', texture: true }],
   footprint: (s) => ({
     parts: [{ kind: 'circle', r: s.width / 2, slot: 'cloth' }],
     outline: { kind: 'circle', r: s.width / 2 },
@@ -74,13 +103,15 @@ export const roundTableLarge: CatalogEntry = {
   category: 'tables',
   labelKey: 'tableRoundLarge',
   promptFragment: 'a 380cm round banquet table with an open centre well, under a floor-length tablecloth',
+  // 'חור' and 'טבעת' because the open centre is what people call this one by
+  keywords: [...TABLE_KEYWORDS, 'עגול', 'גדול', 'חור', 'טבעת'],
   defaultSize: { width: 380, depth: 380, height: 75 },
   resizable: [],
   minSize: {},
   maxSize: {},
   linkWidthDepth: true,
   materialSlots: [CLOTH, LEGS],
-  editableColorSlot: 'cloth',
+  editableSlots: [{ slot: 'cloth', texture: true }],
   footprint: (s) => {
     const rInner = s.width * ROUND_LARGE_HOLE_RATIO
     return {
@@ -115,13 +146,14 @@ export const squareTable: CatalogEntry = {
   category: 'tables',
   labelKey: 'tableSquare',
   promptFragment: 'a 160cm square banquet table under a floor-length tablecloth',
+  keywords: [...TABLE_KEYWORDS, 'מרובע', 'ריבוע'],
   defaultSize: { width: 160, depth: 160, height: 75 },
   resizable: [],
   minSize: {},
   maxSize: {},
   linkWidthDepth: true,
   materialSlots: [CLOTH, LEGS],
-  editableColorSlot: 'cloth',
+  editableSlots: [{ slot: 'cloth', texture: true }],
   footprint: (s) => ({
     parts: [{ kind: 'rect', w: s.width, h: s.depth, cornerRadius: 3, slot: 'cloth' }],
     outline: { kind: 'rect', w: s.width, h: s.depth },
@@ -146,12 +178,13 @@ export const banquetTable: CatalogEntry = {
   category: 'tables',
   labelKey: 'tableBanquet',
   promptFragment: 'a 240 by 120cm rectangular banquet table under a floor-length tablecloth',
+  keywords: [...TABLE_KEYWORDS, 'מלבני', 'ארוך'],
   defaultSize: { width: 240, depth: 120, height: 75 },
   resizable: [],
   minSize: {},
   maxSize: {},
   materialSlots: [CLOTH, LEGS],
-  editableColorSlot: 'cloth',
+  editableSlots: [{ slot: 'cloth', texture: true }],
   footprint: (s) => ({
     parts: [{ kind: 'rect', w: s.width, h: s.depth, cornerRadius: 2, slot: 'cloth' }],
     outline: { kind: 'rect', w: s.width, h: s.depth },
@@ -185,12 +218,13 @@ export const knightsTable: CatalogEntry = {
   category: 'tables',
   labelKey: 'tableKnights',
   promptFragment: 'a 480 by 120cm long banquet table under a floor-length tablecloth',
+  keywords: [...TABLE_KEYWORDS, 'מלבני', 'אבירים', 'ארוך'],
   defaultSize: { width: 480, depth: 120, height: 75 },
   resizable: [],
   minSize: {},
   maxSize: {},
   materialSlots: [CLOTH, LEGS],
-  editableColorSlot: 'cloth',
+  editableSlots: [{ slot: 'cloth', texture: true }],
   footprint: (s) => ({
     // two halves drawn separately so the join between the butted tables shows
     parts: [
@@ -244,13 +278,14 @@ export const serpentineTable: CatalogEntry = {
   category: 'tables',
   labelKey: 'tableSerpentine',
   promptFragment: 'a serpentine S-curved banquet table, an 80cm-wide draped band',
+  keywords: [...TABLE_KEYWORDS, 'נחש', 'גלי', 'מתעגל'],
   // = the prepped GLB bbox, verified after prepping: `size [4.22, 0.75, 4.22]` m
   defaultSize: { width: 422, depth: 422, height: 75 },
   resizable: [],
   minSize: {},
   maxSize: {},
   materialSlots: [CLOTH, LEGS],
-  editableColorSlot: 'cloth',
+  editableSlots: [{ slot: 'cloth', texture: true }],
   footprint: (s) => {
     const band = serpentineBounds()
     return {
@@ -266,6 +301,14 @@ export const serpentineTable: CatalogEntry = {
   model: '/props/table-serpentine.glb',
   thumbnail: '/thumbs/table-serpentine.webp',
   seats: serpentineSeats,
+  // …and the two heads take a CHAIR but not a COVER (round 4 §15, the user's own
+  // call). By index, from the same `capacities()` the seat walk divides — see
+  // `serpentineSeatItemSeats`, which explains why "the last two" would be wrong.
+  //
+  // ⚠ The inspector then reads "20 מתוך 22 מקומות", and that is CORRECT, not an
+  // off-by-two to be tidied away: 22 seats, 20 of them set. The string was written
+  // for exactly this shape.
+  seatItemSeats: serpentineSeatItemSeats,
   // 22 = 11 on the long flank + 9 on the short + one at each head of the S.
   // The flanks differ because the arcs sweep through different angles, so the
   // r+d / r−d offsets do not cancel — see the warning on `edgeLength`. The two
@@ -284,10 +327,12 @@ export const serpentineTable: CatalogEntry = {
   // move the total at all over 0…20 — what it adds to the long flank it takes off
   // the short one.
   //
-  // What IS wrong on this table is the two head PLACE SETTINGS, which overlap
-  // their flank neighbours by 12…15cm — see the warning on `HEAD_SEATS` in
-  // layout/serpentine.ts. It is a position defect, not a count one, and no number
-  // on this line can fix it.
+  // The two head PLACE SETTINGS used to overlap their flank neighbours by 12…15cm,
+  // and no number on this line could fix it — it was a position defect, not a count
+  // one, and no position inside the band clears it (the sweep is on `HEAD_SEATS` in
+  // layout/serpentine.ts). Round 4 §15 settled it the other way: the heads keep
+  // their chairs and give up their covers, which is `seatItemSeats` above. All 22
+  // chairs below are still laid.
   seating: { min: 0, max: 22, defaultCount: 22, defaultChair: DEFAULT_CHAIR, defaultGap: 10, defaultOffset: 6 },
   librarySubtitle: 'seats',
   labelByDefault: true,

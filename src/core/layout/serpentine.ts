@@ -11,6 +11,20 @@
  * conservative: it is larger than the table, so snapping and venue clamping err
  * in the safe direction.
  *
+ * ⚠ THAT LAST SENTENCE WAS TOO GENEROUS TO ITSELF, and round 4 §15b is the bill.
+ * The box is 422.00 × 426.41 cm = 17.99 m² around a band whose true area is
+ * 4.644 m² — 25.8% — and the box's OWN CENTRE is 63.13 cm outside the band.
+ * `TABLE_CLEARANCE.rect = 170` is a real aisle between table EDGES, but measured
+ * off that box it refused a ⌀180 round table up to about three metres from the
+ * drape. "Conservative" is right for snapping and for the venue clamp, where a few
+ * spare centimetres cost nothing; it is not right for a rule about how far apart
+ * two tables must stand.
+ *
+ * So the outline STAYS — its nine consumers are unchanged — and COLLISION ALONE
+ * now reads the sectors, through `serpentineBandTiles` below. The clearance number
+ * is untouched: the fault was never the 170, it was measuring it from a box four
+ * times the size of the table.
+ *
  * Known consequence, accepted: hit-testing uses that box, so a decor item can be
  * dropped into the concave pocket of the S and will attach to the table while
  * visually floating over the floor. Fixing it needs one pure `pointInParts`
@@ -176,6 +190,113 @@ export function serpentineArcs(): Array<{
     startAngle: Math.min(a.from, a.from + a.turn),
     sweep: Math.abs(a.turn),
   }))
+}
+
+/**
+ * How much CENTRE-LINE arc one collision tile spans, cm. Smaller is more faithful
+ * and costs more tiles: 20 gives 30 tiles (12 + 10 + 8) with a worst outward
+ * over-claim of 5.38 cm, and halving it would roughly halve that and double the
+ * tile count. 20 is the point where the error is already well under the model's own
+ * ±5 cm width wander, so a finer grid would only be more precise about a curve that
+ * is not that precise.
+ */
+export const ARC_TILE = 20
+
+/** One conservative collision rect, in the object's own frame. */
+export interface BandTile {
+  cx: number
+  cy: number
+  /** along the mid-ray */
+  w: number
+  /** across it */
+  h: number
+  /** plan degrees: the mid-ray's own heading */
+  rot: number
+}
+
+/**
+ * Tile a chain of annular sectors with rotated rectangles that COVER them.
+ *
+ * For a sector split into `k` equal angular steps, one step spans half-angle
+ * `a = sweep/2k` about its mid-ray. Every point of that step is at radius
+ * ρ ∈ [innerR, outerR] and angle φ within `a` of the mid-ray, so in the frame
+ * rotated onto that ray it satisfies
+ *
+ *     u = ρ·cos(φ)  ∈ [innerR·cos a, outerR]
+ *     |v| = ρ·|sin(φ)| ≤ outerR·sin a
+ *
+ * and the rect with those bounds contains the step exactly. The containment is the
+ * property that matters: a tile may claim floor the table does not occupy (an
+ * object is then refused a little early, which is safe and invisible), but it may
+ * never MISS band, which would let a table be placed through the drape.
+ *
+ * ⚠ A CAPSULE CHAIN WAS EVALUATED AND REJECTED. It is more accurate along the
+ * arcs — a swept disc follows a curve where a rect chord cannot — but the band's
+ * end caps are FLAT radial segments and a capsule's end is a half-disc of radius
+ * 40. That is a 40 cm bulge past the cap, 7× worse than this tiling's worst error
+ * anywhere, and it sits exactly where the two head chairs and their guests are.
+ *
+ * Pure, and derived from the sectors it is given: a re-fit of `CHAIN` moves the
+ * tiles with nobody re-choosing anything.
+ */
+export function arcBandTiles(
+  sectors: ReadonlyArray<{
+    cx: number
+    cy: number
+    innerR: number
+    outerR: number
+    startAngle: number
+    sweep: number
+  }>,
+  arcCm = ARC_TILE,
+): BandTile[] {
+  const out: BandTile[] = []
+  for (const s of sectors) {
+    const mid = (s.innerR + s.outerR) / 2
+    const k = Math.max(1, Math.ceil((degToRad(s.sweep) * mid) / arcCm))
+    const step = s.sweep / k
+    const a = degToRad(step / 2)
+    const uLo = s.innerR * Math.cos(a)
+    const uHi = s.outerR
+    const halfW = s.outerR * Math.sin(a)
+    for (let i = 0; i < k; i++) {
+      const heading = s.startAngle + (i + 0.5) * step
+      const rad = degToRad(heading)
+      const u = (uLo + uHi) / 2
+      out.push({
+        cx: s.cx + Math.cos(rad) * u,
+        cy: s.cy + Math.sin(rad) * u,
+        w: uHi - uLo,
+        h: 2 * halfW,
+        rot: heading,
+      })
+    }
+  }
+  return out
+}
+
+/**
+ * The serpentine's band as collision rects, object-local — what `collision.ts`
+ * tests against instead of the 17.99 m² bounding box (see the header).
+ *
+ * MEASURED at `ARC_TILE = 20`, 2026-07-30, by sampling the band's whole bounding
+ * box on a 0.4 cm grid and comparing `serpentineBandDepth` against the tiles:
+ *
+ *   tiles                 30  (12 + 10 + 8)
+ *   band area          4.644 m²   ·   tiled area 4.689 m²  (+0.98%)
+ *   inward shortfall   0.000 cm — no point of the band lies outside every tile, so
+ *                                 the tiling never reports free floor that is not
+ *   outward over-claim ≤5.30 cm — the worst distance from a tiled point to the band
+ *                                 (5.0 on a 1.5 cm grid; it converges upward with
+ *                                 the sampling, so read it as "about 5½")
+ *
+ * The over-claim sits at the two end caps and at the outer corners of each tile,
+ * and it is inside the model's own ±5 cm width wander. It is also the SAFE
+ * direction: a tile may claim floor the table does not occupy, and an object is
+ * then refused a centimetre early.
+ */
+export function serpentineBandTiles(arcCm = ARC_TILE): BandTile[] {
+  return arcBandTiles(serpentineArcs(), arcCm)
 }
 
 /**
@@ -433,32 +554,51 @@ function capacities(seating: SeatingConfig, chair: Size3D): number[] {
  * band and stops at the caps, which is why the heads have to be added rather
  * than falling out of the walk.
  *
- * ⚠ KNOWN CONSEQUENCE, MEASURED — the head CHAIRS are fine, the head PLACE
- * SETTINGS are not. This is the whole of corrections-document item 27, which reads
- * as "there are not 22 there like the number of chairs". There ARE 22: chairs,
- * settings and the entry's declared count all agree (serpentine.test.ts asserts all
- * three). What the eye counts short is two settings that have merged into their
- * neighbours.
+ * ⚠ THE HEAD CHAIRS ARE FINE. THE HEAD PLACE SETTINGS ARE NOT, AND ARE NO LONGER
+ * LAID — see `serpentineSeatItemSeats` below, which is the fix the last paragraph
+ * of this warning used to ask for.
  *
- * Why, in one line: the two kinds of cover lie at 90° to each other across the
- * band. A flank setting has its depth radial and sits 21.35 cm off the centre line,
- * occupying [5.70, 37.00] across the 80 cm band; a head setting sits ON the centre
- * line with its 36 cm WIDTH across it, spanning [−18.00, +18.00]. The free corridor
- * down the middle is 11.4 cm wide, so they interpenetrate by 12.18…15.43 cm.
+ * The measurement, kept because it is the reason: the two kinds of cover lie at 90°
+ * to each other across the band. A flank setting has its depth radial and sits
+ * 21.35 cm off the centre line, occupying [5.70, 37.00] across the 80 cm band; a
+ * head setting sits ON the centre line with its 36 cm WIDTH across it, spanning
+ * [−18.00, +18.00]. The free corridor down the middle is 11.4 cm wide, so they
+ * interpenetrate by 12.18…15.43 cm.
  *
- * NOT FIXABLE HERE, and that was established before it was accepted. Sweeping the
- * head setting along the band from −60 to +160 cm never clears it: inside the band
- * the penetration never falls below 10.61 cm, and the only clear positions are
- * ≥ 9.85 cm PAST the cap — hanging over the floor, which is the defect the same
- * round exists to remove. Insetting the flank walk away from the caps clears only
- * by dropping three chairs (22 → 19) and squeezing the rest to a 1.48 cm gap.
- * Both sweeps are tabulated in Plans/R3/handoff/05-serpentine.md.
+ * NOT FIXABLE BY MOVING IT, and that was established before it was accepted.
+ * Sweeping the head setting along the band from −60 to +160 cm never clears it:
+ * inside the band the penetration never falls below 10.61 cm, and the only clear
+ * positions are ≥ 9.85 cm PAST the cap — hanging over the floor, which is the
+ * defect the same round exists to remove. Insetting the flank walk away from the
+ * caps clears only by dropping three chairs (22 → 19) and squeezing the rest to a
+ * 1.48 cm gap. Both sweeps are tabulated in Plans/R3/handoff/05-serpentine.md.
  *
- * ponytail: the fix belongs to whoever owns the setting layout — either skip the
- * head seats when laying settings on this table, or give it a cover narrow enough
- * (≤ 11.4 cm across the band) to pass down the middle. Neither is a number here.
+ * So the user's call (round 4 §15): keep all 22 CHAIRS, lay 20 COVERS. A guest at
+ * the head of an S-curved table sits at a corner of it, which is exactly where a
+ * real venue leaves the cover off.
  */
 const HEAD_SEATS = 2
+
+/**
+ * Which of `serpentineSeats`' transforms take a place setting — the flanks, by
+ * index, and never the two heads.
+ *
+ * Derived from `capacities()`, the same numbers the walk itself divides, so a
+ * re-fit of `CHAIN` or a change of chair moves this with nobody re-choosing
+ * anything. `serpentineSeats` fills the flanks first and appends the heads, so the
+ * flanks are always 0…n−1 and this is a prefix.
+ *
+ * ⚠ It is deliberately NOT "the last two". `serpentineSeats` appends the heads
+ * with `.slice(0, max(0, seating.count − out.length))`, so a table configured for
+ * 15 chairs has ZERO heads — the flanks hold 20 — and dropping the last two would
+ * silently strip two FLANK covers from a table that never had a head problem.
+ * Asking `capacities()` gets that right at every count for free.
+ */
+export function serpentineSeatItemSeats(seating: SeatingConfig, chair: Size3D): number[] {
+  const caps = capacities(seating, chair)
+  const flanks = Math.min(seating.count, caps[0] + caps[1])
+  return Array.from({ length: Math.max(0, flanks) }, (_, i) => i)
+}
 
 function headSeats(seating: SeatingConfig, chair: Size3D): Transform2D[] {
   const first = SERPENTINE_ARCS[0]

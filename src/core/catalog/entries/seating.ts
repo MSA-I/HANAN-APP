@@ -89,6 +89,11 @@ function chair(
     // 'bridalChair' and keeps the default 'size': a 2.12 m settee is furniture
     // whose footprint decides whether it fits.
     librarySubtitle: 'none',
+    // Library search. Both spellings of "chair" are listed because neither
+    // contains the other; everything else is the singular, which substring
+    // matching already grows into its plural (ui/librarySearch.ts).
+    // On the factory, so all six chairs answer to the same words at once.
+    keywords: ['כסא', 'כיסא', 'ישיבה', 'אורח'],
     materialSlots: [
       { name: 'upholstery', labelKey: 'upholstery', defaultColor: upholstery },
       { name: 'frame', labelKey: 'frame', defaultColor: frame },
@@ -137,6 +142,9 @@ export const chairBridal: CatalogEntry = {
   labelKey: 'chairBridal',
   promptFragment:
     'a curved seven-panel button-tufted bridal settee for two, on splayed tapered legs',
+  // its own list, not the `chair()` factory's: this is a settee, and the words a
+  // user reaches for are the occasion's, not the furniture's
+  keywords: ['כסא', 'כיסא', 'כלה', 'חתן', 'ספה', 'זוג'],
   defaultSize: { width: 212, depth: 97.6, height: 77.9 },
   resizable: [],
   minSize: {},

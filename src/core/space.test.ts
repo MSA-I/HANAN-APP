@@ -68,3 +68,47 @@ describe('normalizeDeg', () => {
     expect(normalizeDeg(45)).toBe(45)
   })
 })
+
+/**
+ * Round 4 item 4. The mirror is ONE optional bit on the parent, and everything a
+ * mirrored table's chairs, covers and design pieces do follows from these two
+ * functions — so this is where the rule is pinned rather than in a renderer.
+ */
+describe('composeTransform / relativeTransform with a mirrored parent', () => {
+  const local = { position: { x: 10, y: 4 }, rotation: 15, elevation: 5 }
+
+  it('flips the child BEFORE the parent turns, and negates the angle inside it', () => {
+    const parent = { position: { x: 100, y: 50 }, rotation: 0, elevation: 0, mirrored: true }
+    const world = composeTransform(parent, local)
+    expect(world.position.x).toBeCloseTo(90) // 100 + (-10)
+    expect(world.position.y).toBeCloseTo(54) // y is untouched by a reflection in x
+    // R · Rot(ρ) · R⁻¹ = Rot(−ρ)
+    expect(world.rotation).toBeCloseTo(-15)
+  })
+
+  it('still inverts exactly, with the flag on the parent', () => {
+    const parent = { position: { x: 100, y: 50 }, rotation: 37, elevation: 2, mirrored: true }
+    const back = relativeTransform(parent, composeTransform(parent, local))
+    expect(back.position.x).toBeCloseTo(local.position.x)
+    expect(back.position.y).toBeCloseTo(local.position.y)
+    expect(back.rotation).toBeCloseTo(local.rotation)
+    expect(back.elevation).toBeCloseTo(local.elevation)
+  })
+
+  it('XORs the flag: two reflections are none', () => {
+    const parent = { position: { x: 0, y: 0 }, rotation: 0, elevation: 0, mirrored: true }
+    const mirroredChild = { ...local, mirrored: true }
+    expect(composeTransform(parent, mirroredChild).mirrored).toBeUndefined()
+    expect(composeTransform(parent, local).mirrored).toBe(true)
+    expect(composeTransform({ ...parent, mirrored: undefined }, mirroredChild).mirrored).toBe(true)
+  })
+
+  it('adds NOTHING when neither side is mirrored — the pre-round-4 output, byte for byte', () => {
+    const parent = { position: { x: 100, y: 50 }, rotation: 90, elevation: 0 }
+    expect(composeTransform(parent, local)).toEqual({
+      position: { x: 96, y: 60 },
+      rotation: 105,
+      elevation: 5,
+    })
+  })
+})

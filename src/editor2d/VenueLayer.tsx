@@ -457,13 +457,27 @@ export function VenueLayer() {
       <LevelChanges zones={zones.filter((z) => onDeck(z) === !showHall)} />
       {/* The building itself, last: a cut wall sits OVER the floor it encloses,
           and over the zone tints, which are markings on that floor.
-          ⚠ The walls do NOT take sides, and that is the user's call: ZONE_CUT is
-          one marker he painted over the whole building, and splitting it here by
-          which rectangle a triangle lands in would be this file inventing a
-          division the source does not make. He is painting the reception its own
-          marker; when it arrives the split is data, and this draws whichever one
-          belongs to the active side. Until then both envelopes stay. */}
-      {cut ? <CutPoche tris={cut.tris} /> : null}
+
+          ⚠ THE WALLS ARE ONE MARKER AND THEY GO WITH THE HALL — all of them or
+          none of them. ZONE_CUT is a single face the user painted over the whole
+          building, so splitting it here by which rectangle a triangle lands in
+          would be this file inventing a division the source does not make. That
+          split was tried and the user asked for it to be reverted; do not
+          reintroduce it geometrically.
+
+          ⚠ SO THE DECK LOSES ITS OWN WALLS UP HERE TOO, and that is a real cost,
+          not a rounding error. Measured on the shipped cut.json against the
+          `kabalatPanim` rectangle: 431 of the 4,640 triangles have their centroid
+          inside it, 9.8 m² of the 28.5 m² of painted wall. In reception mode
+          those go with the rest. What the deck keeps is `LevelChanges` above,
+          which draws its +4.70 / +5.20 edges at step weight in exactly this mode
+          — so the drawing still says where the deck stops, it just does not say
+          what encloses it.
+
+          The day the user paints the reception its own marker the split becomes
+          DATA, and this line draws whichever envelope belongs to the active side.
+          core/venueCut.test.ts pins the 431 so that day is noticed. */}
+      {cut && showHall ? <CutPoche tris={cut.tris} /> : null}
     </Layer>
   )
 }

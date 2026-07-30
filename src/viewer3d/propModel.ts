@@ -107,10 +107,16 @@ function buildParts(scene: THREE.Object3D, catalogId: string, size: Size3D): Mod
   // The model's own real size, so the fit lands the geometry exactly on `size`.
   // Entries prepped at their catalog default (most of them) leave modelSize off.
   const def = entry.modelSize ?? entry.defaultSize
+  // …unless the entry states a `modelTopSize`, in which case the plan's width and
+  // depth describe the model's TOP rather than its whole box, and the top is what
+  // has to land on them. Only x and z: the height still fits the file's own height,
+  // because a hem is a horizontal overhang and not a vertical one. See the field's
+  // comment in catalog/types.ts for why this is not `modelSize` with other numbers.
+  const top = entry.modelTopSize
   const fit = new THREE.Matrix4().makeScale(
-    size.width / def.width,
+    size.width / (top?.width ?? def.width),
     size.height / def.height,
-    size.depth / def.depth,
+    size.depth / (top?.depth ?? def.depth),
   )
   if (!fit.equals(new THREE.Matrix4())) {
     for (const p of parts) p.geometry.applyMatrix4(fit)

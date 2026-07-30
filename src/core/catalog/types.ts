@@ -5,7 +5,7 @@
  * resize constraints and seating capability. Adding a furniture type means
  * adding an entry — never touching the renderers.
  */
-import type { SeatingConfig, Size3D, Transform2D, Vec2 } from '../model/types'
+import type { AppearanceOverrides, SeatingConfig, Size3D, Transform2D, Vec2 } from '../model/types'
 
 /**
  * Library groups, in no particular order here — CATEGORY_ORDER (registry.ts) is
@@ -20,6 +20,13 @@ import type { SeatingConfig, Size3D, Transform2D, Vec2 } from '../model/types'
  * unlocked (model/types.ts:115) — but MOVING an existing entry between categories
  * would orphan its stored flags, which is why none was moved; see the v9
  * migration's comment.
+ *
+ * v12→v13 REMOVED 'ringCenter' (twelve → eleven). Its two entries — the low table
+ * that drops into the ⌀380's hole and the urn that stands on it — moved into
+ * 'tables', because a library heading of its own for two items was a heading the
+ * user had to learn. That IS the move v9's comment warned about, so v13 carries a
+ * migration; unlike a rename it DELETES the orphaned layer flags rather than
+ * merging them into `layers.tables`, for the reason written there.
  */
 export type Category =
   | 'tables'
@@ -29,7 +36,6 @@ export type Category =
   | 'tableware'
   | 'tableDecor'
   | 'tableDesigns'
-  | 'ringCenter'
   | 'lighting'
   | 'decor'
   | 'chuppah'
@@ -123,6 +129,44 @@ export interface SeatingCapability {
   defaultOffset: number
 }
 
+/**
+ * One material slot the user is allowed to restyle, and how far that permission
+ * reaches into the GLB.
+ *
+ * REPLACES `editableColorSlot?: string`, which was a single slot name and said
+ * nothing about which parts of the model it owned. Keeping both would have given
+ * `setAppearance`'s guard two sources of truth for "may the user edit this".
+ */
+export interface EditableSlot {
+  /** must name a MaterialSlotDef on the same entry */
+  slot: string
+  /**
+   * GLB material-name PREFIX this slot owns; omitted = the whole model.
+   *
+   * This is the missing link the type exists for. Before it, an override tinted
+   * EVERY part of the model because nothing mapped a catalog slot onto a GLB
+   * material name — which is why the divider's frame could not stay black while
+   * its curtain changed colour. The prefix is written at prep time by
+   * tools/glb-prep/mark-fabric.mjs, the same marking-by-rename that
+   * mark-glass.mjs already uses and that `isGlassPart` reads.
+   */
+  match?: string
+  /** offer the fabric texture picker beside the colour palette */
+  texture?: boolean
+  /**
+   * The texture worn when the user has picked none. REPLACES viewer3d's
+   * SLOT_TEXTURES map, whose own header said moving it here is where it belongs
+   * once a catalog owner wanted it.
+   *
+   * ABSENT IS A DECISION, not an omission, on the six tables: source doc round 4
+   * §8 — "it also loads a tablecloth texture automatically, when it should load
+   * on white by default". With no default and no user pick, nothing builds an
+   * override at all and the table renders its own baked drape, which is the
+   * plain white the request asks for. catalog/editableSlots.test.ts locks it.
+   */
+  defaultTexture?: string
+}
+
 export interface CatalogEntry {
   id: string
   category: Category
@@ -137,16 +181,21 @@ export interface CatalogEntry {
   /** round tables etc.: diameter — width and depth stay equal */
   linkWidthDepth?: boolean
   materialSlots: MaterialSlotDef[]
-  /** the only material slot the user may recolor; omitted means appearance is fixed */
-  editableColorSlot?: string
+  /**
+   * The material slots the user may restyle; omitted or empty means appearance is
+   * fixed. It is the single permission list — `setAppearance` and
+   * `setSlotTexture` both refuse a slot that is not in it.
+   */
+  editableSlots?: EditableSlot[]
   footprint: (size: Size3D) => FootprintSpec
   buildMesh: (size: Size3D) => MeshPart[]
   /**
    * URL of a real GLB (public/props/, prepped by glb-prep --mode prop). When set,
-   * the 3D viewer renders this model instead of `buildMesh`. When
-   * `editableColorSlot` is set, an explicit override tints cloned model materials
-   * while preserving their textures and PBR properties. `buildMesh` stays as the
-   * loading/error fallback.
+   * the 3D viewer renders this model instead of `buildMesh`. An explicit override
+   * on an `editableSlots` entry tints and/or textures CLONED model materials while
+   * preserving their PBR properties — and only the parts whose material name
+   * carries that slot's `match` prefix. `buildMesh` stays as the loading/error
+   * fallback.
    */
   model?: string
   /**
@@ -185,6 +234,25 @@ export interface CatalogEntry {
    * attached children that can only be dropped onto a table.
    */
   placement?: 'floor' | 'surface' | 'seat' | 'ceiling'
+  // --- ceiling fixtures only (round 4, item 14b) --------------------------------
+  /**
+   * Where the procedural suspension cords meet the truss, as FRACTIONS of `width`
+   * and `depth` measured from the object's centre — each component in [−0.5, 0.5],
+   * in the object's local plan frame (so they turn with its yaw for free).
+   * Absent or empty = one cord on the axis, which is what a single-drum pendant
+   * wants and what every fixture had before this existed.
+   *
+   * ⚠ FRACTIONS AND NOT CENTIMETRES, and the reason is not taste. The catalogued
+   * size is the file's own bounds times a scale that has now moved TWICE — ×2.5 in
+   * round 2 and ×6.25 for the pendants in round 4 — and a fraction survives both
+   * untouched, where a centimetre figure would have to be re-measured after each
+   * and would sit wrong and unnoticed in between.
+   *
+   * Read through `cordAnchorPoints` (core/layout/beams.ts), never directly.
+   * ------------------------------------------------------------------------------
+   */
+  cordAnchors?: Vec2[]
+  // --- end ceiling fixtures ------------------------------------------------------
   /**
    * Fixed-station entries (bar, DJ booth): when the venue pack has a restricted
    * zone of this kind, the object lives ONLY inside that zone — dropping it
@@ -284,6 +352,121 @@ export interface CatalogEntry {
    * which reads badly in a prompt and is meant to.
    */
   promptFragment?: string
+
+  /**
+   * Hebrew synonyms the library search should find this item by, beyond its own
+   * label. Matched as a SUBSTRING over normalised text (ui/librarySearch.ts), so
+   * write the SHORT, SINGULAR form and the longer ones come free: 'שולחן' finds
+   * 'שולחנות', and not the other way round. Where both spellings are in real use
+   * and neither contains the other — 'כסא' / 'כיסא' — both have to be listed.
+   *
+   * Authored on the ENTRY FACTORIES wherever one exists, so a family of twenty
+   * items is one edit and cannot go half-done. Per-entry lists say what is true
+   * of that one item and nothing else.
+   *
+   * They are search keys, not user-visible text, so they do NOT live in
+   * ui/strings.ts (BRIEF §1.2 is about strings the user READS). Nothing renders
+   * them.
+   */
+  keywords?: string[]
+
+  // -------------------------------------------------------------------------
+  // ROUND-4 ADDITIONS (A5). Four fields, kept together in one block rather than
+  // filed beside the field each pairs with, because round 4 edits this file from
+  // two branches at once and a contiguous append merges without a conflict. Each
+  // one names its partner in its own comment; move them next to those partners
+  // once the round has landed if that reads better.
+  // -------------------------------------------------------------------------
+
+  /**
+   * The zone loop does not apply to this item: it may stand in a restricted
+   * rectangle (the pool, the dance floor, the ceremony pad) and it answers to
+   * EVERY other rule — collision, table clearance, the venue outline, the band
+   * rules, `nearWall`. Source doc round 4 §7, in the user's words: the chuppah
+   * decorations "should be placeable anywhere in the hall, in any zone".
+   *
+   * The narrowest of the three flags that look alike, and the other two are both
+   * the wrong shape for this:
+   *
+   *  - `zoneKind` means FIXED STATION. It skips the check with an early
+   *    `return []`, but `clampToVenue` also reads it as licence to TELEPORT the
+   *    object into that rectangle from anywhere in the hall, and `ruled()` exempts
+   *    it from the placement gate outright. "Anywhere" would become "in exactly
+   *    one rectangle, wherever you let go of it".
+   *  - `placeAnywhere` is a blanket `return []` at the top of `check()`: no
+   *    collision, no siblings, not even the venue outline. That is right for a
+   *    person standing in the render for scale and wrong for a 52 × 61 cm floral
+   *    column, which is furniture and has to stay off the tables and inside the
+   *    building.
+   *
+   * Deleting `zoneKind` alone would not do it either: a restricted zone refuses
+   * everything that TOUCHES it, so the decoration would then be pushed OUT of the
+   * chuppah pad, the aisle and the pool surround — the opposite of the request.
+   *
+   * Lifts the zone loop and nothing else. `allowedOnDeck` names it for the same
+   * reason it names `placeAnywhere`: once `check()` stops asking about zones, a
+   * "no" there would let `checkPlacement` say yes while `clampToVenue` shoved the
+   * piece off the deck.
+   */
+  ignoresZones?: boolean
+
+  /**
+   * Pairs with `requiresHost`: a missing host is not a refusal, the drop LAYS the
+   * host in the same gesture.
+   *
+   * `requiresHost` stays exactly as load-bearing as it was — it is what the
+   * sibling-overlap skip, the `stackedOn` link and `surfaceBase` all read. This
+   * flag changes one thing only: whether `checkPlacement` says `missingHost`.
+   * Set on `ring.floral`, which drops into the ⌀380's well onto a `ring.table`
+   * that the venue would always have put there anyway. NOT on the napkins: a
+   * napkin without a place setting under it is a mistake, and 22 auto-laid covers
+   * is not a gesture anybody asked for.
+   */
+  autoHost?: boolean
+
+  /**
+   * Pairs with `modelSize`: the width and depth of the model's USABLE TOP, in the
+   * file's own units, for a model whose widest point is not its top.
+   *
+   * `modelSize` is the file's whole bounding box, and for a draped table that box
+   * is the HEM near the floor. Fitting by it lands the top disc well short of the
+   * opening it is supposed to fill — 10…12 cm of bare floor showing round
+   * `ring.table` inside the ⌀380's ⌀156 well. Read by the 3D loader for the x and
+   * z factors ONLY; the height still fits the file's own height.
+   *
+   * ⚠ Deliberately NOT "`modelSize` with different numbers". `STACK_HEIGHTS` in
+   * state/actions.ts converts file cm to catalogue cm through
+   * `defaultSize.height / modelSize.height`, and `stackedPosition` does the same
+   * on x and z — so re-pointing `modelSize` at the top would silently mis-scale
+   * the place setting's charger height and the napkin's offset onto it. The two
+   * are different measurements of the same file and both are needed.
+   *
+   * Omit it whenever the file's box IS its top, which is every other entry.
+   */
+  modelTopSize?: { width: number; depth: number }
+
+  /**
+   * Pairs with `seats`: WHICH of the transforms `seats` produced take a place
+   * setting, by index. Absent means all of them, which is every other table.
+   *
+   * By index because `seats` already has an ordering contract — `reconcileSeats`
+   * maps a stored chair to a position by its index, so the serpentine's flanks own
+   * 0…n−1 and its two heads are APPENDED. Stating the subset in the same terms is
+   * what lets this file and layout/serpentine.ts agree without either re-deriving
+   * the other's numbers.
+   *
+   * ⚠ NOT `headSeats: number`. `serpentineSeats` appends the heads with
+   * `.slice(0, max(0, count − out.length))`, so a table configured for 15 chairs
+   * has ZERO heads and "drop the last two" would silently strip two FLANK covers.
+   * The index set is derived from the same `capacities()` the walk divides by, so
+   * it is empty of heads exactly when the walk is.
+   *
+   * Set on the serpentine, where the two head covers lie at 90° to their flank
+   * neighbours across the band and interpenetrate them by a measured 12…15 cm at
+   * every position inside it (layout/serpentine.ts's note on the head seats has
+   * the sweep). The CHAIRS are unaffected — all 22 stay.
+   */
+  seatItemSeats?: (seating: SeatingConfig, chair: Size3D) => number[]
 }
 
 export function defaultAppearance(entry: CatalogEntry): Record<string, { color?: string }> {
@@ -303,6 +486,60 @@ export function slotColor(
   return def?.defaultColor ?? '#cccccc'
 }
 
+/** The slots the user may restyle, in catalogue order. Never null. */
+export function editableSlotsOf(entry: CatalogEntry): readonly EditableSlot[] {
+  return entry.editableSlots ?? []
+}
+
+/**
+ * May the user restyle this slot on this entry? The guard both appearance actions
+ * ask before writing — a `slot` that is merely a real `materialSlots` name is not
+ * enough, because most of those are fixed by the catalogue (a table's legs).
+ */
+export function isEditableSlot(entry: CatalogEntry, slot: string): boolean {
+  return editableSlotsOf(entry).some((s) => s.slot === slot)
+}
+
+/**
+ * The texture id in force for a slot: the user's pick, else the catalogue's
+ * default, else none. `null` rather than `undefined` because "no texture" is a
+ * state the user can choose and the renderer has to act on — see the three-state
+ * note on `AppearanceOverrides`.
+ *
+ * ⚠ `'textureId' in record` and not `record.textureId != null`: a stored `null`
+ * IS the user's answer and must beat `defaultTexture`, which is the whole reason
+ * the field is nullable in the schema.
+ */
+export function slotTextureId(
+  entry: CatalogEntry,
+  appearance: AppearanceOverrides,
+  slot: string,
+): string | null {
+  const record = appearance[slot]
+  if (record && 'textureId' in record) return record.textureId ?? null
+  return editableSlotsOf(entry).find((s) => s.slot === slot)?.defaultTexture ?? null
+}
+
 export function anchorOf(_size: Size3D): Vec2 {
   return { x: 0, y: 0 }
+}
+
+/**
+ * A table you can put a chair at and stand things on — the thing every reader of
+ * `category === 'tables'` has always meant.
+ *
+ * ⚠ `category === 'tables'` STOPPED MEANING THAT AT v13. The category then held
+ * six floor tables and nothing else, so the two tests were the same test. v13
+ * folded `ringCenter` into it (see the `Category` note above), and its two members
+ * are `placement: 'surface'` — a table-top piece and the low table that drops
+ * through the ⌀380's hole. Left as a bare category test, nine call sites would
+ * have started treating a centrepiece as a guest table: offering it as a drop
+ * target for table decor, demanding table-to-table clearance around it, laying a
+ * table design on it.
+ *
+ * It lives HERE and not in state/selectors.ts on purpose: core/layout/collision.ts
+ * is one of its callers, and nothing in core/ may depend on state/.
+ */
+export function isFloorTable(entry: CatalogEntry): boolean {
+  return entry.category === 'tables' && entry.placement !== 'surface'
 }

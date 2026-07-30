@@ -6,6 +6,7 @@ import { useEffect } from 'react'
 import {
   clearSelection,
   duplicateObjects,
+  mirrorObjects,
   moveObjectsBy,
   redo,
   removeObjects,
@@ -108,6 +109,8 @@ export function useEditorShortcuts(zoom: ZoomApi): void {
         } else if (e.code === 'KeyR') {
           // no preventDefault, matching the 2D branch below
           if (s3.selection.length) rotateObjectsBy(s3.selection, e.shiftKey ? -90 : 90)
+        } else if (e.code === 'KeyM') {
+          if (s3.selection.length) mirrorObjects(s3.selection)
         } else if (e.code === 'Delete' || e.code === 'Backspace') {
           if (s3.selection.length) removeObjects(s3.selection)
           e.preventDefault()
@@ -221,6 +224,9 @@ export function useEditorShortcuts(zoom: ZoomApi): void {
           return
         case 'KeyR':
           if (sel.length) rotateObjectsBy(sel, e.shiftKey ? -90 : 90)
+          return
+        case 'KeyM':
+          if (sel.length) mirrorObjects(sel)
           return
         case 'KeyG':
           if (e.shiftKey) updateSettings({ snapEnabled: !state.scene.settings.snapEnabled })

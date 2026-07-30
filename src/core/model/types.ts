@@ -28,6 +28,26 @@ export interface Transform2D {
   position: Vec2
   rotation: number
   elevation: number
+  /**
+   * Reflected about its own local x-axis — a real mirror image, not a half turn.
+   * A corner bar modelled to stand on the left of a doorway becomes the one that
+   * stands on the right, which no rotation can produce.
+   *
+   * Optional and additive: a scene written before round 4 simply has none, and an
+   * unmirrored object still serialises byte-for-byte as it always did, because
+   * `mirrorObjects` DELETES the key rather than writing `false`. Same shape as
+   * `Attachment.stackedOn`, and for the same reason — no migration.
+   *
+   * It COMPOSES: `composeTransform` flips a child's local x, negates the angle
+   * measured inside the reflection, and XORs the flag down the tree, so a table's
+   * chairs, covers and design pieces mirror with it and nothing has to be
+   * rewritten on the children themselves.
+   *
+   * ⚠ It lives on the TRANSFORM and not in `meta` because `replaceObject` resets
+   * `meta` when it swaps a non-seated item — a mirror stored there would vanish
+   * the moment the user swapped one bar for another.
+   */
+  mirrored?: boolean
 }
 
 export type Attachment =
@@ -68,8 +88,30 @@ export function childSortKey(o: { attachment?: Attachment }): number {
   return o.attachment?.kind === 'seat' ? o.attachment.seatIndex : Number.MAX_SAFE_INTEGER
 }
 
-/** Per-material-slot overrides; slot names come from the catalog entry. */
-export type AppearanceOverrides = Record<string, { color?: string }>
+/**
+ * Per-material-slot overrides; slot names come from the catalog entry.
+ *
+ * ⚠ THREE STATES, not two, and the picker has to be able to express all of them:
+ *
+ *  - `textureId: 'fabric-06'` — the user picked that swatch.
+ *  - `textureId: null` — the user picked "no texture". The slot wears its plain
+ *    baked surface even where the catalogue says otherwise.
+ *  - the key ABSENT — the user has not chosen, so the slot's own
+ *    `EditableSlot.defaultTexture` decides (and most slots declare none, which is
+ *    how the six tables come up on their own white drape).
+ *
+ * `null` and absent are therefore NOT interchangeable: on the three napkins,
+ * which are the only entries carrying a `defaultTexture`, absent means the weave
+ * the catalogue chose and `null` means the user took it off. `slotTextureId` in
+ * catalog/types.ts is the one place that collapses the three into an answer, and
+ * the persisted zod schema (migrations/index.ts) spells the field
+ * `.nullable().optional()` for exactly this reason.
+ *
+ * Additive and optional, so no SCHEMA_VERSION bump: a project written before the
+ * picker existed simply has no `textureId` anywhere, which is the ABSENT state
+ * and therefore reads as the catalogue default — the behaviour it already had.
+ */
+export type AppearanceOverrides = Record<string, { color?: string; textureId?: string | null }>
 
 export interface SeatingConfig {
   enabled: boolean
@@ -182,4 +224,4 @@ export interface Project {
   scene: SceneState
 }
 
-export const SCHEMA_VERSION = 12
+export const SCHEMA_VERSION = 13

@@ -587,6 +587,81 @@ function shrinkRolledNapkin(raw: unknown): unknown {
 }
 
 /**
+ * v12 → v13: the `ringCenter` layer key dies, and the last two placeholder
+ * entries become real models. Three jobs, one function, because they are one
+ * catalogue edit.
+ *
+ * 1. DELETE `settings.layers.ringCenter`. ⚠ IT IS NOT MERGED INTO
+ *    `layers.tables`, AND THAT IS THE WHOLE POINT OF THE CLAUSE. The v5→v6
+ *    rename above (:154-182) CARRIES flags across a category rename, and copying
+ *    that here would be the bug: `ringCenter` held at most two centrepieces, and
+ *    a user who once hid them would open v13 to find EVERY TABLE IN THE HALL
+ *    gone, with no way to connect the two. So `layers.tables` is left exactly as
+ *    stored and the dead key is dropped.
+ *
+ *    Strictly the delete is optional — `layers` is a `z.record` (:721-726), so an
+ *    unknown key survives validation and is simply never read. It is done anyway
+ *    so the file stops carrying a key no code can resolve; the v6 rename deletes
+ *    its source key for the same reason.
+ *
+ * 2 & 3. `buffet.table` and `divider.screen` take their measured sizes. Both were
+ *    procedural placeholders with invented dimensions (240 × 76 × 90 and
+ *    180 × 6 × 180) until the user supplied a GLB and a photo for each; the
+ *    catalogue now states the bounds glb-prep printed. A stored object keeps the
+ *    size it was saved with — nothing re-reads `defaultSize` for an object that
+ *    already exists — so without this the 3D loader would fit the new model to
+ *    the old placeholder box: `size / (modelSize ?? defaultSize)` is per-axis, so
+ *    the divider in particular would be squashed to 6 cm deep and the buffet
+ *    stretched to 240 wide. Exactly the shape of v10→v11's `shrinkDjBooth`.
+ *
+ * What it does NOT do:
+ *
+ *  - NO OBJECT REWRITE FOR `ring.table` / `ring.floral`. Their catalog ids did not
+ *    change, and an object stores a `catalogId`, never a category — the category
+ *    is looked up from the catalogue on every read. There is nothing about the
+ *    fold that is visible in a saved file.
+ *  - NO RE-CLAMP. The buffet grows 24 cm deep and the divider 26 cm; both are
+ *    ordinary floor objects with no home zone, and `clampToVenue` runs on the
+ *    first edit after the load anyway. Writing one here would make persistence
+ *    depend on the store, the dependency v6→v7 and v8→v9 both refused.
+ *
+ * The constants are frozen copies, like v5's, v9's, v10's, v11's and v12's: this
+ * file must NOT import the catalogue. A later re-measure must not reach back and
+ * change what v13 meant.
+ */
+const RING_CENTER_LAYER_V13 = 'ringCenter'
+const BUFFET_V13 = 'buffet.table'
+const BUFFET_SIZE_V13 = { width: 180.5, depth: 83.1, height: 185 }
+const DIVIDER_V13 = 'divider.screen'
+const DIVIDER_SIZE_V13 = { width: 155.9, depth: 31.9, height: 180 }
+
+function realBuffetAndDivider(raw: unknown): unknown {
+  const file = raw as {
+    project?: {
+      scene?: {
+        objects?: Record<string, { catalogId?: string; size?: unknown }>
+        settings?: { layers?: Record<string, unknown> }
+      }
+    }
+  }
+  const scene = file?.project?.scene
+  const layers = scene?.settings?.layers
+  if (layers) delete layers[RING_CENTER_LAYER_V13]
+
+  const objects = scene?.objects
+  if (objects) {
+    // the whole map, not objectOrder — same exhaustiveness note v9→v10 carries.
+    // A divider or a buffet is a top-level object today, but a migration that
+    // walks the order silently skips anything that ever becomes a child.
+    for (const obj of Object.values(objects)) {
+      if (obj.catalogId === BUFFET_V13) obj.size = { ...BUFFET_SIZE_V13 }
+      else if (obj.catalogId === DIVIDER_V13) obj.size = { ...DIVIDER_SIZE_V13 }
+    }
+  }
+  return { ...(raw as object), schemaVersion: 13, project: { ...file.project, schemaVersion: 13 } }
+}
+
+/**
  * Keyed by the SOURCE version each function upgrades FROM. `migrations[0]`
  * turns a v0 file into a v1 file (and must set `schemaVersion` to 1).
  */
@@ -602,6 +677,7 @@ export const migrations: Record<number, (raw: unknown) => unknown> = {
   9: retireBarStraight,
   10: shrinkDjBooth,
   11: shrinkRolledNapkin,
+  12: realBuffetAndDivider,
 }
 
 function schemaVersionOf(raw: unknown): number {
@@ -653,6 +729,18 @@ const transform2d = z.object({
   position: vec2,
   rotation: z.number(),
   elevation: z.number(),
+  /**
+   * ROUND 4 / AGENT A3 — the mirror flag on an object's pose.
+   *
+   * Listed here BEFORE the feature that writes it, and deliberately: a plain
+   * `z.object` STRIPS an undeclared key on every load (see the `stackedOn` note
+   * on `attachment` below, which cost a whole round). Adding it with the feature
+   * is one commit too late — the field would work in the session it was set and
+   * come back gone from the next load, with nothing failing anywhere.
+   *
+   * Optional, so every file written before A3's work still parses.
+   */
+  mirrored: z.boolean().optional(),
 })
 
 const attachment = z.discriminatedUnion('kind', [
@@ -674,7 +762,18 @@ const attachment = z.discriminatedUnion('kind', [
   }),
 ])
 
-const appearance = z.record(z.object({ color: z.string().optional() }))
+/**
+ * ROUND 4 / AGENT A2 — `textureId` joins `color` on a material slot.
+ *
+ * Same reason as `mirrored` on `transform2d` above, and the same trap: the
+ * per-slot value is a plain `z.object`, so a slot's chosen texture would be
+ * stripped on every load and the item would come back untextured with no error.
+ * `nullable` as well as `optional` because "explicitly no texture" and "never
+ * chose one" are different states — the first is what clearing a texture writes.
+ */
+const appearance = z.record(
+  z.object({ color: z.string().optional(), textureId: z.string().nullable().optional() }),
+)
 
 const seatingConfig = z.object({
   enabled: z.boolean(),

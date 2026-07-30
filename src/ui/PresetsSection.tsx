@@ -30,6 +30,7 @@ import {
   type ReactNode,
 } from 'react'
 import { getCatalogEntry, hasCatalogEntry, listByCategory } from '../core/catalog/registry'
+import { isFloorTable } from '../core/catalog/types'
 import { layoutStats, layoutsForVenue, type HallLayout } from '../core/hallLayouts'
 import { hangRange } from '../core/layout/beams'
 import type { Id, SceneObject, SceneState } from '../core/model/types'
@@ -607,7 +608,8 @@ export function TableDesignBlock({ obj }: { obj: SceneObject }) {
       (o) =>
         !o.parentId &&
         o.seating &&
-        getCatalogEntry(o.catalogId).category === 'tables' &&
+        // defensive: `!o.parentId && o.seating` already excludes both v13 arrivals
+        isFloorTable(getCatalogEntry(o.catalogId)) &&
         !isEffectivelyLocked(s.scene, o),
     ),
   )

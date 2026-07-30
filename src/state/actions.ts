@@ -3,7 +3,8 @@
  * write path is what keeps undo, seat reconciliation and 2D/3D sync coherent.
  */
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
-import type { CatalogEntry, Category } from '../core/catalog/types'
+import { isEditableSlot, isFloorTable, type CatalogEntry, type Category } from '../core/catalog/types'
+import { isTextureId } from '../core/catalog/textures'
 import { createObject, createProject, newId, type NewProjectOptions } from '../core/model/factory'
 import { attachedChairs, reconcileSeats } from '../core/model/seatingReconciler'
 import type {
@@ -40,7 +41,7 @@ import {
 import { beamGrid, clampHang, snapToBeam } from '../core/layout/beams'
 import { isZoneInside } from '../core/layout/zoneOccupancy'
 import { seatItemTransforms } from '../core/layout/seatItemLayout'
-import { seatsForEntry } from '../core/layout/seatLayout'
+import { seatItemSeatsForEntry } from '../core/layout/seatLayout'
 import { serpentineCentre, serpentineSeats } from '../core/layout/serpentine'
 import { getHallLayout } from '../core/hallLayouts'
 import {
@@ -443,6 +444,13 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>, mode: ClampMode = 's
     }
 
     if (mode === 'strict') continue
+    // The other half of `ignoresZones`, and it has to be here rather than higher up:
+    // the floor re-seat at the top of this pass must still run, so a decoration
+    // dropped half outside the building is pulled back in, and only the zone PUSH is
+    // skipped. Without this line the entry would be judged legal in the pool by
+    // `checkPlacement` and shoved out of it by `addObject` a moment later — a green
+    // ghost and then an object somewhere else, the exact fault §57 is about.
+    if (getCatalogEntry(obj.catalogId).ignoresZones) continue
     // The other half of the rule collision.ts applies when it JUDGES a drop: a zone
     // an entry may stand ONLY in must not be the zone that ejects it. Vegetation 1
     // is allowed nowhere but the pool surround, so without this `addObject` would
@@ -896,6 +904,61 @@ export function addObject(catalogId: string, position: Vec2, seating?: Partial<S
 }
 
 /**
+ * Does this drop have to lay its own host first, and may it?
+ *
+ * `lay` is the catalog id to put down before the rider; `refuse` is the reason
+ * NOTHING may be put down. At most one of them is set, and both absent is the
+ * ordinary case — an entry with no `autoHost`, or one whose host is already on
+ * the table.
+ *
+ * ⚠ ONLY INTO A REAL OPENING. `holeRadius(parent) > 0` is a condition and not a
+ * convenience: `requiresHost` says "this stands on that", it does not say the
+ * host fits here. Laying a ⌀156 table on a ⌀180 top because the urn asked for one
+ * would be inventing a piece of furniture the venue never puts there (BRIEF §1.1).
+ * On a solid top the drop is refused as it always was, and the message now names
+ * the inner table.
+ *
+ * Answered on the COMMITTED scene, before any producer opens — see the note on
+ * `indexOf` in collision.ts.
+ */
+function autoHostFor(
+  scene: SceneState,
+  catalogId: string,
+  parentId: Id,
+): { lay?: string; refuse?: Violation } {
+  const entry = getCatalogEntry(catalogId)
+  const requires = entry.requiresHost
+  if (!entry.autoHost || !requires) return {}
+  const parent = scene.objects[parentId]
+  if (!parent || parent.parentId) return {}
+  if (holeRadius(getCatalogEntry(parent.catalogId).footprint(parent.size).outline) <= 0) return {}
+  if (surfaceChildren(scene, parentId).some((c) => c.catalogId === requires)) return {}
+
+  // A world-frame ghost of the host, which is the frame a drop speaks. The host is
+  // `surfaceAnchor: 'center'`, so `siblingOverlaps` judges it at the middle of the
+  // table and in the well — the spot `clampToSurface` is about to put it in, not
+  // the pointer. Asking about the pointer would refuse a legal drop and allow an
+  // illegal one, in both directions.
+  const blocking = checkPlacement(scene, {
+    catalogId: requires,
+    transform: { position: worldCentreOf(parent), rotation: 0, elevation: 0 },
+    size: getCatalogEntry(requires).defaultSize,
+    parentId,
+  })
+  return blocking.length ? { refuse: blocking[0] } : { lay: requires }
+}
+
+/** The middle of a table's top in WORLD cm — where a centre-anchored piece lands. */
+function worldCentreOf(parent: SceneObject): Vec2 {
+  const mid = surfaceCentre(getCatalogEntry(parent.catalogId))
+  const turned = rotateVec(mid, parent.transform.rotation)
+  return {
+    x: parent.transform.position.x + turned.x,
+    y: parent.transform.position.y + turned.y,
+  }
+}
+
+/**
  * Drop a surface-placement catalog item onto a table top. `worldPos` is the drop
  * point in plan space; the object becomes an attached child (kind 'surface'),
  * standing on the parent's height and clamped to its outline.
@@ -914,6 +977,18 @@ export function addObject(catalogId: string, position: Vec2, seating?: Partial<S
  * views send a `placement: 'seat'` entry (the cover and the three napkins) to
  * `addSeatItemsToTable` instead, which does its own linking
  * (Stage2D.tsx:393-397, Placement3D.tsx:119-129).
+ *
+ * ## `autoHost` — the drop that lays its own host
+ *
+ * An entry carrying `autoHost` beside `requiresHost` (only `ring.floral`) is not
+ * refused on a bare table: the host is laid HERE, in the same producer, so the
+ * gesture is one undo entry. Both drop paths already call this function
+ * (Stage2D.tsx, Placement3D.tsx), so neither view needed a line.
+ *
+ * `autoHostFor` below decides, on the COMMITTED scene, whether to lay one — the
+ * same rule every other gate in this file follows, and here it is also forced:
+ * `checkPlacement` caches its obstacle index by scene identity, so it must never
+ * be asked about a scene half-way through a mutation.
  */
 export function addObjectToSurface(
   catalogId: string,
@@ -922,11 +997,34 @@ export function addObjectToSurface(
   /** dropped through the open centre of a ring table — stands on the floor */
   inHole = false,
 ): Id | null {
+  const bedding = autoHostFor(get().scene, catalogId, parentId)
+  if (bedding.refuse) {
+    // half a gesture is worse than none: laying the urn on nothing, or the table
+    // and not the urn, leaves the user holding a state they did not ask for and
+    // cannot name. Publish the reason the HOST could not go down — it is the real
+    // obstacle, and the status bar says which one it is.
+    refusal = bedding.refuse
+    publishRefusal()
+    return null
+  }
   const obj = createObject(catalogId, { x: 0, y: 0 })
   let placed = false
   mutateScene((scene) => {
     const parent = scene.objects[parentId]
     if (!parent || parent.parentId) return
+    if (bedding.lay) {
+      const host = createObject(bedding.lay, { x: 0, y: 0 })
+      host.parentId = parentId
+      host.attachment = { kind: 'surface' }
+      // seeded only, exactly like the rider below: `clampToSurface` is the
+      // authority. It pins the piece to the middle of the table, sets `inHole`
+      // from the PARENT's own opening and drops it to elevation 0 — so the well
+      // and the table top stay one rule rather than two.
+      host.transform = { position: { x: 0, y: 0 }, rotation: 0, elevation: parent.size.height }
+      scene.objects[host.id] = host
+      unhideCategoryOf(scene, host.catalogId)
+      clampToSurface(scene, host)
+    }
     const local = relativeTransform(parent.transform, {
       position: worldPos,
       rotation: parent.transform.rotation,
@@ -1059,9 +1157,12 @@ function laySeatItems(scene: SceneState, catalogId: string, tableId: Id): Id[] {
 
   const chair = getCatalogEntry(table.seating.chairCatalogId).defaultSize
   const tableEntry = getCatalogEntry(table.catalogId)
-  // seatsForEntry, not the outline math: on the serpentine the seats follow the
-  // curve, and settings laid on rect positions would float beside the table
-  const seats = seatsForEntry(tableEntry, table.size, table.seating, chair)
+  // seatItemSeatsForEntry, not the outline math and not the raw seat list: on the
+  // serpentine the seats follow the curve, and settings laid on rect positions
+  // would float beside the table — and its two HEAD seats take a chair but not a
+  // cover, because the two lie at 90° across the band and interpenetrate wherever
+  // the head one is put (round 4 §15). Every other table gets all its seats back.
+  const seats = seatItemSeatsForEntry(tableEntry, table.size, table.seating, chair)
   // the top goes with them (source doc §43): a seat knows the rim it sits outside
   // but not the RING's opening on the far side of it
   const top = tableEntry.footprint(table.size).outline
@@ -1182,16 +1283,40 @@ function layTableDesign(scene: SceneState, design: TableDesign, tableId: Id): Id
   const table = scene.objects[tableId]
   if (!table?.seating || table.parentId || isEffectivelyLocked(scene, table)) return []
   const entry = getCatalogEntry(table.catalogId)
-  if (entry.category !== 'tables') return []
+  // defensive: the line above already required `table.seating` and no parent, and
+  // neither v13 arrival seats anyone. Asked the one way anyway (catalog/types.ts)
+  if (!isFloorTable(entry)) return []
 
   for (const child of designItems(scene, tableId)) delete scene.objects[child.id]
   if (design.seatItem) for (const stale of seatItems(scene, tableId)) delete scene.objects[stale.id]
 
+  // The table's own opening, read once. A design is exempt from the CENTRE rule
+  // (§28) — that is what the `meta.design` tag buys it, and without the exemption
+  // every arrangement would stack into one point. It is NOT exempt from the two
+  // STOREYS (§48): a piece is either on the top or through the well, and which one
+  // is a fact about where it LANDS.
+  //
+  // Until now `lay` wrote a bare `{ kind: 'surface' }`, so every design piece was
+  // filed as "on the top" and `clampToSurface`'s ring clamp shoved it out to
+  // `min(hole + reach, maxR)`. A piece at exactly (0, 0) has no radial direction,
+  // so it took the arbitrary +x and landed straight on its own +x flanker —
+  // measured for design.classic-gold on the ⌀380: centrepiece 0 → 96.4, flanker
+  // 38 → 84.25, i.e. 12.5 cm of overlap, on every design, because the cause is the
+  // clamp and not the arrangement.
+  //
+  // Decided from the point, exactly as a hand drop decides it (`pointInHole` in
+  // layout/bounds.ts, in parent-local coordinates where the ring is centred on the
+  // origin). Same rule, so the two paths cannot diverge.
+  const pOutline = entry.footprint(table.size).outline
+  const hole = holeRadius(pOutline)
   const ids: Id[] = []
   const lay = (catalogId: string, t: Transform2D) => {
     const obj = createObject(catalogId, { x: 0, y: 0 })
     obj.parentId = tableId
-    obj.attachment = { kind: 'surface' }
+    obj.attachment =
+      hole > 0 && Math.hypot(t.position.x, t.position.y) < hole
+        ? { kind: 'surface', inHole: true }
+        : { kind: 'surface' }
     obj.transform = { ...t, elevation: table.size.height }
     obj.meta.design = design.id
     scene.objects[obj.id] = obj
@@ -1222,7 +1347,8 @@ function layTableDesign(scene: SceneState, design: TableDesign, tableId: Id): Id
   if (design.seatItem) {
     const chair = getCatalogEntry(table.seating.chairCatalogId).defaultSize
     const item = getCatalogEntry(design.seatItem).defaultSize
-    const seats = seatsForEntry(entry, table.size, table.seating, chair)
+    // the same subset the hand-laid path takes — a design's covers obey §15 too
+    const seats = seatItemSeatsForEntry(entry, table.size, table.seating, chair)
     // same top as the hand-laid path — a design's settings obey §43 too
     const top = entry.footprint(table.size).outline
     for (const t of seatItemTransforms(
@@ -1250,7 +1376,8 @@ export function tableDesignBlock(scene: SceneState, tableId: Id): TableDesignBlo
   const table = scene.objects[tableId]
   if (!table?.seating || table.parentId) return 'missing'
   if (isEffectivelyLocked(scene, table)) return 'locked'
-  if (getCatalogEntry(table.catalogId).category !== 'tables') return 'notATable'
+  // defensive: guarded by `table.seating` two lines up, which no v13 arrival has
+  if (!isFloorTable(getCatalogEntry(table.catalogId))) return 'notATable'
   return null
 }
 
@@ -1335,7 +1462,8 @@ function layAll(designFor: (table: SceneObject) => TableDesign | null): Id[] {
   mutateScene((scene) => {
     for (const id of [...scene.objectOrder]) {
       const obj = scene.objects[id]
-      if (!obj?.seating || getCatalogEntry(obj.catalogId).category !== 'tables') continue
+      // defensive: `obj.seating` already excludes both v13 arrivals
+      if (!obj?.seating || !isFloorTable(getCatalogEntry(obj.catalogId))) continue
       const design = designFor(obj)
       if (design) ids.push(...layTableDesign(scene, design, id))
     }
@@ -2000,6 +2128,53 @@ export function rotateObjectsBy(ids: Id[], delta: number): void {
   })
 }
 
+/**
+ * Reflect each selected TOP-LEVEL object about its own local x-axis.
+ *
+ * The children are deliberately NOT touched. `mirrored` composes
+ * (`core/space.ts`), so a table's chairs, its place settings and every piece of a
+ * laid design land where a real mirrored table's would, from one bit on the
+ * parent. Writing the reflection into each child instead would have to survive
+ * `reconcileSeats`, which rewrites every non-manual chair from the catalog's own
+ * seat walk on the next edit — it would undo itself.
+ *
+ * A child id passed in is ignored rather than refused: a mirrored place setting
+ * on an unmirrored table is not a thing the user can mean, and the selection
+ * often holds both after a drill-in.
+ *
+ * The gate is per object and mirrors `rotateObjectsBy`'s: a mirror MOVES the
+ * chairs, so it can genuinely become illegal even though the table's own outline
+ * is symmetric about the axis it is reflected in — which is why nothing here
+ * special-cases collision.
+ */
+export function mirrorObjects(ids: Id[]): void {
+  const before = get().scene
+  const targets = editable(before, ids).filter((obj) => !obj.parentId)
+  const turning = targets
+    .filter((obj) =>
+      poseAllowed(before, obj, {
+        transform: { ...obj.transform, mirrored: !obj.transform.mirrored },
+      }),
+    )
+    .map((obj) => obj.id)
+  const refusedCount = targets.length - turning.length
+  if (refusedCount) notify(strings.status.mirrorRefused(refusedCount))
+  if (refusedCount && !turning.length) {
+    publishRefusal()
+    return
+  }
+  mutateScene((scene) => {
+    for (const obj of editable(scene, turning)) {
+      // deleted rather than set to false — an unmirrored object must serialise
+      // exactly as it did before the flag existed (see Transform2D.mirrored)
+      if (obj.transform.mirrored) delete obj.transform.mirrored
+      else obj.transform.mirrored = true
+    }
+    clampToVenue(scene, turning)
+    clampSurfaceChildrenIn(scene, turning)
+  })
+}
+
 export function setSize(id: Id, size: Partial<Size3D>): void {
   const before = get().scene
   const source = before.objects[id]
@@ -2049,11 +2224,46 @@ export function setSeatingConfig(id: Id, patch: Partial<SeatingConfig>): void {
 // appearance, naming, flags, order
 // ---------------------------------------------------------------------------
 
+/**
+ * ⚠ MERGES into the slot record. It used to REPLACE it (`obj.appearance[slot] =
+ * { color }`), which was harmless while `color` was the only field on it and is
+ * silent data loss now: picking a colour would wipe the texture the user had just
+ * chosen, and — worse — an absent `textureId` reads as "use the catalogue
+ * default", so a napkin would not merely lose the swatch but jump back to the
+ * weave the entry declares. Writing only the key this action owns is what keeps
+ * the two pickers independent.
+ */
 export function setAppearance(ids: Id[], slot: string, color: string): void {
   mutateScene((scene) => {
     for (const obj of editable(scene, ids)) {
-      if (getCatalogEntry(obj.catalogId).editableColorSlot !== slot) continue
-      obj.appearance[slot] = { color }
+      if (!isEditableSlot(getCatalogEntry(obj.catalogId), slot)) continue
+      const record = obj.appearance[slot] ?? (obj.appearance[slot] = {})
+      record.color = color
+    }
+  })
+}
+
+/**
+ * The other half of an appearance: which fabric swatch a slot wears.
+ *
+ * `null` is a VALUE, not a delete — "no texture", which is not the same as an
+ * absent key ("whatever the slot's `defaultTexture` says"). Clearing a napkin's
+ * weave has to survive a reload, so it is stored rather than removed; see the
+ * three-state note on `AppearanceOverrides`.
+ *
+ * Two guards, and the second is the load-bearing one: `isEditableSlot` is the
+ * same permission the colour action asks, and `isTextureId` is what keeps an
+ * unknown id out of the scene — a stored id becomes a URL, so an unvalidated one
+ * is a path the renderer would try to fetch and the picker would put in an
+ * `<img src>`.
+ */
+export function setSlotTexture(ids: Id[], slot: string, textureId: string | null): void {
+  if (textureId !== null && !isTextureId(textureId)) return
+  mutateScene((scene) => {
+    for (const obj of editable(scene, ids)) {
+      if (!isEditableSlot(getCatalogEntry(obj.catalogId), slot)) continue
+      const record = obj.appearance[slot] ?? (obj.appearance[slot] = {})
+      record.textureId = textureId
     }
   })
 }

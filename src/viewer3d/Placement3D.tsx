@@ -1,8 +1,9 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useThree, type ThreeEvent } from '@react-three/fiber'
+import { useShallow } from 'zustand/react/shallow'
 import * as THREE from 'three'
 import { getCatalogEntry } from '../core/catalog/registry'
-import type { CatalogEntry } from '../core/catalog/types'
+import { isFloorTable, type CatalogEntry } from '../core/catalog/types'
 import { pointInHole, pointInOutline } from '../core/layout/bounds'
 import { checkPlacement } from '../core/layout/collision'
 import { beamGrid, snapToBeam } from '../core/layout/beams'
@@ -10,8 +11,9 @@ import { snapValue } from '../core/layout/snapping'
 import { standingHeightAt } from '../core/layout/groundHeight'
 import type { Id, SceneState, Vec2 } from '../core/model/types'
 import { cmToM, degToRad, threeToPlan } from '../core/space'
-import { getVenuePack } from '../core/venuePacks'
+import { getVenuePack, type RestrictedZone } from '../core/venuePacks'
 import { overlay, useOverlayStore } from '../editor2d/overlayStore'
+import { attachesToTable, pickLevelsCm } from './placementTargets'
 import {
   addObject,
   addObjectToSurface,
@@ -25,8 +27,11 @@ import { useEditorStore } from '../state/store'
 const VALID = '#1f8a50'
 const INVALID = '#d64545'
 
-const attachesToTable = (entry: CatalogEntry): boolean =>
-  entry.placement === 'surface' || entry.placement === 'seat'
+// `attachesToTable` and `pickLevelsCm` moved to ./placementTargets — both decide
+// where a click lands, and a rule that lives in a .tsx cannot be tested here
+// (AGENT-BRIEF §1.7). Re-exported so `ObjectGroup` reads the predicate from the
+// same module it already reads `commitPlacement3D` from.
+export { attachesToTable }
 
 /**
  * `inHole` reports a point over the open centre of a ring table, where the piece
@@ -45,7 +50,9 @@ function tableAt(
     const obj = scene.objects[id]
     if (!obj || obj.parentId || !isObjectVisible(scene, id) || isEffectivelyLocked(scene, obj)) continue
     const entry = getCatalogEntry(obj.catalogId)
-    if (entry.category !== 'tables') continue
+    // the 3D half of Stage2D's `surfaceTargetAt` — same reason, same reachability:
+    // paste is what puts a `ring.table` on the floor as a top-level object
+    if (!isFloorTable(entry)) continue
     const outline = entry.footprint(obj.size).outline
     if (pointInOutline(point, obj.transform, outline)) {
       return { id, inHole: pointInHole(point, obj.transform, outline) }
@@ -137,22 +144,10 @@ export function commitPlacement3D(
   return true
 }
 
-/** Pointer-only venue plane plus the visible footprint preview. */
+/** Pointer-only pick surfaces plus the visible footprint preview. */
 export function Placement3D() {
   const placing = useOverlayStore((s) => s.placing)
   const ghost = useOverlayStore((s) => s.ghost)
-  const width = useEditorStore((s) => s.scene.venue.size.width)
-  const depth = useEditorStore((s) => s.scene.venue.size.depth)
-  const hangHeight = useEditorStore((s) => {
-    const pack = getVenuePack(s.scene.venue.venuePackId)
-    return pack?.hangHeight ?? s.scene.venue.wallHeight
-  })
-  // The pick plane has to sit at the height the item will actually hang at, or
-  // the ray crosses the floor metres away from where the pointer looks — which
-  // is why hanging a chandelier in 3D does not work today (source doc §40).
-  // From PLAN-04 via handoff/04-ceiling-placement.diff, item (ב).
-  const ceiling = placing ? getCatalogEntry(placing).placement === 'ceiling' : false
-  const planeY = ceiling ? cmToM(hangHeight) : 0.005
   const gl = useThree((s) => s.gl)
 
   useEffect(() => {
@@ -166,27 +161,120 @@ export function Placement3D() {
 
   if (!placing) return null
 
-  const onMove = (event: ThreeEvent<PointerEvent>) => {
-    previewPlacement3D(event.point)
-  }
-  const onClick = (event: ThreeEvent<MouseEvent>) => {
-    event.stopPropagation()
-    commitPlacement3D(event.point, event.nativeEvent.altKey)
-  }
-
   return (
     <>
-      <mesh
-        position={[cmToM(width) / 2, planeY, cmToM(depth) / 2]}
-        rotation={[-Math.PI / 2, 0, 0]}
-        onPointerMove={onMove}
-        onClick={onClick}
-      >
-        <planeGeometry args={[cmToM(width), cmToM(depth)]} />
-        <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
-      </mesh>
+      <PickSurfaces placing={placing} />
       <PlacementFootprint />
     </>
+  )
+}
+
+/** Nothing raised in this pack — a stable reference, so the meshes are not rebuilt. */
+const NO_ZONES: RestrictedZone[] = []
+
+/**
+ * The surfaces the placement ray may land on: ONE PER DECLARED LEVEL, nearest wins.
+ *
+ * A ceiling fixture gets the single plane at `hangHeight`, because the ray has to
+ * cross the height the item will actually hang at or it meets the floor metres away
+ * from where the pointer looks (source doc §40, PLAN-04 item ב).
+ *
+ * Everything else gets the venue floor AND one plane per raised zone, at that
+ * zone's own elevation. That is the whole of the reception-deck fix: the deck is at
+ * +4.70 m, so a click aimed at it used to be measured on the hall floor and landed
+ * metres past x = 6051 → out of bounds → `commitPlacement3D` returned false and the
+ * click did nothing, silently. On the resort this is 4 meshes — the hall, the hall
+ * ceremony pad (+0.50), the deck (+4.70) and the deck's own canopy pad (+5.20).
+ *
+ * They nest correctly BY GEOMETRY: R3F reports intersections near to far, so from
+ * any camera above them the highest surface over a point is hit first, which is
+ * `groundHeightAt`'s "highest declared level wins" restated as meshes
+ * (core/layout/groundHeight.ts). No `activeZone`, no whitelist, no special case for
+ * the deck — see `pickLevelsCm` for why each of those was rejected.
+ *
+ * ⚠ The chuppah pad inside the deck stays BLOCKING: a table overlapping it still
+ * gets `forbiddenZone: 'chuppah'`. That is 24.3 m² of a 293 m² deck, it is the
+ * ceremony pad the user drew himself, and the refusal is now VISIBLE — a red ghost
+ * with a violation pill — rather than the dead click it was.
+ */
+function PickSurfaces({ placing }: { placing: string }) {
+  const width = useEditorStore((s) => s.scene.venue.size.width)
+  const depth = useEditorStore((s) => s.scene.venue.size.depth)
+  const hangHeight = useEditorStore((s) => {
+    const pack = getVenuePack(s.scene.venue.venuePackId)
+    return pack?.hangHeight ?? s.scene.venue.wallHeight
+  })
+  // a stable selector, or every frame of a drag would rebuild four meshes
+  const zones = useEditorStore(
+    useShallow((s) => getVenuePack(s.scene.venue.venuePackId)?.restricted ?? NO_ZONES),
+  )
+  const ceiling = getCatalogEntry(placing).placement === 'ceiling'
+  const levels = useMemo(
+    () => (ceiling ? [] : pickLevelsCm({ restricted: zones }, { width, depth })),
+    [ceiling, zones, width, depth],
+  )
+
+  if (ceiling) {
+    return (
+      <PickPlane x={0} y={0} width={width} depth={depth} planeY={cmToM(hangHeight)} />
+    )
+  }
+  return (
+    <>
+      {levels.map((level) => (
+        <PickPlane
+          key={`${level.x},${level.y},${level.elevationCm}`}
+          x={level.x}
+          y={level.y}
+          width={level.width}
+          depth={level.depth}
+          // the same 5 mm lift the floor plane always had, so a surface flush with
+          // a zone's own top face still wins the depth test against it
+          planeY={cmToM(level.elevationCm) + 0.005}
+        />
+      ))}
+    </>
+  )
+}
+
+/**
+ * One invisible horizontal plane over a plan rectangle, listening for the pointer.
+ *
+ * `stopPropagation` on the MOVE as well as on the click, and it is not symmetry for
+ * its own sake: R3F walks every intersection of the ray in order, so without it a
+ * preview taken here was overwritten by the next thing the same ray met — another
+ * pick plane at a lower level, or an object. `attachesToTable` is the other half of
+ * that fix, in `ObjectGroup`.
+ */
+function PickPlane({
+  x,
+  y,
+  width,
+  depth,
+  planeY,
+}: {
+  x: number
+  y: number
+  width: number
+  depth: number
+  planeY: number
+}) {
+  return (
+    <mesh
+      position={[cmToM(x + width / 2), planeY, cmToM(y + depth / 2)]}
+      rotation={[-Math.PI / 2, 0, 0]}
+      onPointerMove={(event: ThreeEvent<PointerEvent>) => {
+        event.stopPropagation()
+        previewPlacement3D(event.point)
+      }}
+      onClick={(event: ThreeEvent<MouseEvent>) => {
+        event.stopPropagation()
+        commitPlacement3D(event.point, event.nativeEvent.altKey)
+      }}
+    >
+      <planeGeometry args={[cmToM(width), cmToM(depth)]} />
+      <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
+    </mesh>
   )
 }
 

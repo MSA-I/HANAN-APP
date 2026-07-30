@@ -40,9 +40,31 @@ import type { CatalogEntry } from '../types'
 
 const P = (file: string) => `/props/${file}`
 
-/** The same recipe as table decor, filed under the ring-centre category. */
+/**
+ * The same recipe as table decor, filed under 'tables'.
+ *
+ * ⚠ THE NAME `ringCenter` AND THIS FILE'S NAME MEAN THE ⌀380 RING, NOT A LIBRARY
+ * CATEGORY. There WAS a `ringCenter` category — added in v9, one heading for these
+ * two items — and v13 removed it: the pair now files under 'tables', beside the
+ * table whose hole they fill. The helper keeps its name because the ring it names
+ * is still there in the geometry; renaming it to `roundLargeCentre` would say
+ * less, not more.
+ *
+ * Both members stay `placement: 'surface'`, which is what keeps them out of
+ * `isFloorTable` (catalog/types.ts) and therefore out of every rule that means
+ * "a guest table" by "category is tables".
+ */
 function ringCenter(...args: Parameters<typeof surfaceProp>): CatalogEntry {
-  return { ...surfaceProp(...args), category: 'ringCenter' }
+  const base = surfaceProp(...args)
+  return {
+    ...base,
+    category: 'tables',
+    // The library search words for the pair. Extends what `surfaceProp` already
+    // gave them: these two are found by the HOLE they fill, which is how the
+    // user names them, and 'שולחן' has to be here now that the category heading
+    // no longer says it (the `ringCenter` category is gone — see below).
+    keywords: [...(base.keywords ?? []), 'שולחן', 'עגול גדול', 'חור', 'טבעת', 'פנימי'],
+  }
 }
 
 export const ringCenterEntries: CatalogEntry[] = [
@@ -72,11 +94,60 @@ export const ringCenterEntries: CatalogEntry[] = [
   // Height 75, not 75.1: `table.round-large` declares 75, so this makes the two
   // tops exactly flush rather than 1 mm proud. `ring.floral` rides it through
   // `stackHeight`, so the urn follows the millimetre down on its own.
+  //
+  // ⚠ AND THE ⌀156 IS THE HEM, NOT THE TOP — which is why `modelTopSize` is below.
+  // Round 4 §9, the user's report: a crescent of bare floor shows between this
+  // table and the ⌀380 around it.
+  //
+  // MEASURED, 2026-07-30, both commands re-runnable:
+  //
+  //   node tools/glb-prep/measure-top.mjs public/props/ring-center-table.glb 1
+  //     bbox 149.73 × 75.05 × 150 · TOP 5% solid out to r = 64
+  //     (63:100%  64:98%  65:64%  66:20%  67:4%  68:0%), outermost covered cell
+  //     raw x = 65.64, z = 66.50 · whole model raw x = 74.64, z = 74.50
+  //   node tools/glb-prep/measure-ring.mjs public/props/table-round-380.glb
+  //     the well is 0% covered out to r = 76, then 10.3% @77, 58.7% @78,
+  //     91.0% @79, 100% @80 — the rInner of 78 this entry is sized to
+  //
+  // The model is a DRAPED table, so its widest point is the skirt at the floor and
+  // the ⌀149.73 box is that skirt. Fitting by the box (156/149.73 on x, 156/150 on
+  // z) put the solid top at r = 66.68 / 66.56 and its outermost fold at 68.39 /
+  // 69.16 — inside a well that is empty out to r = 76. So 7…11 cm of floor showed
+  // all the way round, and it was not concentric: the two axes differ by 0.77 cm at
+  // the fold because the file is 149.73 × 150 and the two fit factors differ. An
+  // off-centre ring reads as a crescent, and what shone through it was
+  // `SelectionOutline`'s own floor ring at r 77.2…82.
+  //
+  // 128 = 2 × 64, the solid top's own diameter in file cm, so the fit becomes
+  // 156/128 = 1.21875 on both axes and:
+  //
+  //   solid top   64    × 1.21875 = 78.00 — the well's edge, EXACTLY
+  //   outer fold  65.64 × 1.21875 = 79.99  ·  66.50 × 1.21875 = 81.05
+  //   hem         74.64 × 1.21875 = 90.97  ·  74.50 × 1.21875 = 90.80
+  //
+  // — i.e. the top lands on the opening and the hem tucks 13 cm UNDER the ⌀380's
+  // own top, which is 100% solid from r = 80. That is where a real skirt goes.
+  //
+  // ⚠ NOT done by growing `defaultSize` to ⌀183: that would draw a ⌀183 disc over
+  // the ⌀380's cloth in 2D, 13.5 cm proud of the ⌀156 hole it fills, and would
+  // move collision, snapping and selection with it. And NOT by re-pointing
+  // `modelSize` at 128: `modelSize.height` is what converts file cm to catalogue
+  // cm for `STACK_HEIGHTS`, and the height is not what changed.
+  //
+  // ⚠ KNOWN, ACCEPTED DIVERGENCE. editor2d/ObjectNode.tsx scales the top-down plan
+  // IMAGE by `size / (modelSize ?? defaultSize)` on the stated ground that 2D and
+  // 3D then land on one footprint. For this one entry they no longer do: 2D draws
+  // the whole model (hem included) at ⌀156, filling the hole, and 3D draws the TOP
+  // at ⌀156 with the hem hidden under the ⌀380. Both are right for their own view
+  // — in plan you want the well filled, in 3D you want a skirt that goes under the
+  // cloth rather than through it — and neither is visible as an error. Recorded
+  // here because the comment over there says the two agree.
   {
     ...ringCenter('ring.table', 'ringTable',
       'a small round table under a floor-length pleated white cloth',
       P('ring-center-table.glb'), { width: 156, depth: 156, height: 75 }, '#e9e9e9'),
     modelSize: { width: 149.73, depth: 150, height: 75.05 },
+    modelTopSize: { width: 128, depth: 128 },
   },
   // The arrangement that stands on that table. `requiresHost` is what keeps it
   // there rather than floating on the ⌀380's cloth (source doc §46).
@@ -94,7 +165,21 @@ export const ringCenterEntries: CatalogEntry[] = [
   {
     ...ringCenter('ring.floral', 'ringFloral',
       'a fluted urn filled with white rose buds and dense green foliage',
-      P('ring-center-floral.glb'), { width: 72, depth: 63.5, height: 86 }, '#697151'),
+      P('ring-center-floral.glb'), { width: 72, depth: 63.5, height: 86 }, '#697151',
+      'round', ['פרחים', 'פרח', 'ורדים', 'זר']),
     requiresHost: 'ring.table',
+    // …and the missing host is not a REFUSAL. `autoHost` makes the drop lay the
+    // inner table in the same gesture, one `mutateScene` and therefore one undo
+    // entry. The two pieces are bought and used as a pair — the well is 156 cm of
+    // open floor and nothing else in the catalogue fills it — so "the urn needs a
+    // table under it" is a fact about how it stands, not a step the user should
+    // have to know about. `requiresHost` STAYS: it is what the sibling-overlap
+    // skip, the `stackedOn` link and `surfaceBase` all read, and without it the
+    // urn is refused against the very table it stands on.
+    //
+    // The napkins deliberately do NOT take this flag. A napkin without a place
+    // setting is a mistake, and auto-laying one would mean laying 22 covers off a
+    // single drop — a gesture nobody asked for.
+    autoHost: true,
   },
 ]

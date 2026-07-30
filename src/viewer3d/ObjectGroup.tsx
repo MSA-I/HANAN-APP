@@ -20,15 +20,22 @@ import { useShallow } from 'zustand/react/shallow'
 import { shallow } from 'zustand/shallow'
 import { getCatalogEntry } from '../core/catalog/registry'
 import { slotColor, type Outline } from '../core/catalog/types'
-import { beamGrid, cordLength, snapToBeam } from '../core/layout/beams'
+import { beamGrid, cordAnchorPoints, cordLength, cordRadiusCm, snapToBeam } from '../core/layout/beams'
 import { snapValue } from '../core/layout/snapping'
 import { standingHeightAt } from '../core/layout/groundHeight'
 import { attachedChairs } from '../core/model/seatingReconciler'
-import type { Id, SceneState, Size3D } from '../core/model/types'
+import type { Id, SceneState, Size3D, Vec2 } from '../core/model/types'
 import { cmToM, relativeTransform, threeToPlan } from '../core/space'
 import { getVenuePack } from '../core/venuePacks'
 import { useOverlayStore } from '../editor2d/overlayStore'
-import { beginGesture, endGesture, select, setPosition, toggleSelect } from '../state/actions'
+import {
+  beginGesture,
+  duplicateObjects,
+  endGesture,
+  select,
+  setPosition,
+  toggleSelect,
+} from '../state/actions'
 import { notify } from '../state/notice'
 import {
   designEditTable,
@@ -50,15 +57,36 @@ import {
   slotMaterial,
 } from './meshCache'
 import { applyPlanTransform, planTransformMatrix } from './planTransform'
-import { commitPlacement3D, previewPlacement3D } from './Placement3D'
+import { attachesToTable, commitPlacement3D, previewPlacement3D } from './Placement3D'
 import { RotateHandle } from './RotateHandle'
 import { useModelParts } from './propModel'
-import { slotTextureUrl, useSlotTexture } from './slotTextures'
+import { useSlotTextures } from './slotTextures'
+import { overrideForPart, slotAppearances, type SlotAppearance } from './appearance'
+import { textureUrl } from '../core/catalog/textures'
 
 const SELECT_COLOR = new THREE.Color(SELECT_TINT)
 
 /** No pack, no measured truss to match — the cord stays the near-black it always was. */
 const DEFAULT_CORD_COLOR = '#2a2a2a'
+
+/**
+ * Is the armed ghost this object's business at all?
+ *
+ * Only a `surface` or `seat` entry is placed BY asking a table where the pointer
+ * is; for everything else the answer comes from `Placement3D`'s pick surfaces, and
+ * an object that answers anyway answers with the point where the ray hit its own
+ * skin — a tabletop 75 cm up, not the floor or the ceiling plane the ghost is being
+ * measured against. Because R3F walks every intersection along the ray and the last
+ * writer wins, that is what made a chandelier's ghost stop following the pointer
+ * whenever a table lay behind it.
+ *
+ * ⚠ Where this returns false the handler must return WITHOUT `stopPropagation`, so
+ * the event carries on down the ray to the pick surface that does own it. Stopping
+ * and doing nothing is the same silent dead click, just tidier-looking.
+ */
+function placementWantsThisObject(placing: string | null): boolean {
+  return placing !== null && attachesToTable(getCatalogEntry(placing))
+}
 
 /**
  * How far back the rest of the hall falls while one table is being arranged
@@ -166,6 +194,11 @@ export function ObjectGroup({ id }: { id: Id }) {
   const catalogId = useEditorStore((s) => s.scene.objects[id]?.catalogId)
   const size = useEditorStore((s) => s.scene.objects[id]?.size)
   const appearance = useEditorStore((s) => s.scene.objects[id]?.appearance)
+  // A BOOLEAN selector on purpose. The transform is applied transiently through
+  // the store subscription below so a drag costs one matrix write and no render;
+  // selecting `transform` here to read one bit of it would put every drag frame
+  // back through React. This one re-renders only when the mirror actually flips.
+  const mirrored = useEditorStore((s) => !!s.scene.objects[id]?.transform.mirrored)
   const hasSeating = useEditorStore((s) => !!s.scene.objects[id]?.seating)
   const seatingHidden = useEditorStore((s) => isLayerHidden(s.scene, 'seating'))
   const isSelected = useEditorStore((s) => s.selection.includes(id))
@@ -254,6 +287,15 @@ export function ObjectGroup({ id }: { id: Id }) {
     () => (catalogId && size ? objectSlotGeometries(catalogId, size) : []),
     [catalogId, size],
   )
+  // Above the early return, like `geometries`: hooks may not sit behind one. The
+  // memo is not an optimisation — `ModelParts` disposes and rebuilds its cloned
+  // materials whenever this array's identity changes, and `slotAppearances` would
+  // hand back a fresh one on every render. `appearance` is immer-stable between
+  // edits, so this changes exactly when the user restyles the object.
+  const slots = useMemo(
+    () => (catalogId && appearance ? slotAppearances(getCatalogEntry(catalogId), appearance) : []),
+    [catalogId, appearance],
+  )
 
   if (!catalogId || !size || !appearance) return null
   const entry = getCatalogEntry(catalogId)
@@ -265,6 +307,7 @@ export function ObjectGroup({ id }: { id: Id }) {
       return
     }
     if (placing) {
+      if (!placementWantsThisObject(placing)) return
       e.stopPropagation()
       commitPlacement3D(e.point, e.nativeEvent.altKey, id)
       return
@@ -342,9 +385,10 @@ export function ObjectGroup({ id }: { id: Id }) {
         const pack = getVenuePack(scene.venue.venuePackId)
         setPosition(id, snapToBeam({ x, y }, beamGrid(pack, scene.venue.size)))
       } else {
+        // CTRL, not Alt — Alt makes a copy here too. Mirrors dragController.ts.
         setPosition(
           id,
-          scene.settings.snapEnabled && !event.altKey
+          scene.settings.snapEnabled && !(event.ctrlKey || event.metaKey)
             ? { x: snapValue(x, scene.settings.gridSize), y: snapValue(y, scene.settings.gridSize) }
             : { x, y },
         )
@@ -364,6 +408,27 @@ export function ObjectGroup({ id }: { id: Id }) {
     }
     dragRef.current = drag
     beginGesture()
+    /**
+     * ALT+drag leaves a copy behind, exactly as it does in 2D
+     * (`dragController.onObjectDragStart`). The gesture was 2D-only for one
+     * commit, and a gesture that works in one pane and silently does nothing in
+     * the other is this repo.s most expensive recurring bug.
+     *
+     * IN PLACE, and the ORIGINAL is what travels: `drag` above already closed over
+     * this id and its grab offset, so handing the pointer to a freshly created
+     * object mid-gesture is the one way this goes wrong. `duplicateObjects` ends
+     * with `select(newIds)`, which would hand the drag.s selection to the copy
+     * parked at the start point — hence the re-select. And it must land AFTER
+     * `beginGesture()`, or the copy and the move become two undo entries and one
+     * Ctrl+Z leaves the copy behind.
+     *
+     * Top-level objects only, like 2D: a surface child is positioned by its host
+     * and a second copy of it would land inside the first.
+     */
+    if (e.nativeEvent.altKey) {
+      duplicateObjects([id], { x: 0, y: 0 })
+      select([id])
+    }
     capture.setPointerCapture(e.pointerId)
     gl.domElement.style.cursor = 'grabbing'
     window.addEventListener('pointermove', drag.move)
@@ -372,10 +437,9 @@ export function ObjectGroup({ id }: { id: Id }) {
   }
 
   const handlePointerMove = (e: ThreeEvent<PointerEvent>) => {
-    if (placing) {
-      e.stopPropagation()
-      previewPlacement3D(e.point, id)
-    }
+    if (!placing || !placementWantsThisObject(placing)) return
+    e.stopPropagation()
+    previewPlacement3D(e.point, id)
   }
 
   /**
@@ -437,24 +501,57 @@ export function ObjectGroup({ id }: { id: Id }) {
         onPointerOver={muted ? undefined : handlePointerOver}
         onPointerOut={muted ? undefined : handlePointerOut}
       >
-        {entry.model ? (
-          <ModelFallback fallback={procedural}>
-            <ModelParts
-              catalogId={catalogId}
-              url={entry.model}
-              size={size}
-              slot={entry.editableColorSlot}
-              color={entry.editableColorSlot ? appearance[entry.editableColorSlot]?.color : undefined}
+        {/*
+          THE MIRROR. Everything the object IS goes inside; everything used to
+          EDIT it stays outside.
+
+          Inside: the model, the procedural fallback, the suspension cords, the
+          instanced chairs and the surface decor — so a mirrored cluster takes its
+          cords with it and a mirrored table takes its covers, from one bit on the
+          parent (see composeTransform).
+
+          Outside: SelectionOutline and RotateHandle. A reflected gizmo drags the
+          wrong way round, and the outline is a statement about where the object
+          is rather than a part of it.
+
+          ⚠ No DoubleSide and no recomputed normals are needed: WebGLRenderer reads
+          matrixWorld.determinant() < 0 and flips the face winding itself, and the
+          inverse-transpose normal matrix flips the normals with it. Shadows go
+          through the same path. And because the mirror is a GROUP scale it is
+          never baked into geometry, so propModel.partCache stays keyed correctly.
+        */}
+        <group scale={[mirrored ? -1 : 1, 1, 1]}>
+          {entry.model ? (
+            <ModelFallback fallback={procedural}>
+              <ModelParts
+                catalogId={catalogId}
+                url={entry.model}
+                size={size}
+                slots={slots}
+                muted={muted}
+              />
+            </ModelFallback>
+          ) : (
+            procedural
+          )}
+          {/* ⚠ THE CORDS BELONG WHEREVER THE MODEL GOES. They stand over the drums,
+              so anything that moves the drums has to move them too — and they are
+              now INSIDE the mirror group, which is what makes a mirrored cluster
+              take its cords with it. */}
+          {drop > 0 && (
+            <HangingCord
+              from={size.height}
+              length={drop}
+              anchors={cordAnchorPoints(entry, size)}
+              radius={cordRadiusCm(size)}
+              color={cordColor}
               muted={muted}
             />
-          </ModelFallback>
-        ) : (
-          procedural
-        )}
+          )}
+          {hasSeating && !seatingHidden && <ChairInstances tableId={id} muted={muted} />}
+          <SurfaceChildren parentId={id} muted={muted} />
+        </group>
         {isSelected && !muted && <SelectionOutline outline={entry.footprint(size).outline} />}
-        {drop > 0 && <HangingCord from={size.height} length={drop} color={cordColor} muted={muted} />}
-        {hasSeating && !seatingHidden && <ChairInstances tableId={id} muted={muted} />}
-        <SurfaceChildren parentId={id} muted={muted} />
         {/* INSIDE the group, unlike the gizmo it replaces. That is what lets the
             band's own `stopPropagation()` block the floor-drag underneath it —
             R3F bubbles up the object tree — and it means the band inherits the
@@ -569,6 +666,15 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
     () => (catalogId && size ? objectSlotGeometries(catalogId, size) : []),
     [catalogId, size],
   )
+  // Above the early return, like `geometries`: hooks may not sit behind one. The
+  // memo is not an optimisation — `ModelParts` disposes and rebuilds its cloned
+  // materials whenever this array's identity changes, and `slotAppearances` would
+  // hand back a fresh one on every render. `appearance` is immer-stable between
+  // edits, so this changes exactly when the user restyles the object.
+  const slots = useMemo(
+    () => (catalogId && appearance ? slotAppearances(getCatalogEntry(catalogId), appearance) : []),
+    [catalogId, appearance],
+  )
 
   if (!catalogId || !size || !appearance) return null
   const entry = getCatalogEntry(catalogId)
@@ -580,6 +686,7 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
       return
     }
     if (placing) {
+      if (!placementWantsThisObject(placing)) return
       e.stopPropagation()
       commitPlacement3D(e.point, e.nativeEvent.altKey, parentId)
       return
@@ -723,7 +830,7 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
     window.addEventListener('pointercancel', drag.end)
   }
 
-  const handlePointerMove = placing
+  const handlePointerMove = placementWantsThisObject(placing)
     ? (e: ThreeEvent<PointerEvent>) => {
         e.stopPropagation()
         previewPlacement3D(e.point, parentId)
@@ -761,8 +868,7 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
               catalogId={catalogId}
               url={entry.model}
               size={size}
-              slot={entry.editableColorSlot}
-              color={entry.editableColorSlot ? appearance[entry.editableColorSlot]?.color : undefined}
+              slots={slots}
               muted={muted}
             />
           </ModelFallback>
@@ -786,16 +892,6 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
   )
 }
 
-/**
- * The real GLB of a catalog entry. An editable appearance override gets private
- * cloned materials, keeping textures/PBR data intact without tinting other instances.
- *
- * An override is a tint, a `map`, or both. The map comes from `slotTextures.ts`,
- * which is empty today: with nothing registered for the slot this is the same
- * clone-and-tint it always was. Both are applied to the CLONE — the cached
- * material in `propModel.partCache` is never touched, so no cache key has to
- * carry the texture (BRIEF §1.8).
- */
 /**
  * Which parts are glass, and what glass looks like.
  *
@@ -829,25 +925,38 @@ const glassMaterial = () =>
     transparent: true,
   }))
 
+/**
+ * The real GLB of a catalog entry. An editable appearance override gets private
+ * cloned materials, keeping the baked maps and PBR data intact without touching
+ * other instances.
+ *
+ * An override is a tint, a `map`, or both, and it reaches only the parts its slot
+ * OWNS — `overrideForPart` matches the GLB material name against the slot's
+ * `match` prefix. That is what lets the divider's curtain change while its frame
+ * stays black. Both are written to the CLONE; the cached material in
+ * `propModel.partCache` is never touched, so no cache key has to carry the
+ * texture (BRIEF §1.8).
+ */
 function ModelParts({
   catalogId,
   url,
   size,
-  slot,
-  color,
+  slots,
   muted,
 }: {
   catalogId: string
   url: string
   size: Size3D
-  slot?: string
-  color?: string
+  /** what each editable slot is asking for; `[]` for an entry with none */
+  slots: SlotAppearance[]
   /** design-edit mode is arranging another table — ghost this one (source doc §52) */
   muted?: boolean
 }) {
   const parts = useModelParts(catalogId, url, size)
   const invalidate = useThree((s) => s.invalidate)
-  const map = useSlotTexture(slotTextureUrl(catalogId, slot))
+  const maps = useSlotTextures(
+    useMemo(() => slots.map((s) => (s.textureId ? textureUrl(s.textureId) : undefined)), [slots]),
+  )
   const hasGlass = useMemo(() => parts.some((p) => isGlassPart(p.material)), [parts])
   // ⚠ The dim is folded in HERE rather than through `dimmedMaterial`, because the
   // materials in this array are this component's OWN clones: the cache up top may
@@ -855,47 +964,64 @@ function ModelParts({
   // clone would grow it without bound and hand back a dimmed twin of a material
   // that has since been disposed. `muted` is a memo dependency, so leaving the
   // mode rebuilds these undimmed.
-  const overriddenMaterials = useMemo(
-    () =>
-      color || map || hasGlass || muted
-        ? parts.map(({ material }) => {
-            // A drinking vessel is not a tint of the mesh it was cut from — it is a
-            // different material class. The baked one is `metalness 1, roughness 1,
-            // OPAQUE`, and cloning it can never become glass: `transmission` lives on
-            // MeshPhysicalMaterial and the clone is Standard. So this one is BUILT,
-            // and the part's own baked texture is dropped on purpose — a transmissive
-            // surface has nothing to show it on.
-            //
-            // Muted, it has to be a COPY of that one: `sharedGlass` is every glass on
-            // every table, so ghosting it in place would ghost the whole hall.
-            if (isGlassPart(material)) {
-              return muted ? dimInPlace(glassMaterial().clone()) : glassMaterial()
-            }
-            const clone = material.clone()
-            const tintable = clone as THREE.Material & {
-              color?: THREE.Color
-              map?: THREE.Texture | null
-            }
-            if (color && tintable.color?.isColor) tintable.color.set(color)
-            if (map && 'map' in clone) {
-              tintable.map = map
-              clone.needsUpdate = true
-            }
-            if (muted) dimInPlace(clone)
-            return clone
-          })
-        : null,
-    [color, map, hasGlass, muted, parts],
-  )
+  //
+  // ⚠⚠ `null` FOR A PART MEANS "USE THE CACHED ORIGINAL", and it is the reason
+  // this array is nullable per entry rather than dense. `propModel.partCache`
+  // materials belong to drei's `useGLTF` cache and are SHARED across every instance
+  // and every size of that entry — so putting an unmatched part's own material into
+  // this array would make the cleanup below dispose it, and unmounting one divider
+  // would black out every other object built from the same GLB. Far from the cause,
+  // and only after a delete. The render line reads `overridden?.[i] ?? material`,
+  // which turns the sentinel back into exactly that shared material without ever
+  // taking ownership of it.
+  const overriddenMaterials = useMemo(() => {
+    const styled = slots.some((s, i) => s.color || maps[i])
+    if (!styled && !hasGlass && !muted) return null
+    return parts.map(({ material }) => {
+      // A drinking vessel is not a tint of the mesh it was cut from — it is a
+      // different material class. The baked one is `metalness 1, roughness 1,
+      // OPAQUE`, and cloning it can never become glass: `transmission` lives on
+      // MeshPhysicalMaterial and the clone is Standard. So this one is BUILT,
+      // and the part's own baked texture is dropped on purpose — a transmissive
+      // surface has nothing to show it on.
+      //
+      // Muted, it has to be a COPY of that one: `sharedGlass` is every glass on
+      // every table, so ghosting it in place would ghost the whole hall.
+      if (isGlassPart(material)) {
+        return muted ? dimInPlace(glassMaterial().clone()) : glassMaterial()
+      }
+      const own = overrideForPart(material.name, slots)
+      const color = own?.color
+      const map = own ? maps[slots.indexOf(own)] : null
+      // nothing to say about this part: the sentinel, NOT `material`
+      if (!color && !map && !muted) return null
+      const clone = material.clone()
+      const tintable = clone as THREE.Material & {
+        color?: THREE.Color
+        map?: THREE.Texture | null
+      }
+      if (color && tintable.color?.isColor) tintable.color.set(color)
+      if (map && 'map' in clone) {
+        tintable.map = map
+        clone.needsUpdate = true
+      }
+      if (muted) dimInPlace(clone)
+      return clone
+    })
+  }, [slots, maps, hasGlass, muted, parts])
   // frameloop is "demand": a texture that arrives after the object was drawn has
   // to ask for the frame that shows it
   useEffect(() => invalidate(), [overriddenMaterials, invalidate])
   useEffect(
     () => () => {
-      // the clones are ours; the texture is shared per URL and outlives them, and
-      // so does the one glass material every table's glasses point at
+      // Everything disposed here is ours and nothing else is. Three exclusions, and
+      // each names a different owner: `null` is a part still wearing the SHARED
+      // cached material from `propModel.partCache`; `sharedGlass` is the one glass
+      // material every table's glasses point at, which is never disposed at all; and
+      // what is left can only be a `.clone()` made a few lines above. The texture is
+      // shared per URL and outlives all of them.
       overriddenMaterials?.forEach((material) => {
-        if (material !== sharedGlass) material.dispose()
+        if (material && material !== sharedGlass) material.dispose()
       })
     },
     [overriddenMaterials],
@@ -943,9 +1069,22 @@ function ModelFallback({ children, fallback }: { children: ReactNode; fallback: 
  * catalogued height — so at the top of the range nothing is added at all. That
  * last 15 cm to the beam was tried and photographed; see `cordLength`.
  *
- * 3 cm across and 6-sided: a cord reads as a line at any sane camera distance, so
- * a rounder or thicker one only costs triangles. `raycast` off, or the cord would
- * shield the fixture from clicks along its whole length.
+ * ONE CYLINDER PER ANCHOR. It used to draw exactly one, hard-coded at local
+ * (0, 0), which is right for a single drum — `decor-pendant-lamp.glb`'s own cord
+ * is measurably on the axis — and wrong for the four-drum cluster, where it is a
+ * wire through the middle of the group with no drum under it and none of the
+ * model's four cords beside it (source doc item 14b). `cordAnchorPoints` hands
+ * back `[{x:0,y:0}]` for everything that declares nothing, so the single-cord case
+ * is the same code path rather than a branch.
+ *
+ * The anchors are in the object's LOCAL PLAN frame and this group already carries
+ * the object's yaw, so the cords turn with the fixture for nothing.
+ *
+ * 6-sided: a cord reads as a line at any sane camera distance, so a rounder one
+ * only costs triangles. Its RADIUS now follows the fixture (`cordRadiusCm`) — the
+ * old fixed 3 cm was chosen against a 31 cm pendant and reads as rope on the 78 cm
+ * one ×6.25 made of it. `raycast` off, or the cord would shield the fixture from
+ * clicks along its whole length.
  *
  * `color` is the venue's own truss metal, so the cord reads as part of the roof
  * rather than as a black wire hung off it (source doc §16). Its metalness and
@@ -955,30 +1094,46 @@ function ModelFallback({ children, fallback }: { children: ReactNode; fallback: 
 function HangingCord({
   from,
   length,
+  anchors,
+  radius,
   color,
   muted,
 }: {
   from: number
   length: number
+  /** plan cm from the object's centre — already multiplied out of the fractions */
+  anchors: Vec2[]
+  /** plan cm */
+  radius: number
   color: string
   muted?: boolean
 }) {
   return (
-    <mesh position={[0, cmToM(from + length / 2), 0]} raycast={() => null} castShadow={!muted}>
-      <cylinderGeometry args={[cmToM(1.5), cmToM(1.5), cmToM(length), 6]} />
-      {/* This material is inline and private to this fixture, so the mute is set
-          on it directly — `dimmedMaterial`'s cache is for the shared ones. A
-          solid wire hanging out of a ghosted chandelier is the giveaway that a
-          dim was applied per mesh and one was missed. */}
-      <meshStandardMaterial
-        color={color}
-        metalness={0.5}
-        roughness={0.5}
-        transparent={muted}
-        opacity={muted ? DESIGN_EDIT_DIM : 1}
-        depthWrite={!muted}
-      />
-    </mesh>
+    <>
+      {anchors.map((a) => (
+        // plan y is three z (core/space.ts), so the third component is a.y
+        <mesh
+          key={`${a.x},${a.y}`}
+          position={[cmToM(a.x), cmToM(from + length / 2), cmToM(a.y)]}
+          raycast={() => null}
+          castShadow={!muted}
+        >
+          <cylinderGeometry args={[cmToM(radius), cmToM(radius), cmToM(length), 6]} />
+          {/* This material is inline and private to this fixture, so the mute is
+              set on it directly — `dimmedMaterial`'s cache is for the shared ones.
+              A solid wire hanging out of a ghosted chandelier is the giveaway that
+              a dim was applied per mesh and one was missed. */}
+          <meshStandardMaterial
+            color={color}
+            metalness={0.5}
+            roughness={0.5}
+            transparent={muted}
+            opacity={muted ? DESIGN_EDIT_DIM : 1}
+            depthWrite={!muted}
+          />
+        </mesh>
+      ))}
+    </>
   )
 }
 
@@ -1159,6 +1314,7 @@ function ChairSlot({
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     if (placing) {
+      if (!placementWantsThisObject(placing)) return
       e.stopPropagation()
       commitPlacement3D(e.point, e.nativeEvent.altKey, tableId)
       return
@@ -1198,7 +1354,7 @@ function ChairSlot({
     select([chairId])
   }
 
-  const handlePointerMove = placing
+  const handlePointerMove = placementWantsThisObject(placing)
     ? (e: ThreeEvent<PointerEvent>) => {
         e.stopPropagation()
         previewPlacement3D(e.point, tableId)

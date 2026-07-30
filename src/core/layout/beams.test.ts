@@ -17,6 +17,9 @@ const beams = resort.ceilingBeams!
  */
 const XS = beams.find((b) => b.axis === 'y')!.positions
 const YS = beams.find((b) => b.axis === 'x')!.positions
+/** how far each family's beams RUN — the bound on the free coordinate */
+const RUN_Y = beams.find((b) => b.axis === 'y')!.span!
+const RUN_X = beams.find((b) => b.axis === 'x')!.span!
 /** a point squarely between two members, i.e. as far from that family as it gets */
 const midX = (i: number) => (XS[i] + XS[i + 1]) / 2
 const midY = (i: number) => (YS[i] + YS[i + 1]) / 2
@@ -59,20 +62,43 @@ describe('snapToBeam', () => {
     expect(XS[1]).not.toBe(YS[1])
   })
 
-  it('clamps to the outermost beam outside the grid', () => {
-    expect(snapToBeam({ x: -900, y: 9000 }, beams)).toEqual({ x: XS[0], y: lastY })
+  it('clamps to the outermost beam outside the grid, and to the END of its run', () => {
+    // the nearest beam is the first tube; the free axis stops where the steel does
+    expect(snapToBeam({ x: -900, y: 9000 }, beams)).toEqual({ x: XS[0], y: RUN_Y[1] })
   })
 
-  it('does not let a fixture slide off the end of the beam it rides', () => {
-    // on the last x beam, dragged past the last crossing: the free axis is held
-    // to the run of the truss, which the other family's outermost members bound
-    expect(snapToBeam({ x: lastX - 3, y: -500 }, beams)).toEqual({ x: lastX, y: YS[0] })
-    expect(snapToBeam({ x: lastX - 3, y: 2400 }, beams)).toEqual({ x: lastX, y: lastY })
+  /**
+   * ⚠ This case used to assert the OPPOSITE of what it now asserts, and the change
+   * is the whole of A4.1(a). The free coordinate was clamped to the outermost
+   * members of the other family, so a fixture on the last tube could not pass
+   * y = 1306 — it froze there while the pointer carried on into the southern half
+   * of a 2544-deep hall, which is what "the ghost does not follow the mouse" meant.
+   * The invariant that survives is the one about the STEEL: a fixture may not slide
+   * off the end of the beam it rides, and the end is the family's declared `span`.
+   */
+  it('runs the full length of the beam it rides, and stops at its ends', () => {
+    // past the north end of the tubes → held at the start of the run
+    expect(snapToBeam({ x: lastX - 3, y: -500 }, beams)).toEqual({ x: lastX, y: RUN_Y[0] })
+    // and 2400 is now REACHABLE, where the old rectangle stopped at YS[2] = 1306
+    expect(snapToBeam({ x: lastX - 3, y: 2400 }, beams)).toEqual({ x: lastX, y: 2400 })
+    expect(2400).toBeGreaterThan(lastY)
+    // past the south end of the tubes → held again, 13 cm short of the wall,
+    // because that is where the modelled steel stops (handoff/01-beams.md §5)
+    expect(snapToBeam({ x: lastX - 3, y: 9999 }, beams)).toEqual({ x: lastX, y: RUN_Y[1] })
+    expect(RUN_Y[1]).toBeLessThan(resort.size.depth)
+    // the same the other way: riding a cross-run, x sweeps the roofed hall.
+    // `midX` and not a round number — within CROSSING_SNAP of a tube both axes
+    // snap, which would be testing the crossing rule instead of the run.
+    expect(snapToBeam({ x: midX(6), y: lastY - 4 }, beams)).toEqual({ x: midX(6), y: lastY })
+    expect(snapToBeam({ x: 9999, y: lastY - 4 }, beams)).toEqual({ x: RUN_X[1], y: lastY })
   })
 
   it('is idempotent — clampToVenue re-snaps an already snapped position', () => {
     for (const p of [
-      { x: lastX - 3, y: midY(2) },
+      // ⚠ was `midY(2)` with only three cross-runs, so it evaluated to NaN and the
+      // case was vacuous — `toEqual` treats NaN as equal to NaN, so it passed while
+      // testing nothing at all.
+      { x: lastX - 3, y: midY(1) },
       { x: midX(1), y: YS[1] + 10 },
       { x: XS[2] + 32, y: YS[0] + 10 },
       { x: -900, y: 9000 },
@@ -89,33 +115,44 @@ describe('snapToBeam', () => {
   })
 
   /**
-   * Where a fixture may end up is the TRUSS rectangle, which is smaller than the
-   * hall: the resort measures 6051 × 2544 but its truss spans x 158…4208 and
-   * y 102…1306. The reception deck (x from 4432) has no beams over it, so nothing
-   * can hang there — that was true of the crossing snap too, and sliding must not
-   * quietly change it in either direction. The margin narrowed on 2026-07-29: the
-   * outermost real tube is at 4208, 224 cm short of the deck, where the old
-   * transcription stopped at 3821 and left 611.
+   * Where a fixture may end up is now the two families' runs rather than the truss
+   * RECTANGLE, and the one thing that must not change is the deck: x from 4432 is
+   * open to the sky and carries no steel, so nothing may hang there. The cross-runs
+   * end with the roof at 4423, which is what still holds — it is no longer the
+   * outermost tube at 4208 doing it, because a fixture riding a cross-run is now
+   * free to slide the last 215 cm of roofed hall past that tube.
+   *
+   * ⚠ This used to assert that the result equalled the nearest member of EACH
+   * family, i.e. a crossing. That is no longer true and is no longer the point: one
+   * axis is on a beam (source doc §12) and the other is anywhere along its run.
    */
   it('cannot put a fixture where the truss is not, deck included', () => {
-    const xs = beams.find((b) => b.axis === 'y')!.positions
-    const ys = beams.find((b) => b.axis === 'x')!.positions
-    const deck = [
+    const deckStart = resort.restricted!.find((z) => z.kind === 'kabalatPanim')!.x
+    const probes = [
       { x: 6000, y: 1500 },
       { x: 5000, y: 900 },
-      { x: 4432, y: 1200 },
+      { x: deckStart, y: 1200 },
       { x: resort.size.width, y: resort.size.depth },
+      // and a point deep in the southern half of the hall, which the old clamp
+      // could not reach at all
+      { x: 2000, y: 2000 },
     ]
-    for (const p of deck) {
+    for (const p of probes) {
       const snapped = snapToBeam(p, beams)
-      expect(snapped.x).toBeLessThanOrEqual(Math.max(...xs))
-      expect(snapped.y).toBeLessThanOrEqual(Math.max(...ys))
-      // and it lands exactly where the old crossing snap put it: the nearest of each
-      expect(snapped).toEqual({
-        x: xs.reduce((a, b) => (Math.abs(b - p.x) < Math.abs(a - p.x) ? b : a)),
-        y: ys.reduce((a, b) => (Math.abs(b - p.y) < Math.abs(a - p.y) ? b : a)),
-      })
+      // the invariant: always ON a beam of one family or the other
+      expect(XS.includes(snapped.x) || YS.includes(snapped.y)).toBe(true)
+      // and inside both runs, so never over the open deck
+      expect(snapped.x).toBeLessThanOrEqual(RUN_X[1])
+      expect(snapped.x).toBeLessThan(deckStart)
+      expect(snapped.y).toBeGreaterThanOrEqual(RUN_Y[0])
+      expect(snapped.y).toBeLessThanOrEqual(RUN_Y[1])
     }
+    // The case that was broken, in full: (2000, 2000) used to come back with y
+    // frozen on 1306. It now keeps the y the pointer gave it and rides the nearest
+    // tube — read off the catalogue, never written down (AGENT-BRIEF §1.7).
+    const nearestX = XS.reduce((a, b) => (Math.abs(b - 2000) < Math.abs(a - 2000) ? b : a))
+    expect(snapToBeam({ x: 2000, y: 2000 }, beams)).toEqual({ x: nearestX, y: 2000 })
+    expect(2000).toBeGreaterThan(Math.max(...YS))
   })
 })
 

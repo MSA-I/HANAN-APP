@@ -1,5 +1,6 @@
 import { Maximize, Minus, Plus, TriangleAlert } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
+import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import type { Violation } from '../core/layout/collision'
 import { chordFor } from '../core/shortcuts'
 import { getVenuePack } from '../core/venuePacks'
@@ -18,6 +19,19 @@ const V = strings.status.violation
 /** The pack's own Hebrew zone label, falling back to the raw kind. */
 function zoneLabel(venuePackId: string | null | undefined, kind: string): string {
   return getVenuePack(venuePackId)?.restricted?.find((z) => z.kind === kind)?.label ?? kind
+}
+
+/**
+ * A catalog id as the user's own name for it. Guarded with `hasCatalogEntry`
+ * because `getCatalogEntry` THROWS: a violation can name an id a stale project
+ * still refers to, and a status message is the last place that should take the
+ * app down. The id itself is the fallback — ugly on purpose, so it reads as
+ * something to fix rather than as a label.
+ */
+function itemLabel(catalogId: string): string {
+  if (!hasCatalogEntry(catalogId)) return catalogId
+  const key = getCatalogEntry(catalogId).labelKey as keyof typeof strings.catalog.items
+  return strings.catalog.items[key] ?? catalogId
 }
 
 function violationText(violation: Violation, venuePackId: string | null | undefined): string {
@@ -40,7 +54,7 @@ function violationText(violation: Violation, venuePackId: string | null | undefi
     case 'nearWall':
       return V.nearWall.replace('{within}', String(violation.within))
     case 'missingHost':
-      return V.missingHost
+      return V.missingHost(itemLabel(violation.requires))
     case 'overlapsSibling':
       return V.overlapsSibling
     case 'duplicate':

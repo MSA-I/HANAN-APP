@@ -128,6 +128,15 @@ export const strings = {
         ? 'פריט אחד לא הסתובב — אין לו מקום חוקי בזווית הזו'
         : `${n} פריטים לא הסתובבו — אין להם מקום חוקי בזווית הזו`,
     /**
+     * Same shape as the rotation refusal above, and for the same reason: a mirror
+     * MOVES a table's chairs, so it can be refused even though the table's own
+     * outline reflects onto itself. Without this the click reads as broken.
+     */
+    mirrorRefused: (n: number) =>
+      n === 1
+        ? 'פריט אחד לא שוקף — אין לו מקום חוקי בכיוון הזה'
+        : `${n} פריטים לא שוקפו — אין להם מקום חוקי בכיוון הזה`,
+    /**
      * Why a placement was refused (core/layout/collision.ts `Violation`). `{…}`
      * placeholders are filled by StatusBar: numbers from the violation itself,
      * zone names from the venue pack's own Hebrew labels.
@@ -141,7 +150,17 @@ export const strings = {
       // them is already "סביב הבריכה" — the old wording produced "רק סביב סביב הבריכה".
       wrongZone: 'פריט זה מותר רק באזור {zone}',
       nearWall: 'יש להניח צמוד לקיר (עד {within} ס״מ)',
-      missingHost: 'יש להניח ערכת סכו״ם קודם',
+      /**
+       * ⚠ It named the place setting outright and was shown for EVERY host. The
+       * violation has carried `requires` — the host's catalog id — since it was
+       * written (collision.ts), and StatusBar simply ignored it, so a floral
+       * arrangement refused for want of its inner table was told to lay cutlery.
+       *
+       * StatusBar resolves the id through `catalog.items`, so the napkins render
+       * byte-identical to before ('ערכת סכו״ם' is `decorPlaceSetting`) and
+       * `ring.table` finally says 'שולחן פנימי'.
+       */
+      missingHost: (item: string) => `יש להניח ${item} קודם`,
       duplicate: 'כבר קיימת חופה בסצנה',
       /** two decor items on the SAME table overlapping each other (PLAN-06) */
       overlapsSibling: 'חופף לקישוט אחר על השולחן',
@@ -275,7 +294,8 @@ export const strings = {
       tableware: 'סכו״ם ומפיות',
       tableDecor: 'קישוטי שולחן',
       tableDesigns: 'עיצובי שולחן',
-      ringCenter: 'עיצובי שולחן עיגול גדול',
+      // `ringCenter: 'עיצובי שולחן עיגול גדול'` was here until v13. Its two items
+      // list under שולחנות now — see core/catalog/types.ts.
       lighting: 'תאורה',
       decor: 'עיצוב',
       chuppah: 'חופות',
@@ -291,7 +311,12 @@ export const strings = {
       counter: 'דלפק',
       pot: 'עציץ',
       foliage: 'עלווה',
-      panel: 'פאנל',
+      /**
+       * Round 4: the divider's curtain. It replaces `panel`, which was the
+       * placeholder screen's single slot and had no other reader once the real
+       * model arrived segmented into curtain + frame (entries/decor.ts).
+       */
+      fabric: 'בד',
       /** PLAN-02/A2: the figure's single material slot */
       figure: 'דמות',
       /**
@@ -332,6 +357,37 @@ export const strings = {
      */
     seatsSuffix: 'כסאות',
     seatsLabel: (n: number) => `${n} כסאות`,
+    /**
+     * The quick-filter chips under the search box.
+     *
+     * ⚠ EACH CHIP IS BOTH THE LABEL AND THE QUERY. Clicking one types it into the
+     * search box, so every word here has to read as something the user could have
+     * typed — not as a category name and not as an abbreviation. That is also why
+     * they are singular: the search matches by substring over normalised text
+     * (ui/librarySearch.ts), so 'נר' finds 'נרות' and 'שולחן' finds 'שולחנות',
+     * while the plural would find only itself.
+     *
+     * About a dozen, because the row wraps and a third line of chips costs more
+     * screen than the filtering saves. They are the families a user actually
+     * hunts for; anything rarer is what the box itself is for.
+     */
+    chips: [
+      'שולחן',
+      'כסא',
+      'חופה',
+      'תאורה',
+      'נר',
+      'פרחים',
+      'ואזה',
+      'מפית',
+      'בר',
+      'בופה',
+      'צמחייה',
+      'מחיצה',
+      // the one chip that is an adjective rather than a thing, and it earns its
+      // place: shape is how a venue manager asks for a table
+      'עגול',
+    ] as const,
   },
   presets: {
     tableDesign: 'עיצוב שולחן',
@@ -550,9 +606,14 @@ export const strings = {
     selectedCount: (n: number) => `${n} פריטים נבחרו`,
     selectAll: 'בחירת הכול',
     /**
-     * PLAN-05 item 14 — the 22 cloth/napkin textures, if they get a picker. The
-     * loading machinery already exists and is unused (`slotTextures.ts:36, 51-90`),
-     * so whether this becomes visible UI is PLAN-05's call.
+     * The 22 fabric swatches. LIVE since round 4 §8 — `ui/fields.tsx`'s
+     * `TextureField`, rendered by `AppearanceSection` for every slot whose
+     * `EditableSlot` says `texture: true` (the six tables, the three napkins, the
+     * divider's curtain). They were seeded a round earlier with no reader.
+     *
+     * `textureNone` labels the first tile, and it is a real choice rather than a
+     * reset: "no texture" is stored, and is not the same as never having picked
+     * (see `AppearanceOverrides`).
      */
     texture: 'טקסטורה',
     textureNone: 'ללא טקסטורה',
@@ -728,6 +789,7 @@ export const strings = {
       dragItem: 'הזזת פריט על הרצפה',
       snapBypass: 'עקיפת הצמדה',
       dragDuplicate: 'שכפול הפריט תוך כדי גרירה',
+      mirror: 'שיקוף הנבחרים',
       keepRatio: 'שמירה על יחס הצלעות',
       resizeFromCenter: 'שינוי גודל מהמרכז',
       /**
@@ -780,6 +842,8 @@ export const strings = {
     rotate90: 'סיבוב 90°',
     /** the other direction — `Shift+R` has always existed, the menu only offered one way */
     rotate90ccw: 'סיבוב 90° נגד כיוון השעון',
+    /** a real reflection, which is why it is not called 'היפוך' — see Transform2D.mirrored */
+    mirror: 'שיקוף',
     replace: 'החלפת פריט…',
     bringForward: 'הבא קדימה',
     sendBackward: 'שלח אחורה',
@@ -858,6 +922,17 @@ export const strings = {
     corridor: 'מעבר',
     passage: 'מעבר',
     kabalatPanim: 'קבלת פנים',
+    /**
+     * ZONE_SHVIL_HUPA — the aisle to the ceremony, painted 2026-07-29.
+     *
+     * ⚠ A NO-OP TODAY, and listed anyway. The zone is 140 cm wide, which leaves a
+     * 108 cm tag box, and `labelFits` refuses anything under 132 cm at the drawn
+     * font size (core/layout/zoneLabels.ts) — so nothing is printed and this
+     * string is never read. BRIEF §1.2 is that every user-facing string lives
+     * here regardless; without it, the day the aisle widens the plan silently
+     * falls back to the pack's own inline Hebrew instead.
+     */
+    shvilHupa: 'שביל החופה',
     /** the ring of deck the user drew around the pool — PLAN-01 adds the zone itself */
     saviv: 'סביב הבריכה',
     /**

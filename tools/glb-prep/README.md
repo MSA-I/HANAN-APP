@@ -53,3 +53,25 @@ node tools/glb-prep/glb-prep.mjs ./tripo-in ./library-out --mode prop --height 9
 - ‏bbox: ‏84.2×33.5×13 מ' (X×Z רצפה, Y גובה), רצפה ב־Y≈0.
 
 </div>
+
+## סימון חלקים אחרי ההכנה — `mark-glass.mjs` / `mark-fabric.mjs`
+
+Tripo מחזיר חלקים בשם `Material_tripo_part_<n>` — אינדקסים בלי משמעות. שני הכלים
+האלה **משנים את שם החומר** לפי הגיאומטריה, וזה מה שמאפשר לרנדרר להתייחס לחלק
+מסוים: `propModel.buildParts` מקבץ לפי שם החומר, ו-`editableSlots[].match`
+ב-`core/catalog/types.ts` הוא **תחילית** של אותו שם.
+
+```
+node tools/glb-prep/mark-fabric.mjs public/props/divider-screen.glb --dry   # לקרוא את הטבלה
+node tools/glb-prep/mark-fabric.mjs public/props/divider-screen.glb          # לכתוב
+```
+
+- **סדר ההרצה:** `glb-prep` → `inspect-materials` (לוודא ש-`dedup()` לא איחד חומרים)
+  → `mark-*` עם `--dry` → `mark-*`.
+- ⚠ **הרצה חוזרת של `glb-prep` מוחקת את השמות.** הסימון תמיד אחרי ההכנה, אף פעם לפני.
+- ⚠ **שמות ייחודיים עם תחילית משותפת** (`fabric-00…16`, `frame-00…07`) ולא שם אחד
+  לכולם: `propModel` ממזג פרימיטיבים ששמם זהה ושומר רק את החומר הראשון, מה שהיה
+  מלביש על 17 קפלים את הטקסטורה האפויה של הקפל הראשון.
+- `mark-fabric` מדפיס **מרווח ביטחון** — כמה רחוק מגיע הבד החיצוני ביותר מול היכן
+  שמתחיל חלק המסגרת הפנימי ביותר — ויוצא בשגיאה אם השניים לא מפרידים את הסף.
+  במחיצה: בד עד 61.8 ס"מ, מסגרת מ-72.7, סף 70.1.

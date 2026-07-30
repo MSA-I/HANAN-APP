@@ -55,6 +55,19 @@ export interface CeilingBeams {
   axis: 'x' | 'y'
   positions: number[]
   height: number
+  /**
+   * How far each beam of this family RUNS along `axis`, in plan cm. Absent =
+   * unbounded (a hand-built family in a test), which leaves that coordinate
+   * exactly where the pointer put it.
+   *
+   * This is PACK data, not scene data — it describes steel that is already in the
+   * building, so nothing saved has to migrate. It exists because the run used to
+   * be INFERRED from the outermost members of the other family, which on the
+   * resort meant a fixture could only ever reach y ∈ [102, 1306] of a 2544-deep
+   * hall: the whole southern half was unreachable and the free axis froze on the
+   * boundary. A beam's length is a property of the beam, so it is stated.
+   */
+  span?: [number, number]
 }
 
 export interface VenuePack {
@@ -279,9 +292,19 @@ export const VENUE_PACKS: VenuePack[] = [
     // under 0.5cm, accurate but not tubes. They are kept in the manifest note, not
     // here, because this array is a SNAP GRID enforced on five code paths, and a
     // fixture must land on something a clamp can actually grip.
+    //
+    // `span` is how far each beam RUNS, and it is the length of the STEEL, not the
+    // reach of the other family. The tubes measure y −193.4…2530.6 (handoff/01-beams
+    // .md §5); the part inside the plan is 0…2531, and 2531 is what is declared —
+    // NOT the 2544 of the south wall, because the modelled tube stops 13 cm short
+    // of it and a beam that ends where the wall is would be an invented dimension.
+    // The cross-runs are given as ending with the roof at x 4423 (the hall is
+    // 4423 × 2544; the deck starts at 4432), which is what keeps nothing hanging
+    // over the open reception deck now that the free axis is no longer pinned by
+    // the outermost tube at 4208.
     ceilingBeams: [
-      { axis: 'y', positions: [158, 563, 968, 1373, 1778, 2183, 2588, 2993, 3398, 3803, 4208], height: 910 },
-      { axis: 'x', positions: [102, 704, 1306], height: 910 },
+      { axis: 'y', positions: [158, 563, 968, 1373, 1778, 2183, 2588, 2993, 3398, 3803, 4208], height: 910, span: [0, 2531] },
+      { axis: 'x', positions: [102, 704, 1306], height: 910, span: [0, 4423] },
     ],
     // Roof-truss metal, off the venue.glb material `H08_Emerald_Abyss` (no texture —
     // the factor IS the colour). glTF stores baseColorFactor LINEAR, [0.725, 0.635,

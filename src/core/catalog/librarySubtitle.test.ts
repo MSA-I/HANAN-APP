@@ -40,7 +40,6 @@ const EXPECTED: Record<Category, SubtitleMode> = {
   tableDecor: 'none',
   tableware: 'none',
   tableDesigns: 'none',
-  ringCenter: 'none',
   chuppahDecor: 'none',
   // hung in open air: the drop comes from the hang slider, not from the width
   lighting: 'none',
@@ -49,22 +48,30 @@ const EXPECTED: Record<Category, SubtitleMode> = {
 const modeOf = (entry: CatalogEntry): SubtitleMode => entry.librarySubtitle ?? DEFAULT_MODE
 
 /**
- * One category-wide answer has an exception, and it is a RULE rather than an id.
+ * TWO category-wide answers have exceptions, and both are RULES rather than ids.
  *
- * 'size' is on `decor` because "the dimensions decide whether the piece fits".
- * An entry carrying `placeAnywhere` has no such question — it fits everywhere by
- * construction, zones and walls included (catalog/types.ts) — so its footprint
- * decides nothing and printing it only invites the wrong reading. On the human
- * figure that reading is concrete: the model is a T-pose, so its width is the ARM
- * SPAN, and a tile saying "1.55 × 0.28 מ׳" under a person looks like a claim
- * about how big the person is.
+ * 1. 'size' is on `decor` because "the dimensions decide whether the piece fits".
+ *    An entry carrying `placeAnywhere` has no such question — it fits everywhere
+ *    by construction, zones and walls included (catalog/types.ts) — so its
+ *    footprint decides nothing and printing it only invites the wrong reading. On
+ *    the human figure that reading is concrete: the model is a T-pose, so its
+ *    width is the ARM SPAN, and a tile saying "1.55 × 0.28 מ׳" under a person
+ *    looks like a claim about how big the person is.
  *
- * Deriving it from the flag keeps this file doing what its header says: the
- * mapping is still stated here rather than read back out of the entries, and a
+ * 2. 'seats' is on `tables` for the CHAIR COUNT the user asked for by name. v13
+ *    folded the ⌀380's two centre pieces into that category, and a table-top piece
+ *    seats nobody: `subtitleFor` (ui/LibraryPanel.tsx) falls back to the footprint
+ *    when `seating` is absent, so 'seats' on them would print centimetres — but
+ *    worse, the third test below would demand a `seating` block on an urn, and
+ *    giving one to it would print the HOST table's guest count under a flower
+ *    arrangement.
+ *
+ * Deriving both from properties keeps this file doing what its header says: the
+ * mapping is still stated above rather than read back out of the entries, and a
  * new entry that quietly declares 'none' still fails.
  */
 const expectedFor = (entry: CatalogEntry): SubtitleMode =>
-  entry.placeAnywhere ? 'none' : EXPECTED[entry.category]
+  entry.placeAnywhere || entry.placement === 'surface' ? 'none' : EXPECTED[entry.category]
 
 describe('library subtitle', () => {
   it('maps every category the library renders', () => {
