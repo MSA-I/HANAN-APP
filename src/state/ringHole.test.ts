@@ -130,6 +130,51 @@ describe('§26 — the ring-centre table covers the whole opening', () => {
     expect(defaultSize.height / modelSize.height).toBeLessThan(1)
   })
 
+  /**
+   * The half that was missing, and the half the user could actually see. The test
+   * above is about the PLAN, where ⌀156 = ⌀156 and there was never a gap; the
+   * crescent was in 3D, where the loader fits the GLB by its own bounds — and this
+   * model is a DRAPED table, so its bounds are the skirt at the floor and not the
+   * top a plate stands on.
+   *
+   * ⚠ ONE number is frozen here: 64, the radius in FILE cm out to which the top 5%
+   * of the model is solid. It is a property of the file in public/props, so
+   * re-prepping the GLB invalidates it — re-measure with
+   *
+   *   node tools/glb-prep/measure-top.mjs public/props/ring-center-table.glb 1
+   *
+   * (2026-07-30: 63:100% 64:98% 65:64% 66:20% 67:4% 68:0%). Everything else is
+   * derived from the catalogue, so a re-sized entry moves the expectation with it.
+   */
+  it('fits by the TOP, so the solid disc reaches the opening instead of stopping 11 cm short', () => {
+    const FILE_TOP_R = 64
+    const { defaultSize, modelSize, modelTopSize } = getCatalogEntry(RING_TABLE)
+    if (!modelTopSize) throw new Error(`${RING_TABLE}: a draped model must state its top's own size`)
+    if (!modelSize) throw new Error(`${RING_TABLE}: expected a file size to compare against`)
+
+    // what the loader does now — the same expression as viewer3d/propModel.ts
+    for (const reach of [
+      FILE_TOP_R * (defaultSize.width / modelTopSize.width),
+      FILE_TOP_R * (defaultSize.depth / modelTopSize.depth),
+    ]) {
+      expect(reach).toBeGreaterThanOrEqual(R_INNER() - 0.01)
+    }
+
+    // and what it did before, which is the gap the user reported: the top stopped
+    // well inside the opening on BOTH axes, and by different amounts — an
+    // off-centre ring, which is why it read as a crescent rather than a halo
+    const byBox = [
+      FILE_TOP_R * (defaultSize.width / modelSize.width),
+      FILE_TOP_R * (defaultSize.depth / modelSize.depth),
+    ]
+    for (const reach of byBox) expect(R_INNER() - reach).toBeGreaterThan(8)
+    expect(Math.abs(byBox[0] - byBox[1])).toBeGreaterThan(0)
+
+    // the height is deliberately NOT fitted by the top: a hem is a horizontal
+    // overhang, and `modelSize.height` is what STACK_HEIGHTS converts through
+    expect(modelTopSize).not.toHaveProperty('height')
+  })
+
   it('drops into the well and covers it there too', () => {
     const table = addObject(RING, { x: 1000, y: 700 })
     const child = addObjectToSurface(RING_TABLE, table, { x: 1000, y: 700 })!
