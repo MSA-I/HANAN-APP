@@ -688,7 +688,10 @@ export const strings = {
    */
   dialog: {
     cancel: 'ביטול',
-    close: 'סגירה',
+    // `close` was added here for symmetry with `cancel` and never had a caller:
+    // the dialogs dismiss with `cancel`, and the one close BUTTON in the app —
+    // the help panel's — has its own `help.close`. Removed in the same round
+    // that added it, by the audit that also caught `status.clearedAll`.
     renameTitle: 'שינוי שם לפריסה',
     renameConfirm: 'שינוי השם',
     deleteLayoutTitle: 'מחיקת פריסה',
@@ -816,7 +819,12 @@ export const strings = {
       flyFast: 'תנועה מהירה',
       flySlow: 'תנועה איטית מאוד',
       flyVeryFast: 'תנועה מהירה מאוד',
-      look: 'מבט חופשי',
+      /**
+       * Names the discrimination, because it is the one thing about this gesture
+       * a user has to know: a left drag turns the view UNLESS it started on an
+       * object, in which case it moves the object.
+       */
+      look: 'הסתכלות סביב (על שטח ריק — גרירה על פריט מזיזה אותו)',
       panView3d: 'הזזת המבט הצידה',
       wheelFly: 'תנועה קדימה / אחורה',
       orbit: 'סיבוב סביב המוקד',

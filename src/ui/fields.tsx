@@ -129,7 +129,7 @@ export function CollapsibleSection({
   if (nested) {
     return (
       <div>
-        <h4 className="pt-1 text-[13px] font-semibold text-ink-soft">{trigger}</h4>
+        <SubHeading>{trigger}</SubHeading>
         {open && <div className="mt-2.5 flex flex-col gap-2.5">{children}</div>}
       </div>
     )

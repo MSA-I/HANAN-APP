@@ -2,12 +2,14 @@
  * Lumion-exact navigation for the 3D viewer, matched to Lumion's official docs:
  * - W/A/S/D and the ARROW keys move (ground-projected), Q ascends, E descends
  * - Shift = fast, Space = very slow, Shift+Space = very fast
+ * - LEFT drag on empty space = look around (added round 4, at the user's request)
  * - RIGHT mouse drag = look around (FPS-style, eye stays put)
- * - O + right drag = orbit the camera around the look-at point
+ * - O + either drag = orbit the camera around the look-at point
  * - Middle drag = pan (camera-controls truck; Shift/Space scale it too)
  * - Mouse WHEEL = move forwards/backwards along the view direction
  * - Ctrl+H = reset pitch to horizontal · double right-click = teleport there
- * - LEFT button moves nothing — it only selects (R3F object events)
+ * - LEFT drag ON AN OBJECT still moves it — see `onPointerMove` for how the two
+ *   are told apart
  * Bound to PHYSICAL keys (event.code) so the Hebrew layout works. Keyboard
  * flight is active only in full-3D mode; mouse actions are canvas-scoped.
  *
@@ -31,6 +33,13 @@ const MAX_DT = 0.05 // clamp a frame step — a hitch slows motion, never telepo
 const LOOK_SPEED = 0.003 // rad per px of right-drag (look and O-orbit)
 const WHEEL_STEP = 1.5 // metres per wheel notch, before speed modifiers
 const VIEW_PHI_MIN = 0.15 // don't let the view flip over the poles
+/**
+ * How far a left press must travel before it counts as a look rather than a
+ * click. Matches the 3 px dead-zone `ObjectGroup` uses to start an object drag,
+ * so the two gestures agree on when a press has become a drag and a plain click
+ * still selects.
+ */
+const DRAG_START_PX = 3
 const DBL_RMB_MS = 350 // double right-click window (teleport)
 const DBL_RMB_PX = 6
 
@@ -93,7 +102,16 @@ export function FlyControls({ controlsRef }: { controlsRef: RefObject<CameraCont
   const transitioning = useRef(false)
   // free-look drag state (clientX/Y deltas — movementX is unreliable for synthetic events)
   const look = useRef<{ x: number; y: number } | null>(null)
-  const orbitHeld = useRef(false) // physical O — switches right-drag to orbit
+  /**
+   * A left press that has not yet decided whether it is a look or an object
+   * drag. It cannot be decided at pointerdown: `ObjectGroup` claims the pointer
+   * with `setPointerCapture` from inside R3F's own listener, and relying on that
+   * having run first would make this depend on listener registration order.
+   * By the first pointermove the capture is settled, so the question is asked
+   * then — see `onPointerMove`.
+   */
+  const pendingLook = useRef<{ x: number; y: number; pointerId: number } | null>(null)
+  const orbitHeld = useRef(false) // physical O — switches a look drag to orbit
   const lastRmb = useRef<{ t: number; x: number; y: number } | null>(null)
   const baseTruck = useRef<number | null>(null)
   const invalidate = useThree((s) => s.invalidate)
@@ -252,6 +270,12 @@ export function FlyControls({ controlsRef }: { controlsRef: RefObject<CameraCont
 
     const onPointerDown = (e: PointerEvent) => {
       syncShift(e)
+      if (e.button === 0) {
+        // Arm, do not commit. An object drag and a look both begin with a left
+        // press on the canvas; only the next move can tell them apart.
+        pendingLook.current = { x: e.clientX, y: e.clientY, pointerId: e.pointerId }
+        return
+      }
       if (e.button !== 2) return
       const now = performance.now()
       const prev = lastRmb.current
@@ -272,6 +296,24 @@ export function FlyControls({ controlsRef }: { controlsRef: RefObject<CameraCont
     const onPointerMove = (e: PointerEvent) => {
       syncShift(e) // a stuck Shift heals on the very next mouse move
       const c = controlsRef.current
+
+      // Resolve an armed left press on its first real movement.
+      const pending = pendingLook.current
+      if (pending) {
+        const moved = Math.hypot(e.clientX - pending.x, e.clientY - pending.y)
+        if (moved < DRAG_START_PX) return // still a click, not a drag
+        pendingLook.current = null
+        // `ObjectGroup.handlePointerDown` captures the pointer on this very
+        // element when it starts moving something, and a gizmo ring does the
+        // same. If the pointer is spoken for, the press belongs to the object
+        // and the camera must keep its hands off it. Asking the DOM means no
+        // shared flag to keep in sync and nothing to get stale.
+        if (el.hasPointerCapture(pending.pointerId)) return
+        look.current = { x: e.clientX, y: e.clientY }
+        el.setPointerCapture(pending.pointerId)
+        snapCancelTransition()
+      }
+
       if (!look.current || !c) return
       const dx = e.clientX - look.current.x
       const dy = e.clientY - look.current.y
@@ -297,7 +339,10 @@ export function FlyControls({ controlsRef }: { controlsRef: RefObject<CameraCont
       invalidate()
     }
     const onPointerEnd = (e: PointerEvent) => {
-      if (e.button === 2 || e.type === 'pointercancel') look.current = null
+      // A left press that never moved far enough to become a look is released
+      // here, which is what leaves a plain click free to select as it always did.
+      if (e.button === 0 || e.type === 'pointercancel') pendingLook.current = null
+      if (e.button === 0 || e.button === 2 || e.type === 'pointercancel') look.current = null
     }
     // Lumion wheel: move forwards/backwards along the VIEW direction (not a
     // dolly toward the orbit target), scaled by the Shift/Space modifiers.

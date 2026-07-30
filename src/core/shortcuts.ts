@@ -513,7 +513,21 @@ export const SHORTCUTS: readonly Shortcut[] = [
     chord: 'Shift+Space',
     labelKey: 'help.keys.flyVeryFast',
   },
-  { id: 'look', scope: '3d', group: 'nav', codes: [], chord: 'לחצן ימני + גרירה', labelKey: 'help.keys.look' },
+  /**
+   * Round 4 put looking on the LEFT button too, at the user's request — the
+   * left button had done nothing but select, and every consumer floor planner
+   * (Planner 5D, Home Designer, Chief Architect) turns the view with it. The
+   * right button keeps working, so nothing anyone had learned was taken away.
+   * A left drag that starts ON an object still moves the object.
+   */
+  {
+    id: 'look',
+    scope: '3d',
+    group: 'nav',
+    codes: [],
+    chord: 'גרירה — שמאלי או ימני',
+    labelKey: 'help.keys.look',
+  },
   {
     id: 'panView3d',
     scope: '3d',

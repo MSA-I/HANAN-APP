@@ -24,6 +24,7 @@ import {
 } from '../state/actions'
 import {
   designEditTable,
+  hasUserObjects,
   isEffectivelyLocked,
   isObjectVisible,
   objectAABB,
@@ -841,14 +842,34 @@ export function Stage2D() {
   )
 }
 
+/**
+ * The first thing a new operator sees, and until round 4 it was never seen at
+ * all: the condition was `objectOrder.length === 0`, which is never true on the
+ * resort pack because 25 baked fixtures are seeded into `objectOrder`. Asking
+ * `hasUserObjects` is the fix — rewriting the text alone would have left every
+ * line exactly as invisible while making the round look finished.
+ *
+ * Four lines in reading order, and they are a designed set rather than four
+ * ways of saying one thing: what you are looking at · the direct gesture, which
+ * now genuinely works · **the way in that needs no dragging at all** · where the
+ * rest of the answers live. The layouts line matters most for the person this
+ * round is for — someone seating 300 guests does not start by placing one chair.
+ */
 function EmptyCanvasHint() {
-  const isEmpty = useEditorStore((s) => s.scene.objectOrder.length === 0)
-  if (!isEmpty) return null
+  const empty = useEditorStore((s) => !hasUserObjects(s.scene))
+  const placing = useOverlayStore((s) => s.placing !== null)
+  // while an item is armed the placing chip already owns the top of the canvas,
+  // and the ghost is the instruction — two overlays would compete
+  if (!empty || placing) return null
+  const W = strings.workspace
   return (
     <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-      <p className="rounded-full border border-line bg-panel/85 px-4 py-2 text-[13px] text-ink-soft shadow-sm">
-        {strings.workspace.emptyCanvasHint}
-      </p>
+      <div className="max-w-xs rounded-xl border border-line bg-panel/85 px-5 py-4 text-center shadow-sm">
+        <p className="text-[15px] font-semibold text-ink">{W.emptyCanvasTitle}</p>
+        <p className="mt-2 text-[13px] text-ink-soft">{W.emptyCanvasHint}</p>
+        <p className="mt-1 text-[13px] text-ink-soft">{W.emptyCanvasLayouts}</p>
+        <p className="mt-3 text-[13px] text-ink-soft">{W.emptyCanvasHelp}</p>
+      </div>
     </div>
   )
 }
