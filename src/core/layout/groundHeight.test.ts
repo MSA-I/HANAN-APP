@@ -78,6 +78,21 @@ describe('groundHeightAt — the resort', () => {
     expect(zones.some((z) => isPointInZone(hallFloor, z))).toBe(false)
     expect(groundHeightAt(hallFloor, zones)).toBe(0)
   })
+
+  /**
+   * The edge that the 3D pick surfaces are built from: one mesh per level, sized to
+   * that level's rectangle. Just OUTSIDE the deck the answer has to fall straight
+   * back to 0 — a plane that over-reached its zone would let a click land 4.70 m
+   * above ground on paving, which is the same class of fault as the one being fixed
+   * only in the other direction.
+   */
+  it('drops back to the hall floor one centimetre outside the deck', () => {
+    const justOutside = { x: deck.x - 1, y: deck.y + deck.depth / 2 }
+    expect(isPointInZone(justOutside, deck)).toBe(false)
+    expect(groundHeightAt(justOutside, zones)).toBe(0)
+    // and the deck edge itself is still deck — the boundary is inclusive
+    expect(groundHeightAt({ x: deck.x, y: justOutside.y }, zones)).toBe(deck.elevation)
+  })
 })
 
 /**

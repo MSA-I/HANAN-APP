@@ -19,6 +19,8 @@ import { useEditorStore } from './store'
 import { getVenuePack } from '../core/venuePacks'
 import { getCatalogEntry } from '../core/catalog/registry'
 import { chuppahEntries } from '../core/catalog/entries/chuppah'
+import { checkPlacement } from '../core/layout/collision'
+import { isZoneInside } from '../core/layout/zoneOccupancy'
 
 const scene = () => useEditorStore.getState().scene
 /**
@@ -106,6 +108,52 @@ describe('the whitelist — what may stand on the deck', () => {
   it('pushes a bar unit off the deck — a fixed station belongs to its own zone', () => {
     const id = addObject('bar.resort-left', centre)
     expect(overlapsDeck(id)).toBe(false)
+  })
+
+  /**
+   * The half of the deck story that lived in the RAY, not in the rules.
+   *
+   * Placing on the deck in 3D did nothing at all: `Placement3D` built one pick
+   * plane at 0.005 m, so a click aimed at the +4.70 m deck was measured on the hall
+   * floor and landed metres past x = 6051 → `outOfBounds` → `commitPlacement3D`
+   * returned false, silently. Everything below already answered correctly, which is
+   * the tell — so what this pins is that the ANSWER was never the problem, and that
+   * it stays right now that a plane exists at the deck's own height to ask it from.
+   */
+  describe('what the ghost is told once the ray reaches the deck', () => {
+    const deckPad = pack.restricted!.find((z) => z.kind === 'chuppah' && isZoneInside(z, DECK))!
+    const padCentre = { x: deckPad.x + deckPad.width / 2, y: deckPad.y + deckPad.depth / 2 }
+    /** exactly the question `resolvePlacement` asks before it paints the ghost */
+    const judge = (catalogId: string, position: { x: number; y: number }) => {
+      const entry = getCatalogEntry(catalogId)
+      return checkPlacement(scene(), {
+        catalogId,
+        transform: { position, rotation: entry.defaultRotation ?? 0, elevation: 0 },
+        size: entry.defaultSize,
+      })
+    }
+
+    it('paints a guest table GREEN over the middle of the deck', () => {
+      expect(judge('table.round', centre)).toEqual([])
+      expect(insideDeck(addObject('table.round', centre))).toBe(true)
+    })
+
+    /**
+     * Left blocking on purpose: 24.3 m² of a 293 m² deck, and it is the ceremony
+     * pad the user drew himself. What changed is that the refusal is now VISIBLE —
+     * a red ghost carrying this violation — instead of a click that did nothing.
+     */
+    it('still refuses one that reaches the deck ceremony pad, and says which zone', () => {
+      expect(deckPad.elevation).toBeGreaterThan(DECK.elevation!)
+      expect(judge('table.round', padCentre)).toContainEqual({
+        kind: 'forbiddenZone',
+        zone: 'chuppah',
+      })
+    })
+
+    it('lets the canopy itself stand on that pad', () => {
+      expect(judge('chuppah.draped-white', padCentre)).toEqual([])
+    })
   })
 
   it('a chuppah dropped in the HALL still lands in the hall ceremony zone', () => {

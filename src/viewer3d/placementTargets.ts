@@ -9,6 +9,7 @@
  * `ObjectGroup` both read them from here.
  */
 import type { CatalogEntry } from '../core/catalog/types'
+import type { RestrictedZone } from '../core/venuePacks'
 
 /**
  * Does the armed entry go ON a table? Only these two are placed by asking a table
@@ -25,5 +26,62 @@ import type { CatalogEntry } from '../core/catalog/types'
  */
 export function attachesToTable(entry: Pick<CatalogEntry, 'placement'>): boolean {
   return entry.placement === 'surface' || entry.placement === 'seat'
+}
+
+/** One horizontal surface the placement ray may land on, in plan cm. */
+export interface PickLevel {
+  x: number
+  y: number
+  width: number
+  depth: number
+  /** cm above the hall floor */
+  elevationCm: number
+}
+
+/**
+ * Every declared level a floor-standing piece could be dropped onto: the hall
+ * itself, then one rectangle per raised zone.
+ *
+ * This is `groundHeightAt`'s "the highest declared level wins" rule
+ * (core/layout/groundHeight.ts) restated as GEOMETRY. The picking layer used to
+ * build a single plane at 0.005 m, so a click aimed at the +4.70 m reception deck
+ * was measured on the hall floor and landed metres past x = 6051 — out of bounds,
+ * `commitPlacement3D` returned false, and the click did nothing at all with no
+ * indication why. Everything else about deck placement was already right
+ * (`allowedOnDeck`, the `check()` branch, `clampToVenue`, `ghostElevation`), which
+ * is the tell that the fault was in the ray and not in the rules.
+ *
+ * The rectangles NEST rather than tile — the deck's canopy pad lies wholly inside
+ * the deck — and that is what makes one mesh per level correct without any
+ * arbitration: R3F reports intersections near to far, so from any camera above
+ * them the highest surface over a point is hit first. Sorting descending here is
+ * belt and braces for a camera looking up from underneath.
+ *
+ * ⚠ Deliberately NOT filtered by which zone is legal for the armed entry. Deciding
+ * legality in the picking layer would re-derive `checkPlacement` in a second place
+ * and let the two drift; the ray answers "where is the pointer", the rules answer
+ * "may it go there", and a refusal is then a red ghost with a violation pill
+ * instead of a dead click.
+ *
+ * ⚠ `activeZone` is not consulted either. `state/store.ts:17-25` declares it a view
+ * preference outside the undoable region and AGENT-BRIEF §8.3 states it is never
+ * read for placement legality. Reading it here would make the same click legal or
+ * illegal depending on where a toolbar toggle happens to be pointing.
+ */
+export function pickLevelsCm(
+  pack: { restricted?: RestrictedZone[] } | undefined,
+  venue: { width: number; depth: number },
+): PickLevel[] {
+  const hall = { x: 0, y: 0, width: venue.width, depth: venue.depth, elevationCm: 0 }
+  const raised = (pack?.restricted ?? [])
+    .filter((zone) => (zone.elevation ?? 0) > 0)
+    .map((zone) => ({
+      x: zone.x,
+      y: zone.y,
+      width: zone.width,
+      depth: zone.depth,
+      elevationCm: zone.elevation as number,
+    }))
+  return [...raised, hall].sort((a, b) => b.elevationCm - a.elevationCm)
 }
 
