@@ -137,8 +137,15 @@ describe('what the handlers actually bind', () => {
     expect(byId('selectAll')?.scope).toBe('both')
   })
 
-  it('keeps the clipboard out of 3D — that branch handles only Z/Y/D/A under Ctrl', () => {
-    expect(byId('clipboard')?.scope).toBe('2d')
+  /**
+   * This assertion used to read `'2d'`, on the stated grounds that the 3D branch
+   * handled only Z/Y/D/A under Ctrl. Round 4 gave 3D a `⋯` actions menu offering
+   * copy and cut, so the branch gained C/X/V and that reasoning expired — and
+   * this test failing is precisely how the change was caught rather than
+   * silently leaving the help sheet describing the old scope.
+   */
+  it('reaches the clipboard from 3D too, now that the ⋯ menu offers copy and cut', () => {
+    expect(byId('clipboard')?.scope).toBe('both')
   })
 
   it('keeps the arrows 2D-only — FlyControls owns them in 3D (FlyControls.tsx:49-63)', () => {

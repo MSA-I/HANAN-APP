@@ -18,50 +18,52 @@
  * percent is fed back in — which is what `prevRef` below is for. Drop that and
  * the monotonic guarantee silently disappears while every test still passes.
  *
- * EXPORTED BUT NOT WIRED. `app/App.tsx` owns the `Suspense` boundary and belongs
- * to another plan this wave; see `handoff/D3-viewer3d.md` for the two-line
- * wiring. Note that `VenueMesh.tsx:98` already suspends to a procedural room, so
- * once the Canvas itself mounts the user is looking at a room, not at white —
- * this card covers the window BEFORE that.
+ * ⚠ THIS MODULE MUST NOT IMPORT drei, three OR R3F, and that is load-bearing.
+ * `app/App.tsx` renders it as the `Suspense` fallback, and `App.tsx` lives in the
+ * MAIN bundle. A static import of `@react-three/drei` here would hoist drei into
+ * that bundle, so the 1,157 kB chunk this card exists to apologise for would be
+ * downloaded eagerly on every visit — the card would cause the wait it reports.
+ * An earlier draft exported a `useLoadProgress` built on drei's `useProgress`;
+ * it is gone for this reason, and it had no honest call site anyway:
+ *
+ * `useProgress` can only see phase B, and phase B is already covered. Once the
+ * Canvas mounts, `VenueMesh.tsx:98` suspends to a PROCEDURAL ROOM, so the user is
+ * looking at a room rather than at a card while the real GLB streams in. This
+ * card covers only the window BEFORE the Canvas exists — which is exactly the
+ * window in which no three.js loader has been constructed yet and there is
+ * therefore nothing to measure. `loadPhase` is honest about that: with
+ * `moduleReady: false` it holds the bar rather than inventing motion.
  */
 import { useEffect, useRef, useState } from 'react'
-import { useProgress } from '@react-three/drei'
 import { loadPhase, type LoadPhaseResult } from '../core/loadPhase'
 import { strings } from '../ui/strings'
 
 /**
- * Drives `loadPhase` from drei's loader manager.
- *
- * ⚠ MUST BE RENDERED INSIDE THE CANVAS. `useProgress` subscribes to
- * `THREE.DefaultLoadingManager`, which is a module singleton, so it technically
- * reads from anywhere — but a component outside the Canvas re-renders on every
- * loader event without R3F's batching, and the point of a hook is that the
- * caller does not have to know that. `Loading3D` itself takes the result as a
- * prop and stays a pure DOM component.
+ * The module-download phase, driven by a clock because there is nothing else to
+ * drive it: a `React.lazy` chunk is an opaque download with no progress events.
+ * The bar therefore does not move — it is the heading and the "this is taking a
+ * while" line that carry the information, and a bar that invented motion would
+ * be lying about a number nobody reported.
  */
-export function useLoadProgress(moduleReady: boolean): LoadPhaseResult {
-  const { active, progress, total } = useProgress()
+export function useModuleLoadPhase(): LoadPhaseResult {
   const startedRef = useRef(performance.now())
-  const prevRef = useRef(0)
   const [, force] = useState(0)
 
-  // `slow` flips on a clock, not on an event — without a timer the card would
-  // sit at "loading" forever and only apologise if some loader happened to fire
+  // `slow` flips on a clock, not on an event — without this the card would sit
+  // at "loading" forever and never apologise
   useEffect(() => {
     const timer = window.setTimeout(() => force((n) => n + 1), 6000)
     return () => window.clearTimeout(timer)
   }, [])
 
-  const result = loadPhase({
-    moduleReady,
-    active,
-    progress,
-    total,
+  return loadPhase({
+    moduleReady: false,
+    active: true,
+    progress: 0,
+    total: 0,
     elapsedMs: performance.now() - startedRef.current,
-    prevPercent: prevRef.current,
+    prevPercent: 0,
   })
-  prevRef.current = result.percent
-  return result
 }
 
 /**
@@ -72,26 +74,38 @@ export function useLoadProgress(moduleReady: boolean): LoadPhaseResult {
  */
 export function Loading3D({ phase, percent, slow }: LoadPhaseResult) {
   const W = strings.workspace
+  // A chunk download reports nothing, so there is no number to show. A bar
+  // pinned at 0% reads as BROKEN — worse than no bar — and "0%" is a claim the
+  // loader never made. Determinate only when something actually measured it.
+  const determinate = phase === 'assets'
   return (
     <div className="flex h-full w-full items-center justify-center bg-canvas p-6">
       <div className="max-w-sm rounded-xl border border-line bg-panel p-6 text-center shadow-sm">
-        <h2 className="mb-3 text-[15px] font-semibold text-ink">
-          {phase === 'module' ? W.loading3dModule : W.loading3dAssets}
+        <h2 className={`text-[15px] font-semibold text-ink ${determinate ? 'mb-3' : ''}`}>
+          <span className={determinate ? undefined : 'animate-pulse'}>
+            {determinate ? W.loading3dAssets : W.loading3dModule}
+          </span>
         </h2>
-        <div
-          className="h-1.5 w-full overflow-hidden rounded-full bg-line"
-          role="progressbar"
-          aria-valuenow={Math.round(percent)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-        >
-          <div
-            className="h-full rounded-full bg-accent transition-[width] duration-300 ease-out"
-            style={{ width: `${percent}%` }}
-          />
-        </div>
-        <p className="ltr-nums mt-2 text-[13px] text-ink-soft">{W.loading3dPercent(Math.round(percent))}</p>
-        {slow && <p className="mt-1 text-[13px] text-ink-soft">{W.loading3dSlow}</p>}
+        {determinate && (
+          <>
+            <div
+              className="h-1.5 w-full overflow-hidden rounded-full bg-line"
+              role="progressbar"
+              aria-valuenow={Math.round(percent)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
+              <div
+                className="h-full rounded-full bg-accent transition-[width] duration-300 ease-out"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+            <p className="ltr-nums mt-2 text-[13px] text-ink-soft">
+              {W.loading3dPercent(Math.round(percent))}
+            </p>
+          </>
+        )}
+        {slow && <p className="mt-2 text-[13px] text-ink-soft">{W.loading3dSlow}</p>}
       </div>
     </div>
   )

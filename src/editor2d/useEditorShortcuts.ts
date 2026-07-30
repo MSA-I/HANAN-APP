@@ -86,6 +86,19 @@ export function useEditorShortcuts(zoom: ZoomApi): void {
           } else if (e.code === 'KeyA') {
             select(visibleTopLevelIds(s3.scene))
             e.preventDefault()
+          } else if (e.code === 'KeyC') {
+            // Round 4: the 3D `⋯` menu offers copy and cut, so the keys have to
+            // agree with it — an action a menu offers and a key refuses is worse
+            // than neither. This is why `clipboard` is scoped `'both'` in
+            // `core/shortcuts.ts` rather than `'2d'`.
+            copySelection()
+            e.preventDefault()
+          } else if (e.code === 'KeyX') {
+            cutSelection()
+            e.preventDefault()
+          } else if (e.code === 'KeyV') {
+            pasteClipboard()
+            e.preventDefault()
           }
           return
         }

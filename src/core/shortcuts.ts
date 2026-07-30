@@ -150,6 +150,22 @@ export const SHORTCUTS: readonly Shortcut[] = [
     chord: 'גרירה מהספרייה',
     labelKey: 'help.keys.dragFromLibrary',
   },
+  /**
+   * Bound inside `viewer3d/SelectionBar3D.tsx` rather than in the keydown switch,
+   * because the handler needs the button's ref to position the menu. The
+   * dedicated `ContextMenu` key is wired there too but is deliberately NOT
+   * catalogued — it is a synonym for this row, not a second gesture, and it has
+   * no `CODE_TOKENS` entry so it would print as the raw code.
+   */
+  {
+    id: 'contextMenu3d',
+    scope: '3d',
+    group: 'edit',
+    codes: ['F10'],
+    shift: true,
+    chord: 'Shift+F10',
+    labelKey: 'help.keys.contextMenu3d',
+  },
   {
     id: 'undoRedo',
     scope: 'both',
@@ -179,10 +195,15 @@ export const SHORTCUTS: readonly Shortcut[] = [
     chord: 'Ctrl+D',
     labelKey: 'help.keys.duplicate',
   },
-  /** the 3D branch handles only Z/Y/D/A under Ctrl, so the clipboard is 2D-only */
+  /**
+   * Was 2D-only, because the 3D branch handled just Z/Y/D/A under Ctrl. Round 4
+   * gave 3D a `⋯` menu that offers copy and cut, and a menu entry whose keyboard
+   * equivalent silently does nothing is worse than having neither — so the 3D
+   * branch gained C/X/V and this became `'both'`.
+   */
   {
     id: 'clipboard',
-    scope: '2d',
+    scope: 'both',
     group: 'edit',
     codes: ['KeyC', 'KeyX', 'KeyV'],
     ctrl: true,
