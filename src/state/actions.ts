@@ -1284,11 +1284,33 @@ function layTableDesign(scene: SceneState, design: TableDesign, tableId: Id): Id
   for (const child of designItems(scene, tableId)) delete scene.objects[child.id]
   if (design.seatItem) for (const stale of seatItems(scene, tableId)) delete scene.objects[stale.id]
 
+  // The table's own opening, read once. A design is exempt from the CENTRE rule
+  // (§28) — that is what the `meta.design` tag buys it, and without the exemption
+  // every arrangement would stack into one point. It is NOT exempt from the two
+  // STOREYS (§48): a piece is either on the top or through the well, and which one
+  // is a fact about where it LANDS.
+  //
+  // Until now `lay` wrote a bare `{ kind: 'surface' }`, so every design piece was
+  // filed as "on the top" and `clampToSurface`'s ring clamp shoved it out to
+  // `min(hole + reach, maxR)`. A piece at exactly (0, 0) has no radial direction,
+  // so it took the arbitrary +x and landed straight on its own +x flanker —
+  // measured for design.classic-gold on the ⌀380: centrepiece 0 → 96.4, flanker
+  // 38 → 84.25, i.e. 12.5 cm of overlap, on every design, because the cause is the
+  // clamp and not the arrangement.
+  //
+  // Decided from the point, exactly as a hand drop decides it (`pointInHole` in
+  // layout/bounds.ts, in parent-local coordinates where the ring is centred on the
+  // origin). Same rule, so the two paths cannot diverge.
+  const pOutline = entry.footprint(table.size).outline
+  const hole = holeRadius(pOutline)
   const ids: Id[] = []
   const lay = (catalogId: string, t: Transform2D) => {
     const obj = createObject(catalogId, { x: 0, y: 0 })
     obj.parentId = tableId
-    obj.attachment = { kind: 'surface' }
+    obj.attachment =
+      hole > 0 && Math.hypot(t.position.x, t.position.y) < hole
+        ? { kind: 'surface', inHole: true }
+        : { kind: 'surface' }
     obj.transform = { ...t, elevation: table.size.height }
     obj.meta.design = design.id
     scene.objects[obj.id] = obj

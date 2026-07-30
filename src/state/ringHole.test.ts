@@ -16,9 +16,18 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { getCatalogEntry } from '../core/catalog/registry'
 import { holeRadius } from '../core/layout/bounds'
 import { checkPlacement } from '../core/layout/collision'
+import { TABLE_DESIGNS } from '../core/presets'
 import { useOverlayStore } from '../editor2d/overlayStore'
 import { strings } from '../ui/strings'
-import { addObject, addObjectToSurface, newProject, redo, setPosition, undo } from './actions'
+import {
+  addObject,
+  addObjectToSurface,
+  applyTableDesign,
+  newProject,
+  redo,
+  setPosition,
+  undo,
+} from './actions'
 import { useEditorStore } from './store'
 
 const scene = () => useEditorStore.getState().scene
@@ -368,6 +377,30 @@ describe('a design-laid item is exempt, and then the hole rules apply', () => {
       expect(scene().objects[child].transform.elevation).toBe(0)
       expect(radius(child)).toBeLessThanOrEqual(maxR + 0.01)
     }
+  })
+
+  /**
+   * Round 4 §12 — the exemption is from §28 (the centre rule), NOT from §48 (the
+   * two storeys). A design piece authored at the origin belongs IN the well, and
+   * until `layTableDesign` said so it was filed as standing on the top and shoved
+   * out to `hole + reach` — with no radial direction at the origin it took the
+   * arbitrary +x and landed on the design's own +x flanker.
+   *
+   * Driven through the real action, because the bug was in what the action WROTE
+   * and a hand-built child would simply not have it.
+   */
+  it('lays a design centrepiece IN the well, not out on the band', () => {
+    const table = addObject(RING, { x: 600, y: 600 })
+    const design = TABLE_DESIGNS[0]
+    expect(applyTableDesign(design.id, table).length).toBeGreaterThan(0)
+
+    const centrepiece = Object.values(scene().objects).find(
+      (o) => o.parentId === table && o.catalogId === design.items[0].catalogId,
+    )!
+    expect(centrepiece.meta.design).toBe(design.id)
+    expect(centrepiece.attachment).toEqual({ kind: 'surface', inHole: true })
+    expect(centrepiece.transform.elevation).toBe(0)
+    expect(radius(centrepiece.id)).toBe(0)
   })
 
   it('clamps only at the outer edge on a solid table', () => {
