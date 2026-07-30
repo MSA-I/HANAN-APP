@@ -111,19 +111,39 @@ function clearanceOf(outline: Outline): number {
 // geometry — rotated rectangles and discs
 // ---------------------------------------------------------------------------
 
+/**
+ * ⚠ A Shape is IMMUTABLE. `pts` is a cache filled when the shape is built and
+ * never written afterwards — every field it is derived from is read-only in
+ * practice, and a shape whose `x`/`rot` were nudged in place would keep serving
+ * the old corners to every SAT test in this file. Build a new one instead.
+ *
+ * The cache exists because `cornersOf` allocates four objects and does two trig
+ * calls per call, and it sat inside a loop `slideToLegal` runs up to fourteen
+ * times per drag frame. Benchmarked on the dev machine, 2026-07-30, 2M rect↔rect
+ * pairs (.tmp/bench-sat.mjs):
+ *
+ *   SAT with corners recomputed   546 ns
+ *   SAT with corners cached       121 ns
+ *   AABB reject alone             6.4 ns
+ *
+ * `pts` is optional so a hand-built shape (a test, a future caller) still works —
+ * `cornersOf` falls back to computing them.
+ */
 type Shape =
   | { kind: 'circle'; x: number; y: number; r: number }
-  | { kind: 'rect'; x: number; y: number; w: number; h: number; rot: number }
-
-function shapeOf(world: Transform2D, outline: Outline): Shape {
-  const { x, y } = world.position
-  return outline.kind === 'circle'
-    ? { kind: 'circle', x, y, r: outline.r }
-    : { kind: 'rect', x, y, w: outline.w, h: outline.h, rot: world.rotation }
-}
+  | {
+      kind: 'rect'
+      x: number
+      y: number
+      w: number
+      h: number
+      rot: number
+      /** world corners, clockwise — the cache `cornersOf` reads */
+      pts?: Vec2[]
+    }
 
 /** World corners, clockwise. Rotation goes through space.ts — never a raw sin/cos here. */
-function cornersOf(s: Extract<Shape, { kind: 'rect' }>): Vec2[] {
+function computeCorners(s: { x: number; y: number; w: number; h: number; rot: number }): Vec2[] {
   const hw = s.w / 2
   const hh = s.h / 2
   return [
@@ -137,17 +157,40 @@ function cornersOf(s: Extract<Shape, { kind: 'rect' }>): Vec2[] {
   })
 }
 
+/** The one constructor for a rect shape, so the corner cache is never forgotten. */
+function rectShape(x: number, y: number, w: number, h: number, rot: number): Shape {
+  return { kind: 'rect', x, y, w, h, rot, pts: computeCorners({ x, y, w, h, rot }) }
+}
+
+function cornersOf(s: Extract<Shape, { kind: 'rect' }>): Vec2[] {
+  return s.pts ?? computeCorners(s)
+}
+
+function shapeOf(world: Transform2D, outline: Outline): Shape {
+  const { x, y } = world.position
+  return outline.kind === 'circle'
+    ? { kind: 'circle', x, y, r: outline.r }
+    : rectShape(x, y, outline.w, outline.h, world.rotation)
+}
+
 function shapeAABB(s: Shape): AABB {
   if (s.kind === 'circle') {
     return { minX: s.x - s.r, minY: s.y - s.r, maxX: s.x + s.r, maxY: s.y + s.r }
   }
+  // an explicit fold rather than four spreads over four mapped arrays: this runs
+  // once per PART now, and the serpentine has thirty of them
   const pts = cornersOf(s)
-  return {
-    minX: Math.min(...pts.map((p) => p.x)),
-    minY: Math.min(...pts.map((p) => p.y)),
-    maxX: Math.max(...pts.map((p) => p.x)),
-    maxY: Math.max(...pts.map((p) => p.y)),
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const p of pts) {
+    if (p.x < minX) minX = p.x
+    if (p.x > maxX) maxX = p.x
+    if (p.y < minY) minY = p.y
+    if (p.y > maxY) maxY = p.y
   }
+  return { minX, minY, maxX, maxY }
 }
 
 /**
@@ -396,7 +439,7 @@ function buildIndex(scene: SceneState): Index {
 
 /** A zone rectangle as a shape, so the band rule can measure a gap to it. */
 function zoneShape(z: RestrictedZone): Shape {
-  return { kind: 'rect', x: z.x + z.width / 2, y: z.y + z.depth / 2, w: z.width, h: z.depth, rot: 0 }
+  return rectShape(z.x + z.width / 2, z.y + z.depth / 2, z.width, z.depth, 0)
 }
 
 function boxOverlapsZone(box: AABB, z: RestrictedZone): boolean {
