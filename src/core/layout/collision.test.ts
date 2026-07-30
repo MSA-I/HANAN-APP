@@ -21,6 +21,7 @@ import type { SceneState, Vec2 } from '../model/types'
 import { composeTransform } from '../space'
 import { beamGrid, snapToBeam } from './beams'
 import { holeRadius } from './bounds'
+import { serpentineBandDepth } from './serpentine'
 import {
   addObject,
   addObjectToSurface,
@@ -401,6 +402,100 @@ describe('slideToLegal', () => {
 
   it('gives up only when the starting point is illegal too', () => {
     expect(slideToLegal(scene(), ghost('table.round', { x: 10, y: 10 }), { x: -500, y: -500 })).toBeNull()
+  })
+})
+
+/**
+ * Round 4 §15b — the serpentine is judged by its BAND, not by the box around it.
+ *
+ * Its `outline` is a 422.00 × 426.41 cm rect (17.99 m²) around a band of 4.644 m²,
+ * and the box's own centre is 63.13 cm outside the drape. `TABLE_CLEARANCE.rect`
+ * is 170 and correct — it is a real aisle between table EDGES — but measured off
+ * that box it refused a ⌀180 round table up to about three metres from the cloth.
+ * The outline stays for its nine other consumers; collision alone reads the
+ * sectors, tiled by `serpentineBandTiles`.
+ *
+ * Every row states the gap to the REAL band, computed from `serpentineBandDepth`
+ * rather than written down, so a re-fit of the arcs moves the expectation with it.
+ */
+describe('the serpentine is judged by its band (§15b)', () => {
+  const ORIGIN = { x: 1600, y: 1500 }
+  const ROUND = getCatalogEntry('table.round').defaultSize.width / 2
+
+  /** Edge-to-edge gap between the ⌀180 at this offset and the real band. */
+  const gapToBand = (dx: number, dy: number) => -serpentineBandDepth({ x: dx, y: dy }) - ROUND
+
+  const roundAt = (dx: number, dy: number) =>
+    ghost('table.round', { x: ORIGIN.x + dx, y: ORIGIN.y + dy })
+
+  const place = () => addObject('table.serpentine', ORIGIN)
+
+  // Measured 2026-07-30. Before the tiling every one of these was `collision`,
+  // including the first two, which are a clear two metres from the drape.
+  it.each([
+    [210, -212, 212.1, []],
+    [177, -177, 170.4, []],
+    [150, -150, 137.6, ['spacing']],
+    [106, -106, 86.6, ['spacing']],
+    [0, 0, -1, ['collision']],
+  ] as const)('a ⌀180 at (%s, %s), %s cm from the band', (dx, dy, gap, expected) => {
+    place()
+    if (gap > 0) expect(gapToBand(dx, dy)).toBeCloseTo(gap, 0)
+    else expect(serpentineBandDepth({ x: dx, y: dy })).toBeLessThan(ROUND)
+    expect(kinds(checkPlacement(scene(), roundAt(dx, dy)))).toEqual(expected)
+  })
+
+  it('names the real aisle when it does refuse on spacing', () => {
+    place()
+    const v = checkPlacement(scene(), roundAt(106, -106))
+    expect(v[0]).toMatchObject({ kind: 'spacing', required: TABLE_CLEARANCE.rect })
+    // and the distance it reports is the distance to the BAND, not to the box —
+    // within the tiling's own ≤5.3 cm outward over-claim
+    if (v[0].kind !== 'spacing') throw new Error('expected a spacing violation')
+    expect(Math.abs(v[0].actual - gapToBand(106, -106))).toBeLessThan(5.5)
+  })
+
+  /**
+   * The clearest single number in the whole change. Due east of the origin the
+   * band's own edge is far short of the box's, so the box put the first legal
+   * ⌀180 centre at 211 + 90 + 170 = 471 cm. It is now 422.5 — 48.5 cm of floor
+   * given back on one axis, and the aisle is still a full 170 cm of it.
+   */
+  it('moves the first legal centre due east from 471 to 422.5', () => {
+    place()
+    const outline = getCatalogEntry('table.serpentine').footprint(
+      getCatalogEntry('table.serpentine').defaultSize,
+    ).outline
+    if (outline.kind !== 'rect') throw new Error('the serpentine declares a rect outline')
+    const byTheBox = outline.w / 2 + ROUND + TABLE_CLEARANCE.rect
+    expect(byTheBox).toBeCloseTo(471, 0)
+
+    let first = Infinity
+    for (let x = 300; x < byTheBox + 1; x += 0.5) {
+      if (!checkPlacement(scene(), roundAt(x, 0)).length) {
+        first = x
+        break
+      }
+    }
+    expect(first).toBeCloseTo(422.5, 1)
+    expect(byTheBox - first).toBeGreaterThan(40)
+    // it is still a real 170 cm aisle, measured to the drape
+    expect(gapToBand(first, 0)).toBeGreaterThanOrEqual(TABLE_CLEARANCE.rect)
+  })
+
+  /** The chairs are still part of the footprint, and they are not tiled away. */
+  it('keeps its 22 chairs in the obstacle set', () => {
+    const id = place()
+    const chairs = Object.values(scene().objects).filter(
+      (o) => o.parentId === id && o.attachment?.kind === 'seat',
+    )
+    expect(chairs.length).toBe(22)
+    for (const chair of chairs) {
+      // a chair's stored transform is PARENT-LOCAL; the obstacle set holds it composed
+      const world = composeTransform(scene().objects[id].transform, chair.transform)
+      expect(kinds(checkPlacement(scene(), ghost('table.round', world.position))))
+        .toContain('collision')
+    }
   })
 })
 
@@ -845,6 +940,41 @@ describe('performance — this runs on every drag frame', () => {
     // it did get stopped rather than sailing through
     expect(scene().objects[mover].transform.position.x).toBeLessThan(1200 - 180)
     expect(perFrame).toBeLessThan(8) // measured 3.8ms — ~11% of a 33ms frame
+  })
+
+  /**
+   * The worst case round 4 §15b creates: the serpentine now carries THIRTY
+   * collision shapes instead of one, dragged through a hall full of tables so the
+   * bisection runs on most frames.
+   *
+   * Three changes landed in order to make that affordable, and this is what says
+   * they did. Benchmarked on the dev machine (.tmp/bench-sat.mjs, 2M pairs): a
+   * rect↔rect SAT costs 546 ns with its corners recomputed, 121 ns with them
+   * cached and 6.4 ns to reject by boxes. Naive tiling would have multiplied the
+   * 546 by thirty; caching the corners and rejecting each PAIR by its own box
+   * pays for the tiles many times over.
+   */
+  it('drags a 30-tile serpentine through a full hall inside the frame budget', () => {
+    newProject({ name: 'serp', venueWidth: 6000, venueDepth: 4000 })
+    for (let i = 0; i < 24; i++) {
+      addObject('table.round', { x: 1800 + (i % 6) * 700, y: 500 + Math.floor(i / 6) * 700 })
+    }
+    const mover = addObject('table.serpentine', { x: 400, y: 1400 })
+    expect(
+      checkPlacement(scene(), { ...ghost('table.serpentine', { x: 400, y: 1400 }), excludeId: mover }),
+    ).toEqual([])
+
+    moveObjectsBy([mover], { x: 1, y: 0 }) // warm
+    const started = performance.now()
+    for (let i = 0; i < 40; i++) moveObjectsBy([mover], { x: 15, y: 0 })
+    const perFrame = (performance.now() - started) / 40
+    // it really was stopped by the tables rather than sailing past them
+    expect(scene().objects[mover].transform.position.x).toBeLessThan(1800)
+    // measured 2.4-2.6 ms on the dev machine, against 3.8 for the plain round
+    // table above. The bound is loose on purpose: a 40-frame sample on a busy
+    // Windows box swings by a factor of two, and a flaky perf test is worse than
+    // none. What is measured precisely is in .tmp/bench-sat.mjs.
+    expect(perFrame).toBeLessThan(12)
   })
 })
 

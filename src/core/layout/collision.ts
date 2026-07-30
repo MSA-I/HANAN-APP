@@ -20,11 +20,12 @@
  * A project saved before these rules existed must load exactly as it was.
  */
 import { getCatalogEntry } from '../catalog/registry'
-import type { CatalogEntry, Outline } from '../catalog/types'
+import type { CatalogEntry, FootprintPart, Outline } from '../catalog/types'
 import type { Id, SceneObject, SceneState, Size3D, Transform2D, Vec2 } from '../model/types'
 import { composeTransform, relativeTransform, rotateVec } from '../space'
 import { getVenuePack, type RestrictedZone } from '../venuePacks'
 import { aabbIntersects, holeRadius, pointInHole, type AABB } from './bounds'
+import { arcBandTiles } from './serpentine'
 
 /** Why a placement is refused — one per reason, in no particular order. */
 export type Violation =
@@ -173,6 +174,45 @@ function shapeOf(world: Transform2D, outline: Outline): Shape {
     : rectShape(x, y, outline.w, outline.h, world.rotation)
 }
 
+/** Carry an object-LOCAL shape into world space. Rotation through space.ts. */
+function placeShape(world: Transform2D, s: Shape): Shape {
+  const p = rotateVec({ x: s.x, y: s.y }, world.rotation)
+  const x = world.position.x + p.x
+  const y = world.position.y + p.y
+  return s.kind === 'circle'
+    ? { kind: 'circle', x, y, r: s.r }
+    : rectShape(x, y, s.w, s.h, s.rot + world.rotation)
+}
+
+/**
+ * The shapes COLLISION tests an object by, object-local — or `null` when the
+ * object's own `outline` is the honest answer, which is every entry but one.
+ *
+ * `table.serpentine`'s outline is a 422.00 × 426.41 rect around a band whose true
+ * area is 4.644 m², 25.8% of it, and whose own centre is 63.13 cm outside the
+ * drape. That is fine for snapping and for the venue clamp — a few spare cm cost
+ * nothing there — and wrong for a rule about the aisle between two tables: measured
+ * off that box, `TABLE_CLEARANCE.rect = 170` refused a ⌀180 round table up to about
+ * three metres from the drape. Its footprint's own `parts` already ARE the band, so
+ * they are what collision reads.
+ *
+ * ⚠ THE GATE IS "DOES THE FOOTPRINT CONTAIN AN ARC", NOT "MORE THAN ONE PART".
+ * `table.knights-480` draws two rects whose union IS its outline, so tiling it
+ * would change nothing and cost a test; and `table.round-large` draws ONE circle
+ * carrying `rInner`, so reading that part would make the ⌀380's open centre
+ * non-colliding — a rule change nobody asked for, on the table most likely to have
+ * something standing in that centre. An `arc` part cannot be expressed as an
+ * `Outline` at all, which is exactly why it is the right marker.
+ *
+ * No new catalog field: an entry that draws its true shape has already said what
+ * that shape is.
+ */
+function collisionShapesOf(parts: FootprintPart[]): Shape[] | null {
+  const arcs = parts.filter((p) => p.kind === 'arc')
+  if (!arcs.length) return null
+  return arcBandTiles(arcs).map((t) => rectShape(t.cx, t.cy, t.w, t.h, t.rot))
+}
+
 function shapeAABB(s: Shape): AABB {
   if (s.kind === 'circle') {
     return { minX: s.x - s.r, minY: s.y - s.r, maxX: s.x + s.r, maxY: s.y + s.r }
@@ -312,6 +352,38 @@ function partsOverlap(a: Shape[], aBoxes: AABB[], b: Shape[], bBoxes: AABB[]): b
   return false
 }
 
+/**
+ * Lower bound on the gap between two shapes, from their boxes alone. A box
+ * contains its shape, so the true gap is never SMALLER than this — which is what
+ * makes it safe to skip a pair whose box gap already beats the best found.
+ */
+function boxGap(a: AABB, b: AABB): number {
+  const dx = Math.max(0, a.minX - b.maxX, b.minX - a.maxX)
+  const dy = Math.max(0, a.minY - b.maxY, b.minY - a.maxY)
+  return Math.hypot(dx, dy)
+}
+
+/**
+ * The narrowest aisle between two objects: a minimum over every pair of their own
+ * shapes, chairs excluded.
+ *
+ * One shape each for every entry but the serpentine, where it is 30 × 1 — hence
+ * the box prefilter, which is exact (a box gap is a lower bound, so a pair it
+ * skips could not have won) and turns 30 `shapeGap` calls into two or three.
+ */
+function selfGap(a: Shape[], aBoxes: AABB[], b: Shape[], bBoxes: AABB[]): number {
+  let best = Infinity
+  for (let i = 0; i < a.length; i++) {
+    for (let j = 0; j < b.length; j++) {
+      if (boxGap(aBoxes[i], bBoxes[j]) >= best) continue
+      const gap = shapeGap(a[i], b[j])
+      if (gap < best) best = gap
+      if (best === 0) return 0
+    }
+  }
+  return best
+}
+
 function shapesOverlap(a: Shape, b: Shape): boolean {
   if (a.kind === 'circle' && b.kind === 'circle') {
     return Math.hypot(a.x - b.x, a.y - b.y) < a.r + b.r
@@ -330,9 +402,17 @@ interface Occupant {
   id: Id
   /** subtree box (table + its chairs) — the cheap prefilter */
   box: AABB
-  /** the object's OWN outline: what the clearance rule measures between */
-  self: Shape
-  /** own outline + every attached chair: what overlap is tested against */
+  /**
+   * The object ITSELF, chairs excluded: what the clearance rule measures between.
+   * A LIST since round 4 §15b — one shape for every entry but the serpentine,
+   * whose thirty band tiles are what the aisle is measured from rather than the
+   * bounding box the outline reports.
+   */
+  self: Shape[]
+  /** `self[i]`'s box — the pair reject for the clearance rule, as `partBoxes` is
+   *  for the overlap one */
+  selfBoxes: AABB[]
+  /** own shapes + every attached chair: what overlap is tested against */
   parts: Shape[]
   /**
    * `parts[i]`'s own box, built here because it is a property of the scene and the
@@ -425,9 +505,14 @@ function buildIndex(scene: SceneState): Index {
     if (entry.placement === 'ceiling') continue
     if (isHidden(scene, obj)) continue
 
-    const outline = outlineOf(obj) // footprint() allocates — once per object, not twice
-    const self = shapeOf(obj.transform, outline)
-    const parts: Shape[] = [self]
+    const footprint = entry.footprint(obj.size) // allocates — once per object, not twice
+    const outline = footprint.outline
+    // the object's true shape where it draws one, its outline otherwise
+    const local = collisionShapesOf(footprint.parts)
+    const self: Shape[] = local
+      ? local.map((s) => placeShape(obj.transform, s))
+      : [shapeOf(obj.transform, outline)]
+    const parts: Shape[] = [...self]
     for (const child of childrenByParent.get(id) ?? []) {
       if (child.attachment?.kind !== 'seat') continue // table-top decor is not a footprint
       parts.push(shapeOf(composeTransform(obj.transform, child.transform), outlineOf(child)))
@@ -437,6 +522,8 @@ function buildIndex(scene: SceneState): Index {
       id,
       box: unionBox(partBoxes),
       self,
+      // the self shapes are a PREFIX of parts, so their boxes are already built
+      selfBoxes: partBoxes.slice(0, self.length),
       parts,
       partBoxes,
       isTable: entry.category === 'tables',
@@ -527,8 +614,8 @@ function shapeReach(s: Shape): number {
   return s.kind === 'circle' ? s.r : Math.hypot(s.w, s.h) / 2
 }
 
-function candidateParts(index: Index, candidate: PlacementCandidate, self: Shape): Shape[] {
-  const parts = [self]
+function candidateParts(index: Index, candidate: PlacementCandidate, self: Shape[]): Shape[] {
+  const parts = [...self]
   const owned =
     candidate.subtreeOf ?? (typeof candidate.excludeId === 'string' ? candidate.excludeId : null)
   if (!owned) return parts
@@ -722,10 +809,20 @@ function check(index: Index, candidate: PlacementCandidate): Violation[] {
     return siblingOverlaps(index, candidate, entry, excluded)
   }
 
-  const outline = entry.footprint(candidate.size).outline
-  const self = shapeOf(candidate.transform, outline)
+  const footprint = entry.footprint(candidate.size)
+  const outline = footprint.outline
+  // The SINGULAR coarse shape, kept deliberately: the band rule and `nearWall`
+  // both ask a question about the object as a whole ("how far is it from this
+  // rectangle", "how far does it reach"), and answering either from thirty tiles
+  // would change what those rules mean. Neither is reachable for the serpentine
+  // today — no table declares `allowedZones` or `nearWall` — so this preserves
+  // their semantics rather than choosing new ones for them.
+  const coarse = shapeOf(candidate.transform, outline)
+  const local = collisionShapesOf(footprint.parts)
+  const self = local ? local.map((s) => placeShape(candidate.transform, s)) : [coarse]
   const parts = candidateParts(index, candidate, self)
   const partBoxes = parts.map(shapeAABB)
+  const selfBoxes = partBoxes.slice(0, self.length)
   const box = unionBox(partBoxes)
 
   const out: Violation[] = []
@@ -742,7 +839,7 @@ function check(index: Index, candidate: PlacementCandidate): Violation[] {
   // ceiling entry that declared one returned here first and was legal over the
   // whole hall, in silence and with nothing failing. The band is the one question
   // asked of both storeys, so it is asked before the exemption rather than after.
-  if (entry.placement === 'ceiling') return [...out, ...bandViolations(index, entry, self)]
+  if (entry.placement === 'ceiling') return [...out, ...bandViolations(index, entry, coarse)]
 
   // A fixed station never answers for the point it was dropped at: clampToVenue
   // snaps it into its home zone from anywhere, so the drop point is not where it
@@ -779,11 +876,11 @@ function check(index: Index, candidate: PlacementCandidate): Violation[] {
   }
 
   // "around the pool", not "in the pool" — see `bandViolations`
-  out.push(...bandViolations(index, entry, self))
+  out.push(...bandViolations(index, entry, coarse))
 
   if (entry.nearWall !== undefined) {
     const centre = { x: candidate.transform.position.x, y: candidate.transform.position.y }
-    if (contourDistance(centre, index.contour) - shapeReach(self) > entry.nearWall) {
+    if (contourDistance(centre, index.contour) - shapeReach(coarse) > entry.nearWall) {
       out.push({ kind: 'nearWall', within: entry.nearWall })
     }
   }
@@ -807,7 +904,7 @@ function check(index: Index, candidate: PlacementCandidate): Violation[] {
       continue
     }
     if (required > 0) {
-      const gap = shapeGap(self, other.self)
+      const gap = selfGap(self, selfBoxes, other.self, other.selfBoxes)
       if (gap < required) out.push({ kind: 'spacing', withId: other.id, actual: gap, required })
     }
   }

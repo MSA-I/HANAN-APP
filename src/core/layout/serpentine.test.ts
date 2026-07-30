@@ -5,11 +5,13 @@ import { rotateVec } from '../space'
 import { seatItemTransforms } from './seatItemLayout'
 import { seatItemSeatsForEntry, seatsForEntry } from './seatLayout'
 import {
+  ARC_TILE,
   SERPENTINE_ARCS,
   SERPENTINE_BAND,
   pointInSerpentineBand,
   serpentineArcs,
   serpentineBandDepth,
+  serpentineBandTiles,
   serpentineBounds,
   serpentineCentre,
   serpentineMaxSeats,
@@ -586,5 +588,133 @@ describe('serpentine seats', () => {
     expect(
       seatItemSeatsForEntry(entry, entry.defaultSize, seating(FLANK_SEATS + 1), chair),
     ).toHaveLength(FLANK_SEATS)
+  })
+})
+
+/**
+ * The shapes COLLISION reads instead of the bounding box (round 4 §15b).
+ *
+ * The box is 17.99 m² around a 4.644 m² band and its own centre is 63 cm outside
+ * the drape, so `TABLE_CLEARANCE.rect = 170` measured off it refused a ⌀180 round
+ * table up to about three metres away. The outline stays for its nine consumers;
+ * collision alone tiles the sectors.
+ *
+ * One property matters above the rest and it is the first test here: the tiles must
+ * COVER the band. A tile may claim floor the table does not occupy — an object is
+ * then refused a centimetre early, which is safe and invisible — but a gap would
+ * let a table be placed through the drape.
+ */
+describe('the collision tiling', () => {
+  const tiles = serpentineBandTiles()
+
+  /** Is a point inside a tile? The same rotated-rect test collision.ts runs. */
+  const inTile = (p: { x: number; y: number }, t: (typeof tiles)[number]) => {
+    const l = rotateVec({ x: p.x - t.cx, y: p.y - t.cy }, -t.rot)
+    return Math.abs(l.x) <= t.w / 2 && Math.abs(l.y) <= t.h / 2
+  }
+
+  it('is 30 tiles, split the way the arcs are', () => {
+    expect(tiles).toHaveLength(30)
+    // derived from `serpentineArcs()` — the split follows a re-fit of CHAIN
+    const perArc = serpentineArcs().map((s) =>
+      Math.ceil((rad(s.sweep) * ((s.innerR + s.outerR) / 2)) / ARC_TILE),
+    )
+    expect(perArc).toEqual([12, 10, 8])
+    expect(perArc.reduce((a, b) => a + b, 0)).toBe(tiles.length)
+  })
+
+  it('covers the whole band and over-claims by at most ~5.4 cm', () => {
+    const { width, depth } = serpentineBounds()
+    let shortfall = 0
+    let excess = 0
+    let bandCells = 0
+    let tiledCells = 0
+    // 1.5 cm: fine enough to catch a real gap anywhere, coarse enough to sweep the
+    // 4.3 m box in well under a second. The excess creeps up with the sampling —
+    // 4.97 here, 5.30 at 0.4 cm — so the bound is stated with room.
+    const G = 1.5
+    for (let x = -width / 2 - 20; x <= width / 2 + 20; x += G) {
+      for (let y = -depth / 2 - 20; y <= depth / 2 + 20; y += G) {
+        const p = { x, y }
+        const d = serpentineBandDepth(p)
+        const hit = tiles.some((t) => inTile(p, t))
+        if (d >= 0) {
+          bandCells++
+          // THE property: every point of the band is inside some tile
+          shortfall = Math.max(shortfall, hit ? 0 : d)
+        }
+        if (hit) tiledCells++
+        if (d < 0 && hit) excess = Math.max(excess, -d)
+      }
+    }
+    expect(shortfall).toBe(0)
+    expect(excess).toBeLessThanOrEqual(5.5)
+    // and the price of covering it is under 1% of extra area
+    expect(bandCells).toBeGreaterThan(0)
+    expect(tiledCells / bandCells).toBeLessThan(1.02)
+  })
+
+  it('derives its area from the arcs rather than from a remembered number', () => {
+    // Σ ½·sweep·(outerR² − innerR²) — the exact area of the three sectors
+    const area = serpentineArcs().reduce(
+      (t, s) => t + 0.5 * rad(s.sweep) * (s.outerR * s.outerR - s.innerR * s.innerR),
+      0,
+    )
+    expect(area / 10000).toBeCloseTo(4.644, 2)
+    // the tiles are a cover, so their total area is at least the band's
+    const tiled = tiles.reduce((t, s) => t + s.w * s.h, 0)
+    expect(tiled).toBeGreaterThan(area)
+  })
+
+  /**
+   * ⚠ A SIDE EFFECT WORTH KNOWING, AND IT IS NOT ONE-SIDED.
+   * `unionBox(parts.map(shapeAABB))` for a serpentine now boxes the TILES rather
+   * than the declared outline, so `outOfBounds` — the one rule that reads that
+   * union — moves with it. Measured at the fitted arcs, tile extent against the
+   * outline's own half-extent:
+   *
+   *   −x  12.49 cm tighter      +x   4.39 cm tighter
+   *   +y  13.44 cm tighter      −y   0.33 cm WIDER
+   *
+   * So on three sides the table may now be pushed a few centimetres nearer a wall
+   * than before, and on the fourth it is refused a third of a centimetre earlier.
+   * The −y side is the one place a tile's outward over-claim (≤5.3 cm) beats the
+   * gap between the fitted band and the box drawn around it — the outline takes the
+   * LARGER of the GLB bbox and the arcs' own box per axis, and on this axis the
+   * arcs win by only 4.4 cm.
+   *
+   * Both directions are more accurate than what they replace: the box the table
+   * used to be judged by was never the table.
+   */
+  it('boxes the tiles, not the outline — three sides looser, one 0.33 cm tighter', () => {
+    const outline = getCatalogEntry('table.serpentine').footprint(
+      getCatalogEntry('table.serpentine').defaultSize,
+    ).outline
+    if (outline.kind !== 'rect') throw new Error('the serpentine declares a rect outline')
+    let minX = Infinity
+    let maxX = -Infinity
+    let minY = Infinity
+    let maxY = -Infinity
+    for (const t of tiles) {
+      for (const [sx, sy] of [
+        [-1, -1],
+        [1, -1],
+        [1, 1],
+        [-1, 1],
+      ]) {
+        const c = rotateVec({ x: (sx * t.w) / 2, y: (sy * t.h) / 2 }, t.rot)
+        minX = Math.min(minX, t.cx + c.x)
+        maxX = Math.max(maxX, t.cx + c.x)
+        minY = Math.min(minY, t.cy + c.y)
+        maxY = Math.max(maxY, t.cy + c.y)
+      }
+    }
+    // three sides genuinely tighter, by centimetres rather than by rounding
+    expect(minX - -outline.w / 2).toBeGreaterThan(10)
+    expect(outline.w / 2 - maxX).toBeGreaterThan(4)
+    expect(outline.h / 2 - maxY).toBeGreaterThan(10)
+    // …and the fourth is not, which is the half of this nobody expects
+    expect(-outline.h / 2 - minY).toBeGreaterThan(0)
+    expect(-outline.h / 2 - minY).toBeLessThan(1)
   })
 })

@@ -11,6 +11,20 @@
  * conservative: it is larger than the table, so snapping and venue clamping err
  * in the safe direction.
  *
+ * ⚠ THAT LAST SENTENCE WAS TOO GENEROUS TO ITSELF, and round 4 §15b is the bill.
+ * The box is 422.00 × 426.41 cm = 17.99 m² around a band whose true area is
+ * 4.644 m² — 25.8% — and the box's OWN CENTRE is 63.13 cm outside the band.
+ * `TABLE_CLEARANCE.rect = 170` is a real aisle between table EDGES, but measured
+ * off that box it refused a ⌀180 round table up to about three metres from the
+ * drape. "Conservative" is right for snapping and for the venue clamp, where a few
+ * spare centimetres cost nothing; it is not right for a rule about how far apart
+ * two tables must stand.
+ *
+ * So the outline STAYS — its nine consumers are unchanged — and COLLISION ALONE
+ * now reads the sectors, through `serpentineBandTiles` below. The clearance number
+ * is untouched: the fault was never the 170, it was measuring it from a box four
+ * times the size of the table.
+ *
  * Known consequence, accepted: hit-testing uses that box, so a decor item can be
  * dropped into the concave pocket of the S and will attach to the table while
  * visually floating over the floor. Fixing it needs one pure `pointInParts`
@@ -176,6 +190,113 @@ export function serpentineArcs(): Array<{
     startAngle: Math.min(a.from, a.from + a.turn),
     sweep: Math.abs(a.turn),
   }))
+}
+
+/**
+ * How much CENTRE-LINE arc one collision tile spans, cm. Smaller is more faithful
+ * and costs more tiles: 20 gives 30 tiles (12 + 10 + 8) with a worst outward
+ * over-claim of 5.38 cm, and halving it would roughly halve that and double the
+ * tile count. 20 is the point where the error is already well under the model's own
+ * ±5 cm width wander, so a finer grid would only be more precise about a curve that
+ * is not that precise.
+ */
+export const ARC_TILE = 20
+
+/** One conservative collision rect, in the object's own frame. */
+export interface BandTile {
+  cx: number
+  cy: number
+  /** along the mid-ray */
+  w: number
+  /** across it */
+  h: number
+  /** plan degrees: the mid-ray's own heading */
+  rot: number
+}
+
+/**
+ * Tile a chain of annular sectors with rotated rectangles that COVER them.
+ *
+ * For a sector split into `k` equal angular steps, one step spans half-angle
+ * `a = sweep/2k` about its mid-ray. Every point of that step is at radius
+ * ρ ∈ [innerR, outerR] and angle φ within `a` of the mid-ray, so in the frame
+ * rotated onto that ray it satisfies
+ *
+ *     u = ρ·cos(φ)  ∈ [innerR·cos a, outerR]
+ *     |v| = ρ·|sin(φ)| ≤ outerR·sin a
+ *
+ * and the rect with those bounds contains the step exactly. The containment is the
+ * property that matters: a tile may claim floor the table does not occupy (an
+ * object is then refused a little early, which is safe and invisible), but it may
+ * never MISS band, which would let a table be placed through the drape.
+ *
+ * ⚠ A CAPSULE CHAIN WAS EVALUATED AND REJECTED. It is more accurate along the
+ * arcs — a swept disc follows a curve where a rect chord cannot — but the band's
+ * end caps are FLAT radial segments and a capsule's end is a half-disc of radius
+ * 40. That is a 40 cm bulge past the cap, 7× worse than this tiling's worst error
+ * anywhere, and it sits exactly where the two head chairs and their guests are.
+ *
+ * Pure, and derived from the sectors it is given: a re-fit of `CHAIN` moves the
+ * tiles with nobody re-choosing anything.
+ */
+export function arcBandTiles(
+  sectors: ReadonlyArray<{
+    cx: number
+    cy: number
+    innerR: number
+    outerR: number
+    startAngle: number
+    sweep: number
+  }>,
+  arcCm = ARC_TILE,
+): BandTile[] {
+  const out: BandTile[] = []
+  for (const s of sectors) {
+    const mid = (s.innerR + s.outerR) / 2
+    const k = Math.max(1, Math.ceil((degToRad(s.sweep) * mid) / arcCm))
+    const step = s.sweep / k
+    const a = degToRad(step / 2)
+    const uLo = s.innerR * Math.cos(a)
+    const uHi = s.outerR
+    const halfW = s.outerR * Math.sin(a)
+    for (let i = 0; i < k; i++) {
+      const heading = s.startAngle + (i + 0.5) * step
+      const rad = degToRad(heading)
+      const u = (uLo + uHi) / 2
+      out.push({
+        cx: s.cx + Math.cos(rad) * u,
+        cy: s.cy + Math.sin(rad) * u,
+        w: uHi - uLo,
+        h: 2 * halfW,
+        rot: heading,
+      })
+    }
+  }
+  return out
+}
+
+/**
+ * The serpentine's band as collision rects, object-local — what `collision.ts`
+ * tests against instead of the 17.99 m² bounding box (see the header).
+ *
+ * MEASURED at `ARC_TILE = 20`, 2026-07-30, by sampling the band's whole bounding
+ * box on a 0.4 cm grid and comparing `serpentineBandDepth` against the tiles:
+ *
+ *   tiles                 30  (12 + 10 + 8)
+ *   band area          4.644 m²   ·   tiled area 4.689 m²  (+0.98%)
+ *   inward shortfall   0.000 cm — no point of the band lies outside every tile, so
+ *                                 the tiling never reports free floor that is not
+ *   outward over-claim ≤5.30 cm — the worst distance from a tiled point to the band
+ *                                 (5.0 on a 1.5 cm grid; it converges upward with
+ *                                 the sampling, so read it as "about 5½")
+ *
+ * The over-claim sits at the two end caps and at the outer corners of each tile,
+ * and it is inside the model's own ±5 cm width wander. It is also the SAFE
+ * direction: a tile may claim floor the table does not occupy, and an object is
+ * then refused a centimetre early.
+ */
+export function serpentineBandTiles(arcCm = ARC_TILE): BandTile[] {
+  return arcBandTiles(serpentineArcs(), arcCm)
 }
 
 /**
