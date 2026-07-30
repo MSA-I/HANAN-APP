@@ -48,9 +48,12 @@ export function beamGrid(
   venue: { width: number; depth: number },
 ): CeilingBeams[] {
   if (pack?.ceilingBeams?.length) return pack.ceilingBeams
+  // The fallback declares its own runs — wall to wall, since a procedural room has
+  // no truss to be shorter than it. Emitting them here is what keeps `snapToBeam`
+  // free of a `venue` parameter: every family it is handed already knows its length.
   return [
-    { axis: 'y', positions: evenSpan(venue.width), height: 0 },
-    { axis: 'x', positions: evenSpan(venue.depth), height: 0 },
+    { axis: 'y', positions: evenSpan(venue.width), height: 0, span: [0, venue.depth] },
+    { axis: 'x', positions: evenSpan(venue.depth), height: 0, span: [0, venue.width] },
   ]
 }
 
@@ -84,15 +87,26 @@ function nearest(values: number[], v: number): number | null {
 const CROSSING_SNAP = 35
 
 /**
- * The stretch of a beam a fixture may use: from the first perpendicular member to
- * the last. On the resort that is x 158…4208 and y 102…1306 — the truss
- * rectangle, which is a good deal smaller than the 6051 × 2544 pack, because the
- * reception deck from x 4432 is open to the sky. `beamSpans` draws exactly this
- * range, so the plan and the snap describe the same rectangle.
+ * Hold the FREE coordinate to the run of the beam it rides. A family with no
+ * declared span bounds nothing and leaves the axis exactly where it was.
+ *
+ * ⚠ This replaced `withinSpan`, which clamped the free coordinate to the
+ * outermost members of the OTHER family — the truss RECTANGLE rather than the
+ * beam. On the resort that rectangle is x 158…4208 by y 102…1306 inside a
+ * 6051 × 2544 hall, so dragging a chandelier to (2000, 2000) snapped x to 2183
+ * and froze y on 1306: the whole southern half of the room was unreachable, and
+ * because the fixture stuck to the boundary instead of following the pointer it
+ * read as the ghost having come loose from the cursor. A beam is a line, not a
+ * rectangle — its length is the family's own `span` (venuePacks.ts) — so the
+ * fixture now runs the beam end to end and only the ENDS stop it.
+ *
+ * `beamSpans` reads the same field first, so the plan and the snap still describe
+ * the same figure.
  */
-function withinSpan(positions: number[], v: number): number {
-  if (!positions.length) return v
-  return Math.min(Math.max(v, Math.min(...positions)), Math.max(...positions))
+function withinRun(family: CeilingBeams | undefined, v: number): number {
+  const run = family?.span
+  if (!run) return v
+  return Math.min(Math.max(v, run[0]), run[1])
 }
 
 /**
@@ -106,26 +120,30 @@ function withinSpan(positions: number[], v: number): number {
  * where the two families' snap regions meet — come within `CROSSING_SNAP` of a
  * member of the other family too and both axes snap.
  *
- * The free coordinate is held inside the run of the beam, which is bounded by
- * the outermost members of the other family — a fixture cannot slide off the end
- * of the truss into open air. That also keeps a point far outside the grid
- * landing on the nearest corner crossing, exactly as before.
+ * The free coordinate is held to the RUN of the beam the fixture rides — the
+ * family's declared `span` — so it cannot slide off the end of the steel into
+ * open air, but it can reach every point along it. A fixture riding an `axis: 'y'`
+ * beam is free in y, so the bound is that family's own span; riding an
+ * `axis: 'x'` cross-run it is free in x, bounded by the x family's span.
  *
  * A family that is missing (a pack with beams in one direction only) leaves that
- * axis untouched rather than collapsing the fixture onto a single line.
+ * axis untouched rather than collapsing the fixture onto a single line, and so
+ * does a family that declares no span.
  */
 export function snapToBeam(pos: Vec2, beams: CeilingBeams[]): Vec2 {
   // axis is the run direction, so an 'y' family constrains x and vice versa
-  const alongY = beams.find((b) => b.axis === 'y')?.positions ?? []
-  const alongX = beams.find((b) => b.axis === 'x')?.positions ?? []
-  const bx = nearest(alongY, pos.x)
-  const by = nearest(alongX, pos.y)
+  const familyY = beams.find((b) => b.axis === 'y')
+  const familyX = beams.find((b) => b.axis === 'x')
+  const bx = nearest(familyY?.positions ?? [], pos.x)
+  const by = nearest(familyX?.positions ?? [], pos.y)
   const dx = bx === null ? Infinity : Math.abs(bx - pos.x)
   const dy = by === null ? Infinity : Math.abs(by - pos.y)
   // ties go to x, so the result never depends on the order of two equal distances
   return {
-    x: bx !== null && (dx <= dy || dx <= CROSSING_SNAP) ? bx : withinSpan(alongY, pos.x),
-    y: by !== null && (dy < dx || dy <= CROSSING_SNAP) ? by : withinSpan(alongX, pos.y),
+    // x free means y snapped, i.e. the fixture rides a cross-run: its length is
+    // how far the 'x' family runs along x
+    x: bx !== null && (dx <= dy || dx <= CROSSING_SNAP) ? bx : withinRun(familyX, pos.x),
+    y: by !== null && (dy < dx || dy <= CROSSING_SNAP) ? by : withinRun(familyY, pos.y),
   }
 }
 
