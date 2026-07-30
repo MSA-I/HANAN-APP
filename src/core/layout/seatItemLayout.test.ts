@@ -5,7 +5,7 @@ import type { SeatingConfig, Size3D, Transform2D } from '../model/types'
 import { rotateVec } from '../space'
 import { holeRadius } from './bounds'
 import { EDGE_INSET, seatItemTransforms, tableTopInset } from './seatItemLayout'
-import { computeSeatTransforms, seatsForEntry } from './seatLayout'
+import { computeSeatTransforms, seatItemSeatsForEntry, seatsForEntry } from './seatLayout'
 import { serpentineBandDepth } from './serpentine'
 
 const CHAIR = 'chair.x-white'
@@ -163,14 +163,29 @@ const topOf = (tableId: string): Outline => {
   return entry.footprint(entry.defaultSize).outline
 }
 
+/**
+ * `seatItemSeatsForEntry`, not `seatsForEntry` — the same call `laySeatItems`
+ * makes. They differ on exactly one table: the serpentine's two HEAD seats take a
+ * chair and no cover (round 4 §15), so this returns 20 there and every seat
+ * everywhere else.
+ */
 function coversOn(tableId: string): Transform2D[] {
   const entry = getCatalogEntry(tableId)
   const s = entry.seating!
-  const cfg = seating(s.defaultCount, s.defaultGap)
-  const seats = seatsForEntry(entry, entry.defaultSize, { ...cfg, offset: s.defaultOffset }, chair)
+  const cfg = { ...seating(s.defaultCount, s.defaultGap), offset: s.defaultOffset }
+  const seats = seatItemSeatsForEntry(entry, entry.defaultSize, cfg, chair)
   // the id goes in too, exactly as laySeatItems passes it: it is what selects the
   // table's measured `tableTopInset`
   return seatItemTransforms(seats, chair, item, s.defaultOffset, topOf(tableId), tableId)
+}
+
+/** How many covers this table takes — derived, because on one table it is not the
+ *  seat count and a frozen 20 here would stop tracking the geometry. */
+function coverCount(tableId: string): number {
+  const entry = getCatalogEntry(tableId)
+  const s = entry.seating!
+  const cfg = { ...seating(s.defaultCount, s.defaultGap), offset: s.defaultOffset }
+  return seatItemSeatsForEntry(entry, entry.defaultSize, cfg, chair).length
 }
 
 /**
@@ -229,7 +244,10 @@ describe('place settings sit on the table TOP, not on its bounding box', () => {
     it(`keeps every cover's outboard edge ${EDGE_INSET}cm inside ${tableId}'s real top`, () => {
       const top = usableTop(tableId)
       const covers = coversOn(tableId)
-      expect(covers).toHaveLength(getCatalogEntry(tableId).seating!.defaultCount)
+      // derived, not `defaultCount`: the serpentine seats 22 and sets 20, and a
+      // hardcoded number here would stop tracking the geometry (BRIEF §1.7)
+      expect(covers).toHaveLength(coverCount(tableId))
+      expect(covers.length).toBeGreaterThan(0)
       for (const t of covers) expect(outside(outboardEdge(t), top)).toBeLessThanOrEqual(-EDGE_INSET + 1e-9)
     })
   }
@@ -278,9 +296,21 @@ describe('place settings sit on the table TOP, not on its bounding box', () => {
  * rather than on the round one the plan worked out by hand.
  */
 describe('place settings — a full set on every table in the venue', () => {
-  // The five that a 0.8 cover clears outright. Measured margins at the sizes in
-  // the catalog today: ⌀380 8.6cm, square 17.3, banquet 24.0, knights 17.3,
-  // serpentine 5.0.
+  // The five that a 0.8 cover clears outright. Re-measured 2026-07-30 at the sizes
+  // in the catalog today: ⌀380 3.24 cm, square 17.33, banquet 24.00, knights 17.33,
+  // serpentine 4.99.
+  //
+  // ⚠ The ⌀380's figure is not a round-4 regression: the covers on it are laid on
+  // every seat exactly as before, and nothing in §15 touches that table. The 8.6
+  // this comment used to quote predates `tableTopInset`, which pulled the whole
+  // cover ring 19 cm inward on this table and tightened the pitch with it — the
+  // same trade the block at the foot of this file states in full for the ⌀180.
+  //
+  // Serpentine 4.99 is unchanged by dropping the two head covers, and that is
+  // expected rather than lucky: `worstInlineOverlap` already skipped pairs more
+  // than 45° apart, and a head cover lies at 90° to every neighbour it had. The
+  // heads' overlap was never in this number — it was in the test that used to sit
+  // in serpentine.test.ts asserting it.
   for (const tableId of [
     'table.round-large',
     'table.square',
@@ -375,25 +405,38 @@ describe('place settings — a full set on every table in the venue', () => {
 
     it('keeps every cover inside the serpentine band', () => {
       const covers = coversOn('table.serpentine')
-      expect(covers).toHaveLength(getCatalogEntry('table.serpentine').seating!.defaultCount)
+      expect(covers).toHaveLength(coverCount('table.serpentine'))
       const depths = covers.flatMap((t) => corners(t).map((c) => serpentineBandDepth(c)))
       // no corner leaves the band, and the tightest one still has 2cm of drape
       expect(Math.min(...depths)).toBeGreaterThan(0)
       expect(Math.min(...depths)).toBeCloseTo(2.1, 0)
     })
 
-    // The straight push in from the seat is what §43 suspected of leaving the
-    // curve. It does not: on both flanks and at both heads the cover ends up the
-    // same inset + half its depth inside whichever band edge its seat was measured
-    // from, because the seat's own front is radial to the arc it sits on.
-    it('sets every serpentine cover the same depth inside the band edge', () => {
+    /**
+     * The strongest statement of round 4 §15, and the reason this test changed
+     * rather than moved: EVERY cover the serpentine now takes is a flank cover.
+     *
+     * The straight push in from the seat is what §43 suspected of leaving the
+     * curve. It does not — a flank cover ends up exactly `inset + depth/2` inside
+     * whichever band edge its seat was measured from, because the seat's own front
+     * is radial to the arc it sits on. The two HEAD covers were the exception: they
+     * ran in along the cap instead and sat ON the centre line, the deepest a cover
+     * ever got, and there they interpenetrated both their neighbours by 12…15 cm.
+     * They are no longer laid, so the exception is gone and the count is not a
+     * separate fact to remember — it is `covers.length`.
+     */
+    it('sets EVERY serpentine cover the same depth inside the band edge', () => {
       const inset = EDGE_INSET + tableTopInset('table.serpentine') + item.depth / 2
-      const flanks = coversOn('table.serpentine').filter(
+      const covers = coversOn('table.serpentine')
+      const flanks = covers.filter(
         (t) => Math.abs(serpentineBandDepth(t.position) - inset) < 1e-6,
       )
-      // 20 flank seats; the two heads run in along the cap instead and sit on the
-      // centre line, which is the deepest a cover ever gets (deliberate — FOUND-02 §2)
-      expect(flanks).toHaveLength(20)
+      expect(flanks).toHaveLength(covers.length)
+      // …and it really is fewer than the chairs, or the line above would pass on a
+      // table that still had the head covers and simply agreed with itself
+      expect(covers.length).toBeLessThan(
+        getCatalogEntry('table.serpentine').seating!.defaultCount,
+      )
     })
   })
 

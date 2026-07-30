@@ -63,7 +63,7 @@ export const EDGE_INSET = 3
  *   table.square       24 off at 3 …  8 from 14, floor   ⇒ 13 (+2 cm)
  *   table.banquet      28 off at 3 …  4 at 16, floor     ⇒ 13
  *   table.knights-480  50 off at 3 … 12 at 23, floor     ⇒ 20
- *   table.serpentine    9 off at 3, and an inset does not clear them — see below
+ *   table.serpentine    7 off at 3, and an inset does not clear them — see below
  *
  * The two round tables end at zero: every corner of every cover is on the model's
  * own top. The rectangles bottom out above zero and no inset moves them, because
@@ -75,10 +75,16 @@ export const EDGE_INSET = 3
  * file's reach: it is recorded here so the floor is never mistaken for a bad inset.
  *
  * The serpentine's 0 is a real finding and not a missing row: its band is modelled
- * edge-to-edge, so it is the one table whose declared width IS its top. Its 9 stray
+ * edge-to-edge, so it is the one table whose declared width IS its top. Its stray
  * corners are a THIRD cause again — `SERPENTINE_ARCS` is a fitted approximation of
  * a curve whose real width wanders ±5 cm (entries/tables.ts) — so they belong to
  * the fit, not to a hem, and an inset here would only paper over them.
+ *
+ * ⚠ RE-MEASURED 2026-07-30, and the row above moved: it was 9 stray corners out of
+ * 88, and round 4 §15 stopped laying the two HEAD covers, so it is now 7 out of 80.
+ * Two of the nine belonged to the heads — which is a finding in itself, since the
+ * head covers were dropped for interpenetrating their neighbours and not for
+ * hanging off the band. The remaining 7 are unchanged and still belong to the fit.
  *
  * ⚠ RE-PREPPING A TABLE'S GLB INVALIDATES ITS ROW. The numbers are properties of
  * the files in public/props, not of the catalog: change a drape, re-run glb-prep,

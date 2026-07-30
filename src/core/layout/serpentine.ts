@@ -433,32 +433,51 @@ function capacities(seating: SeatingConfig, chair: Size3D): number[] {
  * band and stops at the caps, which is why the heads have to be added rather
  * than falling out of the walk.
  *
- * ⚠ KNOWN CONSEQUENCE, MEASURED — the head CHAIRS are fine, the head PLACE
- * SETTINGS are not. This is the whole of corrections-document item 27, which reads
- * as "there are not 22 there like the number of chairs". There ARE 22: chairs,
- * settings and the entry's declared count all agree (serpentine.test.ts asserts all
- * three). What the eye counts short is two settings that have merged into their
- * neighbours.
+ * ⚠ THE HEAD CHAIRS ARE FINE. THE HEAD PLACE SETTINGS ARE NOT, AND ARE NO LONGER
+ * LAID — see `serpentineSeatItemSeats` below, which is the fix the last paragraph
+ * of this warning used to ask for.
  *
- * Why, in one line: the two kinds of cover lie at 90° to each other across the
- * band. A flank setting has its depth radial and sits 21.35 cm off the centre line,
- * occupying [5.70, 37.00] across the 80 cm band; a head setting sits ON the centre
- * line with its 36 cm WIDTH across it, spanning [−18.00, +18.00]. The free corridor
- * down the middle is 11.4 cm wide, so they interpenetrate by 12.18…15.43 cm.
+ * The measurement, kept because it is the reason: the two kinds of cover lie at 90°
+ * to each other across the band. A flank setting has its depth radial and sits
+ * 21.35 cm off the centre line, occupying [5.70, 37.00] across the 80 cm band; a
+ * head setting sits ON the centre line with its 36 cm WIDTH across it, spanning
+ * [−18.00, +18.00]. The free corridor down the middle is 11.4 cm wide, so they
+ * interpenetrate by 12.18…15.43 cm.
  *
- * NOT FIXABLE HERE, and that was established before it was accepted. Sweeping the
- * head setting along the band from −60 to +160 cm never clears it: inside the band
- * the penetration never falls below 10.61 cm, and the only clear positions are
- * ≥ 9.85 cm PAST the cap — hanging over the floor, which is the defect the same
- * round exists to remove. Insetting the flank walk away from the caps clears only
- * by dropping three chairs (22 → 19) and squeezing the rest to a 1.48 cm gap.
- * Both sweeps are tabulated in Plans/R3/handoff/05-serpentine.md.
+ * NOT FIXABLE BY MOVING IT, and that was established before it was accepted.
+ * Sweeping the head setting along the band from −60 to +160 cm never clears it:
+ * inside the band the penetration never falls below 10.61 cm, and the only clear
+ * positions are ≥ 9.85 cm PAST the cap — hanging over the floor, which is the
+ * defect the same round exists to remove. Insetting the flank walk away from the
+ * caps clears only by dropping three chairs (22 → 19) and squeezing the rest to a
+ * 1.48 cm gap. Both sweeps are tabulated in Plans/R3/handoff/05-serpentine.md.
  *
- * ponytail: the fix belongs to whoever owns the setting layout — either skip the
- * head seats when laying settings on this table, or give it a cover narrow enough
- * (≤ 11.4 cm across the band) to pass down the middle. Neither is a number here.
+ * So the user's call (round 4 §15): keep all 22 CHAIRS, lay 20 COVERS. A guest at
+ * the head of an S-curved table sits at a corner of it, which is exactly where a
+ * real venue leaves the cover off.
  */
 const HEAD_SEATS = 2
+
+/**
+ * Which of `serpentineSeats`' transforms take a place setting — the flanks, by
+ * index, and never the two heads.
+ *
+ * Derived from `capacities()`, the same numbers the walk itself divides, so a
+ * re-fit of `CHAIN` or a change of chair moves this with nobody re-choosing
+ * anything. `serpentineSeats` fills the flanks first and appends the heads, so the
+ * flanks are always 0…n−1 and this is a prefix.
+ *
+ * ⚠ It is deliberately NOT "the last two". `serpentineSeats` appends the heads
+ * with `.slice(0, max(0, seating.count − out.length))`, so a table configured for
+ * 15 chairs has ZERO heads — the flanks hold 20 — and dropping the last two would
+ * silently strip two FLANK covers from a table that never had a head problem.
+ * Asking `capacities()` gets that right at every count for free.
+ */
+export function serpentineSeatItemSeats(seating: SeatingConfig, chair: Size3D): number[] {
+  const caps = capacities(seating, chair)
+  const flanks = Math.min(seating.count, caps[0] + caps[1])
+  return Array.from({ length: Math.max(0, flanks) }, (_, i) => i)
+}
 
 function headSeats(seating: SeatingConfig, chair: Size3D): Transform2D[] {
   const first = SERPENTINE_ARCS[0]

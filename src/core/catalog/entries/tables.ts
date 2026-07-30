@@ -7,7 +7,12 @@
  * have their own scanned model and their own seat count (12 vs 22); one resizable
  * entry would stretch the wrong drape over the wrong table.
  */
-import { serpentineArcs, serpentineBounds, serpentineSeats } from '../../layout/serpentine'
+import {
+  serpentineArcs,
+  serpentineBounds,
+  serpentineSeatItemSeats,
+  serpentineSeats,
+} from '../../layout/serpentine'
 import type { CatalogEntry } from '../types'
 import { leggedTable, pedestalTable } from '../builders'
 
@@ -266,6 +271,14 @@ export const serpentineTable: CatalogEntry = {
   model: '/props/table-serpentine.glb',
   thumbnail: '/thumbs/table-serpentine.webp',
   seats: serpentineSeats,
+  // …and the two heads take a CHAIR but not a COVER (round 4 §15, the user's own
+  // call). By index, from the same `capacities()` the seat walk divides — see
+  // `serpentineSeatItemSeats`, which explains why "the last two" would be wrong.
+  //
+  // ⚠ The inspector then reads "20 מתוך 22 מקומות", and that is CORRECT, not an
+  // off-by-two to be tidied away: 22 seats, 20 of them set. The string was written
+  // for exactly this shape.
+  seatItemSeats: serpentineSeatItemSeats,
   // 22 = 11 on the long flank + 9 on the short + one at each head of the S.
   // The flanks differ because the arcs sweep through different angles, so the
   // r+d / r−d offsets do not cancel — see the warning on `edgeLength`. The two
@@ -284,10 +297,12 @@ export const serpentineTable: CatalogEntry = {
   // move the total at all over 0…20 — what it adds to the long flank it takes off
   // the short one.
   //
-  // What IS wrong on this table is the two head PLACE SETTINGS, which overlap
-  // their flank neighbours by 12…15cm — see the warning on `HEAD_SEATS` in
-  // layout/serpentine.ts. It is a position defect, not a count one, and no number
-  // on this line can fix it.
+  // The two head PLACE SETTINGS used to overlap their flank neighbours by 12…15cm,
+  // and no number on this line could fix it — it was a position defect, not a count
+  // one, and no position inside the band clears it (the sweep is on `HEAD_SEATS` in
+  // layout/serpentine.ts). Round 4 §15 settled it the other way: the heads keep
+  // their chairs and give up their covers, which is `seatItemSeats` above. All 22
+  // chairs below are still laid.
   seating: { min: 0, max: 22, defaultCount: 22, defaultChair: DEFAULT_CHAIR, defaultGap: 10, defaultOffset: 6 },
   librarySubtitle: 'seats',
   labelByDefault: true,

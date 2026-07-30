@@ -40,7 +40,7 @@ import {
 import { beamGrid, clampHang, snapToBeam } from '../core/layout/beams'
 import { isZoneInside } from '../core/layout/zoneOccupancy'
 import { seatItemTransforms } from '../core/layout/seatItemLayout'
-import { seatsForEntry } from '../core/layout/seatLayout'
+import { seatItemSeatsForEntry } from '../core/layout/seatLayout'
 import { serpentineCentre, serpentineSeats } from '../core/layout/serpentine'
 import { getHallLayout } from '../core/hallLayouts'
 import {
@@ -1156,9 +1156,12 @@ function laySeatItems(scene: SceneState, catalogId: string, tableId: Id): Id[] {
 
   const chair = getCatalogEntry(table.seating.chairCatalogId).defaultSize
   const tableEntry = getCatalogEntry(table.catalogId)
-  // seatsForEntry, not the outline math: on the serpentine the seats follow the
-  // curve, and settings laid on rect positions would float beside the table
-  const seats = seatsForEntry(tableEntry, table.size, table.seating, chair)
+  // seatItemSeatsForEntry, not the outline math and not the raw seat list: on the
+  // serpentine the seats follow the curve, and settings laid on rect positions
+  // would float beside the table — and its two HEAD seats take a chair but not a
+  // cover, because the two lie at 90° across the band and interpenetrate wherever
+  // the head one is put (round 4 §15). Every other table gets all its seats back.
+  const seats = seatItemSeatsForEntry(tableEntry, table.size, table.seating, chair)
   // the top goes with them (source doc §43): a seat knows the rim it sits outside
   // but not the RING's opening on the far side of it
   const top = tableEntry.footprint(table.size).outline
@@ -1341,7 +1344,8 @@ function layTableDesign(scene: SceneState, design: TableDesign, tableId: Id): Id
   if (design.seatItem) {
     const chair = getCatalogEntry(table.seating.chairCatalogId).defaultSize
     const item = getCatalogEntry(design.seatItem).defaultSize
-    const seats = seatsForEntry(entry, table.size, table.seating, chair)
+    // the same subset the hand-laid path takes — a design's covers obey §15 too
+    const seats = seatItemSeatsForEntry(entry, table.size, table.seating, chair)
     // same top as the hand-laid path — a design's settings obey §43 too
     const top = entry.footprint(table.size).outline
     for (const t of seatItemTransforms(
