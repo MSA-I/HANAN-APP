@@ -12,6 +12,7 @@ import type { Id, SceneState, Vec2 } from '../core/model/types'
 import { cmToM, degToRad, threeToPlan } from '../core/space'
 import { getVenuePack } from '../core/venuePacks'
 import { overlay, useOverlayStore } from '../editor2d/overlayStore'
+import { attachesToTable } from './placementTargets'
 import {
   addObject,
   addObjectToSurface,
@@ -25,8 +26,11 @@ import { useEditorStore } from '../state/store'
 const VALID = '#1f8a50'
 const INVALID = '#d64545'
 
-const attachesToTable = (entry: CatalogEntry): boolean =>
-  entry.placement === 'surface' || entry.placement === 'seat'
+// `attachesToTable` and `pickLevelsCm` moved to ./placementTargets — both decide
+// where a click lands, and a rule that lives in a .tsx cannot be tested here
+// (AGENT-BRIEF §1.7). Re-exported so `ObjectGroup` reads the predicate from the
+// same module it already reads `commitPlacement3D` from.
+export { attachesToTable }
 
 /**
  * `inHole` reports a point over the open centre of a ring table, where the piece
@@ -166,7 +170,13 @@ export function Placement3D() {
 
   if (!placing) return null
 
+  // `stopPropagation` on the MOVE as well as on the click, and it is not symmetry
+  // for its own sake: R3F walks every intersection of the ray in order, so without
+  // it a preview taken from this surface was overwritten by the next object the
+  // same ray met. See `attachesToTable` — the other half of that fix is that
+  // objects now decline the event instead of answering it.
   const onMove = (event: ThreeEvent<PointerEvent>) => {
+    event.stopPropagation()
     previewPlacement3D(event.point)
   }
   const onClick = (event: ThreeEvent<MouseEvent>) => {

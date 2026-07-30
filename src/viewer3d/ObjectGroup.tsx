@@ -60,7 +60,7 @@ import {
   slotMaterial,
 } from './meshCache'
 import { applyPlanTransform, planTransformMatrix } from './planTransform'
-import { commitPlacement3D, previewPlacement3D } from './Placement3D'
+import { attachesToTable, commitPlacement3D, previewPlacement3D } from './Placement3D'
 import { useModelParts } from './propModel'
 import { slotTextureUrl, useSlotTexture } from './slotTextures'
 
@@ -68,6 +68,25 @@ const SELECT_COLOR = new THREE.Color(SELECT_TINT)
 
 /** No pack, no measured truss to match — the cord stays the near-black it always was. */
 const DEFAULT_CORD_COLOR = '#2a2a2a'
+
+/**
+ * Is the armed ghost this object's business at all?
+ *
+ * Only a `surface` or `seat` entry is placed BY asking a table where the pointer
+ * is; for everything else the answer comes from `Placement3D`'s pick surfaces, and
+ * an object that answers anyway answers with the point where the ray hit its own
+ * skin — a tabletop 75 cm up, not the floor or the ceiling plane the ghost is being
+ * measured against. Because R3F walks every intersection along the ray and the last
+ * writer wins, that is what made a chandelier's ghost stop following the pointer
+ * whenever a table lay behind it.
+ *
+ * ⚠ Where this returns false the handler must return WITHOUT `stopPropagation`, so
+ * the event carries on down the ray to the pick surface that does own it. Stopping
+ * and doing nothing is the same silent dead click, just tidier-looking.
+ */
+function placementWantsThisObject(placing: string | null): boolean {
+  return placing !== null && attachesToTable(getCatalogEntry(placing))
+}
 
 /**
  * How far back the rest of the hall falls while one table is being arranged
@@ -358,6 +377,7 @@ export function ObjectGroup({ id }: { id: Id }) {
       return
     }
     if (placing) {
+      if (!placementWantsThisObject(placing)) return
       e.stopPropagation()
       commitPlacement3D(e.point, e.nativeEvent.altKey, id)
       return
@@ -465,10 +485,9 @@ export function ObjectGroup({ id }: { id: Id }) {
   }
 
   const handlePointerMove = (e: ThreeEvent<PointerEvent>) => {
-    if (placing) {
-      e.stopPropagation()
-      previewPlacement3D(e.point, id)
-    }
+    if (!placing || !placementWantsThisObject(placing)) return
+    e.stopPropagation()
+    previewPlacement3D(e.point, id)
   }
 
   const procedural = geometries.map(({ slot, geometry }) => {
@@ -641,6 +660,7 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
       return
     }
     if (placing) {
+      if (!placementWantsThisObject(placing)) return
       e.stopPropagation()
       commitPlacement3D(e.point, e.nativeEvent.altKey, parentId)
       return
@@ -784,7 +804,7 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
     window.addEventListener('pointercancel', drag.end)
   }
 
-  const handlePointerMove = placing
+  const handlePointerMove = placementWantsThisObject(placing)
     ? (e: ThreeEvent<PointerEvent>) => {
         e.stopPropagation()
         previewPlacement3D(e.point, parentId)
@@ -1212,6 +1232,7 @@ function ChairSlot({
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     if (placing) {
+      if (!placementWantsThisObject(placing)) return
       e.stopPropagation()
       commitPlacement3D(e.point, e.nativeEvent.altKey, tableId)
       return
@@ -1251,7 +1272,7 @@ function ChairSlot({
     select([chairId])
   }
 
-  const handlePointerMove = placing
+  const handlePointerMove = placementWantsThisObject(placing)
     ? (e: ThreeEvent<PointerEvent>) => {
         e.stopPropagation()
         previewPlacement3D(e.point, tableId)
