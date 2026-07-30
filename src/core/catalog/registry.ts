@@ -52,11 +52,10 @@ export const CATEGORY_ORDER: Category[] = [
   'bars',
   'tableware',
   'tableDecor',
-  // the two v9 table-top families sit with the other table groups: a design is
-  // arranged on a top like the decor above it, and ringCenter is the pair that
-  // fills the ⌀380 table's hole
+  // a design is arranged on a top like the decor above it. Its sibling v9
+  // category, 'ringCenter', was folded INTO 'tables' at v13 — the ⌀380's two
+  // centre pieces now list under the table they belong to (catalog/types.ts)
   'tableDesigns',
-  'ringCenter',
   'lighting',
   'decor',
   'chuppah',

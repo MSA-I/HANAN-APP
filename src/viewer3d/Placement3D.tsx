@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useThree, type ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
 import { getCatalogEntry } from '../core/catalog/registry'
-import type { CatalogEntry } from '../core/catalog/types'
+import { isFloorTable, type CatalogEntry } from '../core/catalog/types'
 import { pointInHole, pointInOutline } from '../core/layout/bounds'
 import { checkPlacement } from '../core/layout/collision'
 import { beamGrid, snapToBeam } from '../core/layout/beams'
@@ -45,7 +45,9 @@ function tableAt(
     const obj = scene.objects[id]
     if (!obj || obj.parentId || !isObjectVisible(scene, id) || isEffectivelyLocked(scene, obj)) continue
     const entry = getCatalogEntry(obj.catalogId)
-    if (entry.category !== 'tables') continue
+    // the 3D half of Stage2D's `surfaceTargetAt` — same reason, same reachability:
+    // paste is what puts a `ring.table` on the floor as a top-level object
+    if (!isFloorTable(entry)) continue
     const outline = entry.footprint(obj.size).outline
     if (pointInOutline(point, obj.transform, outline)) {
       return { id, inHole: pointInHole(point, obj.transform, outline) }

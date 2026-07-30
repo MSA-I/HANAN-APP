@@ -3,7 +3,7 @@
  * write path is what keeps undo, seat reconciliation and 2D/3D sync coherent.
  */
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
-import type { CatalogEntry, Category } from '../core/catalog/types'
+import { isFloorTable, type CatalogEntry, type Category } from '../core/catalog/types'
 import { createObject, createProject, newId, type NewProjectOptions } from '../core/model/factory'
 import { attachedChairs, reconcileSeats } from '../core/model/seatingReconciler'
 import type {
@@ -1182,7 +1182,9 @@ function layTableDesign(scene: SceneState, design: TableDesign, tableId: Id): Id
   const table = scene.objects[tableId]
   if (!table?.seating || table.parentId || isEffectivelyLocked(scene, table)) return []
   const entry = getCatalogEntry(table.catalogId)
-  if (entry.category !== 'tables') return []
+  // defensive: the line above already required `table.seating` and no parent, and
+  // neither v13 arrival seats anyone. Asked the one way anyway (catalog/types.ts)
+  if (!isFloorTable(entry)) return []
 
   for (const child of designItems(scene, tableId)) delete scene.objects[child.id]
   if (design.seatItem) for (const stale of seatItems(scene, tableId)) delete scene.objects[stale.id]
@@ -1250,7 +1252,8 @@ export function tableDesignBlock(scene: SceneState, tableId: Id): TableDesignBlo
   const table = scene.objects[tableId]
   if (!table?.seating || table.parentId) return 'missing'
   if (isEffectivelyLocked(scene, table)) return 'locked'
-  if (getCatalogEntry(table.catalogId).category !== 'tables') return 'notATable'
+  // defensive: guarded by `table.seating` two lines up, which no v13 arrival has
+  if (!isFloorTable(getCatalogEntry(table.catalogId))) return 'notATable'
   return null
 }
 
@@ -1335,7 +1338,8 @@ function layAll(designFor: (table: SceneObject) => TableDesign | null): Id[] {
   mutateScene((scene) => {
     for (const id of [...scene.objectOrder]) {
       const obj = scene.objects[id]
-      if (!obj?.seating || getCatalogEntry(obj.catalogId).category !== 'tables') continue
+      // defensive: `obj.seating` already excludes both v13 arrivals
+      if (!obj?.seating || !isFloorTable(getCatalogEntry(obj.catalogId))) continue
       const design = designFor(obj)
       if (design) ids.push(...layTableDesign(scene, design, id))
     }

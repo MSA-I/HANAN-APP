@@ -19,7 +19,6 @@
  * it, so it costs a file and no load time.
  */
 import type { CatalogEntry } from '../types'
-import { leggedTable } from '../builders'
 
 const P = (file: string) => `/props/${file}`
 
@@ -190,24 +189,82 @@ export const djBooth: CatalogEntry = {
   unique: 'dj',
 }
 
+/**
+ * The resort's wheeled catering counter — real at last. Round 4 closes the oldest
+ * open item in the catalogue: `buffet.table` and `divider.screen` were the only
+ * two entries with no GLB and no photo, asked about in round 1
+ * (Plans/R1/handoff/BLOCKED-01-A1.md) and never answered until the user supplied
+ * `בופה ריזורט.glb` + `בופה ריזורט.png`.
+ *
+ * ⚠ THE ID MUST STAY `buffet.table`. It is named by
+ * `ALLOWED_IN_KABALAT_PANIM` (layout/collision.ts:432) and locked by
+ * collision.test.ts — a buffet is one of the three things allowed on the
+ * reception deck. Renaming it to match the new model would silently drop that
+ * permission and make every saved project unopenable (`getCatalogEntry` throws).
+ *
+ * ⚠ `בופה אולם.glb` IS A DIFFERENT PRODUCT and is deliberately NOT here. It is
+ * the HALL's built-in buffet; this project is resort-only, so it does not enter
+ * the catalogue (REAL-INVENTORY, presets.ts:7-9).
+ *
+ * SIZE — prepped uniformly to a stated 185 cm total height and catalogued at the
+ * bounds glb-prep printed, 180.5 × 83.1 × 185. Height is the anchor because it is
+ * the only dimension the photo pins: the shot is a three-quarter view on a plain
+ * backdrop with nothing of known size beside it, so width and depth can only be
+ * read off the model, and they are. Uniform scale, NOT `--footprint` — stretching
+ * x and z independently would fatten the canopy posts against the counter.
+ *
+ * ⚠ THE 185 RESTS ON AN ASSUMPTION THAT MEASURED SLIGHTLY WRONG, and the number
+ * is kept anyway. The reasoning was "the stone top reads at ≈49% of the total
+ * height in the photo, and a service counter is 90 cm", which gives 90/0.49 ≈ 185.
+ * The MODEL's own ratio, measured on the prepped file (the largest up-facing
+ * plane sits at y = 84.7 cm of 185), is 45.8% — so the counter lands at 84.7 cm,
+ * 5.3 cm below a standard 90 cm counter, and a true 90 would need `--height 196.5`.
+ * 185 is what was prepped and what is stated; the day someone wants the counter
+ * at exactly 90, re-prep at 196.5 and migrate, the way v10→v11 did for the DJ.
+ *
+ * No `modelSize` — the file IS at this size, which is the normal case
+ * (catalog/types.ts:166).
+ *
+ * The slot colours are the area-weighted mean of the baked texture, the method
+ * recorded at :46-49 and measured here per triangle over world-space area:
+ * `counter` from the up-facing triangles in the 82…90 cm band (#4e3826 over
+ * 1.445 m² — the brown-and-gold stone slab), `body` from everything that is not
+ * that plane (#938370 over 7.045 m² — the taupe fluted case and the canopy).
+ * They tint the 2D footprint only; the GLB's materials are baked.
+ *
+ * Facing verified, not assumed: `model-elevation.mjs --view front` puts its
+ * camera on −Z looking toward +Z, and what it renders is the fluted panel with
+ * the oval medallion. So the model already faces the app's way and needs no
+ * `defaultRotation` (contrast `dj.booth` above, which does).
+ */
 export const buffetTable: CatalogEntry = {
   id: 'buffet.table',
   category: 'bars',
   labelKey: 'buffet',
-  promptFragment: 'a long draped buffet table',
-  defaultSize: { width: 240, depth: 76, height: 90 },
-  resizable: ['width'],
-  minSize: { width: 120 },
-  maxSize: { width: 600 },
+  promptFragment:
+    'a wheeled catering counter with a dark stone top, a fluted taupe front with an oval medallion, and a tall overhead frame',
+  defaultSize: { width: 180.5, depth: 83.1, height: 185 },
+  // real inventory: one product, one size. Every other GLB-backed entry does this
+  // — a resizable box would stretch the model away from the thing in the store.
+  resizable: [],
+  minSize: {},
+  maxSize: {},
   materialSlots: [
-    { name: 'cloth', labelKey: 'cloth', defaultColor: '#efe9df' },
-    { name: 'legs', labelKey: 'legs', defaultColor: '#a67b5b' },
+    { name: 'body', labelKey: 'body', defaultColor: '#938370' },
+    { name: 'counter', labelKey: 'counter', defaultColor: '#4e3826' },
   ],
   footprint: (s) => ({
-    parts: [{ kind: 'rect', w: s.width, h: s.depth, cornerRadius: 2, slot: 'cloth' }],
+    parts: [{ kind: 'rect', w: s.width, h: s.depth, cornerRadius: 4, slot: 'counter' }],
     outline: { kind: 'rect', w: s.width, h: s.depth },
   }),
-  buildMesh: (s) => leggedTable(s.width, s.depth, s.height, 'cloth', 'legs'),
+  // fallback only — the GLB is the real render. Same recipe as `barResortLeft`
+  // above: a case with a slab proud of it on every side.
+  buildMesh: (s) => [
+    { shape: 'box', dims: [s.width, s.height - 6, s.depth], offset: [0, (s.height - 6) / 2, 0], slot: 'body' },
+    { shape: 'box', dims: [s.width + 8, 6, s.depth + 8], offset: [0, s.height - 3, 0], slot: 'counter' },
+  ],
+  model: P('buffet-resort.glb'),
+  thumbnail: '/thumbs/buffet-table.webp',
   labelByDefault: true,
 }
 

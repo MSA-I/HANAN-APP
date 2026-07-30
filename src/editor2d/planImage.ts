@@ -91,9 +91,15 @@ async function build(model: string, color: string | null): Promise<PlanImage | n
 const keyOf = (model: string, color: string | null) => `${model}|${color ?? ''}`
 
 /**
- * The plan image for a catalog entry's GLB, or null while it loads and for
- * every entry without one (`buffet.table`, `divider.screen`) — those keep the
- * vector footprint, which stays the fallback rather than being replaced.
+ * The plan image for a catalog entry's GLB, or null while it loads and for every
+ * entry without one — those keep the vector footprint, which stays the fallback
+ * rather than being replaced.
+ *
+ * ⚠ `buffet.table` and `divider.screen` used to be named here as the two entries
+ * with no model. Round 4 gave them both one, so the set of model-less entries is
+ * now the table-top and ceiling odds and ends rather than a pair worth naming;
+ * `listCatalog().filter(e => !e.model)` is the live answer, and
+ * planManifest.test.ts is what keeps every entry that DOES declare a GLB covered.
  */
 export function usePlanImage(model: string | undefined, color: string | null): PlanImage | null {
   const key = model ? keyOf(model, color) : null

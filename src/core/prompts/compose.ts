@@ -36,11 +36,27 @@ const SECTIONS: Record<Category, string> = {
   // v9 categories (PLAN-02). Merged onto existing headings, not given new ones: a
   // heading absent from SECTION_ORDER is silently dropped by sectionLines.
   tableDesigns: 'CENTREPIECES',
-  ringCenter: 'CENTREPIECES',
   lighting: 'LIGHTING',
   decor: 'DECOR',
   chuppah: 'CHUPPAH',
   chuppahDecor: 'CHUPPAH', // v9
+}
+
+/**
+ * ⚠ A TABLE-TOP PIECE IS A CENTREPIECE, WHATEVER CATEGORY IT FILES UNDER.
+ *
+ * v9 gave the ⌀380's two centre pieces their own `ringCenter` category and this
+ * map a `ringCenter: 'CENTREPIECES'` row. v13 folded that category into 'tables',
+ * and a plain `SECTIONS[category]` lookup would then have printed "TABLES: a
+ * fluted urn filled with white rose buds" — the render prompt telling the image
+ * model there is an extra guest table in the room for every centrepiece on one.
+ *
+ * Asking `placement` instead of the category is the fix that cannot rot: it is
+ * the property that actually says "this stands ON something", and any future
+ * table-top entry filed anywhere gets the right heading for free.
+ */
+function sectionFor(entry: { category: Category; placement?: string }): string {
+  return entry.placement === 'surface' ? 'CENTREPIECES' : SECTIONS[entry.category]
 }
 
 /** Heading order in the prompt — the order the eye reads a dressed room in. */
@@ -59,7 +75,7 @@ const SECTION_ORDER = [
 function sectionLines(groups: DesignGroup[]): string[] {
   const bySection = new Map<string, string[]>()
   for (const group of groups) {
-    const heading = SECTIONS[group.entry.category]
+    const heading = sectionFor(group.entry)
     const phrase = pluralize(group.caption, group.count)
     const list = bySection.get(heading)
     if (list) list.push(phrase)

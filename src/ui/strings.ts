@@ -282,7 +282,8 @@ export const strings = {
       tableware: 'סכו״ם ומפיות',
       tableDecor: 'קישוטי שולחן',
       tableDesigns: 'עיצובי שולחן',
-      ringCenter: 'עיצובי שולחן עיגול גדול',
+      // `ringCenter: 'עיצובי שולחן עיגול גדול'` was here until v13. Its two items
+      // list under שולחנות now — see core/catalog/types.ts.
       lighting: 'תאורה',
       decor: 'עיצוב',
       chuppah: 'חופות',
@@ -298,7 +299,12 @@ export const strings = {
       counter: 'דלפק',
       pot: 'עציץ',
       foliage: 'עלווה',
-      panel: 'פאנל',
+      /**
+       * Round 4: the divider's curtain. It replaces `panel`, which was the
+       * placeholder screen's single slot and had no other reader once the real
+       * model arrived segmented into curtain + frame (entries/decor.ts).
+       */
+      fabric: 'בד',
       /** PLAN-02/A2: the figure's single material slot */
       figure: 'דמות',
       /**

@@ -577,6 +577,22 @@
       "pxPerCm": 4.0087,
       "w": 184,
       "h": 160
+    },
+    "/props/buffet-resort.glb": {
+      "file": "buffet-resort.webp",
+      "cmW": 184.15,
+      "cmD": 84.8,
+      "pxPerCm": 4.0021,
+      "w": 737,
+      "h": 339
+    },
+    "/props/divider-screen.glb": {
+      "file": "divider-screen.webp",
+      "cmW": 158.99,
+      "cmD": 32.5,
+      "pxPerCm": 4.0002,
+      "w": 636,
+      "h": 130
     }
   },
   "failed": []

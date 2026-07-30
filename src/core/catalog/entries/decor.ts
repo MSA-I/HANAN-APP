@@ -126,23 +126,70 @@ export const pottedPlant2 = vegetationEntry(
   { width: 47.5, depth: 43.8, height: 160 },
 )
 
+/**
+ * The mobile room divider — real at last, the other half of round 4's asset
+ * closure (see entries/bars.ts's `buffetTable` for the same story). It arrived as
+ * `מחיצה.glb` + `מחיצה.png`, and both show one product: a beige pleated curtain
+ * hung in a black steel frame that rolls on four casters.
+ *
+ * SIZE — prepped uniformly to a stated 180 cm total height and catalogued at the
+ * bounds glb-prep printed, 155.9 × 31.9 × 180. As with the buffet, height is the
+ * only dimension the product shot pins; the rest is read off the model. Uniform
+ * scale, NOT `--footprint`: the frame is 31.9 cm deep only because of the two
+ * T-shaped feet, and stretching z to hit a footprint would splay them away from
+ * a curtain that did not move with them. No `modelSize` — the file is at this
+ * size.
+ *
+ * The panel already spans X and is thin in Z, which is the app's front
+ * convention, so no `--yaw` and no `defaultRotation`; verified by rendering the
+ * prepped file from the front (`model-elevation.mjs --view front`, camera on −Z)
+ * and getting the curtain face rather than an edge.
+ *
+ * TWO SLOTS, and the split is measured rather than declared. Tripo segmented this
+ * model into 25 materials — `Material_tripo_part_0…24` — and the area-weighted
+ * mean of the baked texture separates them into exactly two populations: the
+ * seventeen curtain pleats and their header average #b7a595 over 7.00 m², and the
+ * eight frame parts (rail, two posts, foot bars, four casters) average #3f3d3b
+ * over 0.75 m². Nothing sits between the two.
+ *
+ * ⚠ Agent A2 adds `editableSlots: [{ slot: 'fabric', match: 'fabric', texture:
+ * true }]` to this entry in the same round, so the curtain can take a fabric
+ * texture. Do not add it here. Note for whoever writes it: NO material in this
+ * GLB is named 'fabric' — they are all `Material_tripo_part_N` — so a name match
+ * has to be against that list, or the sixteen pleat materials will not be found.
+ */
 export const dividerScreen: CatalogEntry = {
   id: 'divider.screen',
   category: 'decor',
   labelKey: 'divider',
-  promptFragment: 'a plain freestanding divider screen',
-  defaultSize: { width: 180, depth: 6, height: 180 },
-  resizable: ['width', 'height'],
-  minSize: { width: 60, height: 100 },
-  maxSize: { width: 600, height: 300 },
-  materialSlots: [{ name: 'panel', labelKey: 'panel', defaultColor: '#d8d2c8' }],
+  promptFragment: 'a mobile room divider — a beige pleated curtain in a black wheeled frame',
+  defaultSize: { width: 155.9, depth: 31.9, height: 180 },
+  // real inventory: one product, one size, like every other GLB-backed entry
+  resizable: [],
+  minSize: {},
+  maxSize: {},
+  materialSlots: [
+    { name: 'fabric', labelKey: 'fabric', defaultColor: '#b7a595' },
+    { name: 'frame', labelKey: 'frame', defaultColor: '#3f3d3b' },
+  ],
   footprint: (s) => ({
-    parts: [{ kind: 'rect', w: s.width, h: s.depth, slot: 'panel' }],
+    parts: [{ kind: 'rect', w: s.width, h: s.depth, slot: 'fabric' }],
     outline: { kind: 'rect', w: s.width, h: s.depth },
   }),
-  buildMesh: (s) => [
-    { shape: 'box', dims: [s.width, s.height, s.depth], offset: [0, s.height / 2, 0], slot: 'panel' },
-  ],
+  // fallback only — the GLB is the real render. The curtain as a thin panel, the
+  // frame as the two posts and the rail that actually carry it.
+  buildMesh: (s) => {
+    const post = 5
+    const rail = 6
+    return [
+      { shape: 'box', dims: [s.width - post * 2, s.height - rail, 3], offset: [0, (s.height - rail) / 2, 0], slot: 'fabric' },
+      { shape: 'box', dims: [post, s.height, s.depth], offset: [-(s.width - post) / 2, s.height / 2, 0], slot: 'frame' },
+      { shape: 'box', dims: [post, s.height, s.depth], offset: [(s.width - post) / 2, s.height / 2, 0], slot: 'frame' },
+      { shape: 'box', dims: [s.width, rail, post], offset: [0, s.height - rail / 2, 0], slot: 'frame' },
+    ]
+  },
+  model: '/props/divider-screen.glb',
+  thumbnail: '/thumbs/divider-screen.webp',
 }
 
 /**

@@ -20,6 +20,13 @@ import type { SeatingConfig, Size3D, Transform2D, Vec2 } from '../model/types'
  * unlocked (model/types.ts:115) — but MOVING an existing entry between categories
  * would orphan its stored flags, which is why none was moved; see the v9
  * migration's comment.
+ *
+ * v12→v13 REMOVED 'ringCenter' (twelve → eleven). Its two entries — the low table
+ * that drops into the ⌀380's hole and the urn that stands on it — moved into
+ * 'tables', because a library heading of its own for two items was a heading the
+ * user had to learn. That IS the move v9's comment warned about, so v13 carries a
+ * migration; unlike a rename it DELETES the orphaned layer flags rather than
+ * merging them into `layers.tables`, for the reason written there.
  */
 export type Category =
   | 'tables'
@@ -29,7 +36,6 @@ export type Category =
   | 'tableware'
   | 'tableDecor'
   | 'tableDesigns'
-  | 'ringCenter'
   | 'lighting'
   | 'decor'
   | 'chuppah'
@@ -305,4 +311,24 @@ export function slotColor(
 
 export function anchorOf(_size: Size3D): Vec2 {
   return { x: 0, y: 0 }
+}
+
+/**
+ * A table you can put a chair at and stand things on — the thing every reader of
+ * `category === 'tables'` has always meant.
+ *
+ * ⚠ `category === 'tables'` STOPPED MEANING THAT AT v13. The category then held
+ * six floor tables and nothing else, so the two tests were the same test. v13
+ * folded `ringCenter` into it (see the `Category` note above), and its two members
+ * are `placement: 'surface'` — a table-top piece and the low table that drops
+ * through the ⌀380's hole. Left as a bare category test, nine call sites would
+ * have started treating a centrepiece as a guest table: offering it as a drop
+ * target for table decor, demanding table-to-table clearance around it, laying a
+ * table design on it.
+ *
+ * It lives HERE and not in state/selectors.ts on purpose: core/layout/collision.ts
+ * is one of its callers, and nothing in core/ may depend on state/.
+ */
+export function isFloorTable(entry: CatalogEntry): boolean {
+  return entry.category === 'tables' && entry.placement !== 'surface'
 }

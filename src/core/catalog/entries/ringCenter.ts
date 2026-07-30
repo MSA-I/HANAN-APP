@@ -40,9 +40,22 @@ import type { CatalogEntry } from '../types'
 
 const P = (file: string) => `/props/${file}`
 
-/** The same recipe as table decor, filed under the ring-centre category. */
+/**
+ * The same recipe as table decor, filed under 'tables'.
+ *
+ * ⚠ THE NAME `ringCenter` AND THIS FILE'S NAME MEAN THE ⌀380 RING, NOT A LIBRARY
+ * CATEGORY. There WAS a `ringCenter` category — added in v9, one heading for these
+ * two items — and v13 removed it: the pair now files under 'tables', beside the
+ * table whose hole they fill. The helper keeps its name because the ring it names
+ * is still there in the geometry; renaming it to `roundLargeCentre` would say
+ * less, not more.
+ *
+ * Both members stay `placement: 'surface'`, which is what keeps them out of
+ * `isFloorTable` (catalog/types.ts) and therefore out of every rule that means
+ * "a guest table" by "category is tables".
+ */
 function ringCenter(...args: Parameters<typeof surfaceProp>): CatalogEntry {
-  return { ...surfaceProp(...args), category: 'ringCenter' }
+  return { ...surfaceProp(...args), category: 'tables' }
 }
 
 export const ringCenterEntries: CatalogEntry[] = [
