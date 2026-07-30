@@ -19,6 +19,18 @@ import { leggedTable, pedestalTable } from '../builders'
 const CLOTH = { name: 'cloth', labelKey: 'cloth', defaultColor: '#f5f0e8' }
 const LEGS = { name: 'legs', labelKey: 'legs', defaultColor: '#a67b5b' }
 
+/**
+ * What every table in the family answers to in the library search, whatever its
+ * shape. Singular and short, because matching is by SUBSTRING over normalised
+ * text (ui/librarySearch.ts) — 'שולחן' already finds 'שולחנות'; each entry adds
+ * the words for its own shape.
+ *
+ * These six are the one family in the catalogue written out rather than built by
+ * a factory, so like `librarySubtitle` above the constant has to be spread by
+ * hand into each. A seventh table that forgets it is still findable by its label.
+ */
+const TABLE_KEYWORDS = ['שולחן', 'אירוח']
+
 /** The house chair — what a freshly-dropped table seats until the user picks another. */
 const DEFAULT_CHAIR = 'chair.x-white'
 
@@ -39,6 +51,7 @@ export const roundTable: CatalogEntry = {
   category: 'tables',
   labelKey: 'tableRound',
   promptFragment: 'a 180cm round banquet table under a floor-length tablecloth',
+  keywords: [...TABLE_KEYWORDS, 'עגול'],
   defaultSize: { width: 180, depth: 180, height: 75 },
   resizable: [],
   minSize: {},
@@ -79,6 +92,8 @@ export const roundTableLarge: CatalogEntry = {
   category: 'tables',
   labelKey: 'tableRoundLarge',
   promptFragment: 'a 380cm round banquet table with an open centre well, under a floor-length tablecloth',
+  // 'חור' and 'טבעת' because the open centre is what people call this one by
+  keywords: [...TABLE_KEYWORDS, 'עגול', 'גדול', 'חור', 'טבעת'],
   defaultSize: { width: 380, depth: 380, height: 75 },
   resizable: [],
   minSize: {},
@@ -120,6 +135,7 @@ export const squareTable: CatalogEntry = {
   category: 'tables',
   labelKey: 'tableSquare',
   promptFragment: 'a 160cm square banquet table under a floor-length tablecloth',
+  keywords: [...TABLE_KEYWORDS, 'מרובע', 'ריבוע'],
   defaultSize: { width: 160, depth: 160, height: 75 },
   resizable: [],
   minSize: {},
@@ -151,6 +167,7 @@ export const banquetTable: CatalogEntry = {
   category: 'tables',
   labelKey: 'tableBanquet',
   promptFragment: 'a 240 by 120cm rectangular banquet table under a floor-length tablecloth',
+  keywords: [...TABLE_KEYWORDS, 'מלבני', 'ארוך'],
   defaultSize: { width: 240, depth: 120, height: 75 },
   resizable: [],
   minSize: {},
@@ -190,6 +207,7 @@ export const knightsTable: CatalogEntry = {
   category: 'tables',
   labelKey: 'tableKnights',
   promptFragment: 'a 480 by 120cm long banquet table under a floor-length tablecloth',
+  keywords: [...TABLE_KEYWORDS, 'מלבני', 'אבירים', 'ארוך'],
   defaultSize: { width: 480, depth: 120, height: 75 },
   resizable: [],
   minSize: {},
@@ -249,6 +267,7 @@ export const serpentineTable: CatalogEntry = {
   category: 'tables',
   labelKey: 'tableSerpentine',
   promptFragment: 'a serpentine S-curved banquet table, an 80cm-wide draped band',
+  keywords: [...TABLE_KEYWORDS, 'נחש', 'גלי', 'מתעגל'],
   // = the prepped GLB bbox, verified after prepping: `size [4.22, 0.75, 4.22]` m
   defaultSize: { width: 422, depth: 422, height: 75 },
   resizable: [],

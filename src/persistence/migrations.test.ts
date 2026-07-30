@@ -473,8 +473,15 @@ describe('v7 → v8 layout tag split', () => {
 })
 
 describe('v8 → v9 new categories, stacked napkins, hang re-clamp', () => {
-  /** The three categories v9 adds. Asserted against the catalog below, not assumed. */
-  const NEW_V9_CATEGORIES: Category[] = ['tableDesigns', 'ringCenter', 'chuppahDecor']
+  /**
+   * The three categories v9 adds — and `string[]`, not `Category[]`, on purpose.
+   * 'ringCenter' is no longer a member of that union: v13 folded it into 'tables'
+   * (core/catalog/types.ts). This describe block is about what v9 DID, which is
+   * still exactly true, so the list keeps all three and only the type widens.
+   */
+  const NEW_V9_CATEGORIES: string[] = ['tableDesigns', 'ringCenter', 'chuppahDecor']
+  /** …of which these survived to today. See the CATEGORY_ORDER assertion below. */
+  const V9_CATEGORIES_ALIVE_AT_V13: Category[] = ['tableDesigns', 'chuppahDecor']
 
   const base = {
     name: '',
@@ -582,8 +589,12 @@ describe('v8 → v9 new categories, stacked napkins, hang re-clamp', () => {
     for (let v = 1; v < SCHEMA_VERSION; v++) expect(migrations[v]).toBeTypeOf('function')
   })
 
-  it('adds the three new categories to the catalog order', () => {
-    for (const category of NEW_V9_CATEGORIES) expect(CATEGORY_ORDER).toContain(category)
+  it('adds the new categories that still exist to the catalog order', () => {
+    // v13 note: this asserted all THREE of NEW_V9_CATEGORIES until 'ringCenter'
+    // was folded into 'tables'. Narrowed to the survivors rather than deleted —
+    // the other two are still v9's and still have to be in the order.
+    for (const category of V9_CATEGORIES_ALIVE_AT_V13) expect(CATEGORY_ORDER).toContain(category)
+    expect(CATEGORY_ORDER).not.toContain('ringCenter' as Category)
   })
 
   it('writes NO layer entry for the new categories — absent already means visible and unlocked', () => {
@@ -595,7 +606,10 @@ describe('v8 → v9 new categories, stacked napkins, hang re-clamp', () => {
     project.scene.settings.layers = { tableDecor: { hidden: true } }
     const revived = migrateAndValidate(JSON.parse(JSON.stringify(file)))
     const layers = revived.project.scene.settings.layers!
-    for (const category of NEW_V9_CATEGORIES) {
+    for (const name of NEW_V9_CATEGORIES) {
+      // `as Category` because 'ringCenter' left the union at v13 — the question
+      // being asked is still the v9 one, about a key in a `z.record`
+      const category = name as Category
       expect(layers[category]).toBeUndefined()
       expect(isLayerHidden(revived.project.scene, category)).toBe(false)
       expect(isLayerLocked(revived.project.scene, category)).toBe(false)

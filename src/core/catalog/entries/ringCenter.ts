@@ -40,9 +40,31 @@ import type { CatalogEntry } from '../types'
 
 const P = (file: string) => `/props/${file}`
 
-/** The same recipe as table decor, filed under the ring-centre category. */
+/**
+ * The same recipe as table decor, filed under 'tables'.
+ *
+ * ⚠ THE NAME `ringCenter` AND THIS FILE'S NAME MEAN THE ⌀380 RING, NOT A LIBRARY
+ * CATEGORY. There WAS a `ringCenter` category — added in v9, one heading for these
+ * two items — and v13 removed it: the pair now files under 'tables', beside the
+ * table whose hole they fill. The helper keeps its name because the ring it names
+ * is still there in the geometry; renaming it to `roundLargeCentre` would say
+ * less, not more.
+ *
+ * Both members stay `placement: 'surface'`, which is what keeps them out of
+ * `isFloorTable` (catalog/types.ts) and therefore out of every rule that means
+ * "a guest table" by "category is tables".
+ */
 function ringCenter(...args: Parameters<typeof surfaceProp>): CatalogEntry {
-  return { ...surfaceProp(...args), category: 'ringCenter' }
+  const base = surfaceProp(...args)
+  return {
+    ...base,
+    category: 'tables',
+    // The library search words for the pair. Extends what `surfaceProp` already
+    // gave them: these two are found by the HOLE they fill, which is how the
+    // user names them, and 'שולחן' has to be here now that the category heading
+    // no longer says it (the `ringCenter` category is gone — see below).
+    keywords: [...(base.keywords ?? []), 'שולחן', 'עגול גדול', 'חור', 'טבעת', 'פנימי'],
+  }
 }
 
 export const ringCenterEntries: CatalogEntry[] = [
@@ -143,7 +165,8 @@ export const ringCenterEntries: CatalogEntry[] = [
   {
     ...ringCenter('ring.floral', 'ringFloral',
       'a fluted urn filled with white rose buds and dense green foliage',
-      P('ring-center-floral.glb'), { width: 72, depth: 63.5, height: 86 }, '#697151'),
+      P('ring-center-floral.glb'), { width: 72, depth: 63.5, height: 86 }, '#697151',
+      'round', ['פרחים', 'פרח', 'ורדים', 'זר']),
     requiresHost: 'ring.table',
     // …and the missing host is not a REFUSAL. `autoHost` makes the drop lay the
     // inner table in the same gesture, one `mutateScene` and therefore one undo

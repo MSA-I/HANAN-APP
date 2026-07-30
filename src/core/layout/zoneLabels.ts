@@ -15,6 +15,28 @@
  * Deterministic, and a pure function so it can be tested at all (BRIEF §1.7:
  * vitest runs `environment: 'node'`, there are no DOM tests).
  *
+ * ⚠ A TAG MUST ALSO KEEP OFF A ZONE THAT IS PAINTED OVER ITS OWN, and that
+ * second rule is COUPLED TO THE DRAW ORDER rather than to any new constant.
+ * VenueLayer draws zone fills BIGGEST-AREA FIRST, so a smaller zone's tint lands
+ * on top of a bigger one's; this function walks SMALLEST-first, so at the moment
+ * zone `i` is placed, `placed` holds exactly the zones that will be painted OVER
+ * it. Scoring against their rectangles is therefore scoring against the tints
+ * that will actually cover this tag — no weight, no threshold, and the two
+ * orders cannot drift apart without one of them being deliberately reversed.
+ *
+ * The two costs are LEXICOGRAPHIC, not summed: label-on-label first, zone-rect
+ * only to break a tie. A tag over another tag is unreadable; a tag over a
+ * neighbouring tint is merely untidy, and a summed score would let enough of the
+ * second outvote a little of the first.
+ *
+ * `LABEL_GAP` applies to the label term ONLY. It is clear air demanded between
+ * two TEXTS; a tag may sit hard against a neighbouring zone's edge.
+ *
+ * What this fixed, measured: the pool's tag landed at y 2047.5…2107.5 while the
+ * chuppah zone rectangle ends at y 2076, printing 380 × 28.5 cm of "בריכה" on
+ * the ceremony pad's tint. The `bottom` candidate was 392 cm clear the whole
+ * time — the old scorer simply never asked.
+ *
  * Everything here is plan cm, matching `RestrictedZone`.
  */
 import type { RestrictedZone } from '../venuePacks'
@@ -116,39 +138,62 @@ function candidates(zone: RestrictedZone, w: number, h: number, inset: number): 
 }
 
 /**
+ * A tag already down, and the zone it belongs to. Both are needed: the box is
+ * what a later tag must not touch, the rect is what a later tag should not sit
+ * on — see the header on why the second one is free of any tuning.
+ */
+interface Placed {
+  box: Rect
+  rect: Rect
+}
+
+/**
  * One tag box per zone, in the SAME ORDER as the input array (the caller keys
  * off its own zone list, and two zones can share a `kind` in principle).
  */
 export function zoneLabelBoxes(zones: readonly RestrictedZone[]): ZoneLabelBox[] {
   // smallest area first — a small zone has the fewest slots that are still
-  // inside it, so it gets to keep its centre and the big one moves.
+  // inside it, so it gets to keep its centre and the big one moves. It is also
+  // what makes `placed` mean "painted over me" (header).
   const order = zones
     .map((zone, index) => ({ zone, index }))
     .sort((a, b) => a.zone.width * a.zone.depth - b.zone.width * b.zone.depth)
 
   const out = new Array<ZoneLabelBox>(zones.length)
-  const placed: Rect[] = []
+  const placed: Placed[] = []
 
   for (const { zone, index } of order) {
     const { w, h, inset } = labelSize(zone)
+    const rect: Rect = { x: zone.x, y: zone.y, w: zone.width, h: zone.depth }
     const slots = candidates(zone, w, h, inset)
     let best = slots[0]
-    let bestCost = Infinity
+    let bestLabel = Infinity
+    let bestTint = Infinity
     for (const slot of slots) {
+      // LABEL_GAP is clear air between two TEXTS, so it grows the label term and
+      // nothing else — a tag may sit against a neighbouring zone's edge.
       const grown = grow(slot, LABEL_GAP / 2)
-      let cost = 0
-      for (const other of placed) cost += overlapArea(grown, grow(other, LABEL_GAP / 2))
-      if (cost === 0) {
+      let label = 0
+      let tint = 0
+      for (const other of placed) {
+        label += overlapArea(grown, grow(other.box, LABEL_GAP / 2))
+        tint += overlapArea(slot, other.rect)
+      }
+      // a slot that is clear of both is unimprovable — take it and stop
+      if (label === 0 && tint === 0) {
         best = slot
-        bestCost = 0
+        bestLabel = 0
+        bestTint = 0
         break
       }
-      if (cost < bestCost) {
+      // LEXICOGRAPHIC: text-on-text decides, tint-under-text only breaks a tie
+      if (label < bestLabel || (label === bestLabel && tint < bestTint)) {
         best = slot
-        bestCost = cost
+        bestLabel = label
+        bestTint = tint
       }
     }
-    placed.push(best)
+    placed.push({ box: best, rect })
     out[index] = { kind: zone.kind ?? '', ...best }
   }
 

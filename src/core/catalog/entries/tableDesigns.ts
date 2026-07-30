@@ -34,7 +34,13 @@ import type { CatalogEntry } from '../types'
 
 const P = (file: string) => `/props/${file}`
 
-/** The same recipe as table decor, filed under the design category. */
+/**
+ * The same recipe as table decor, filed under the design category.
+ *
+ * `keywords` rides through the spread from `surfaceProp`, so every design
+ * already answers to SURFACE_KEYWORDS plus whatever its own call passes as the
+ * last argument.
+ */
 function design(...args: Parameters<typeof surfaceProp>): CatalogEntry {
   return { ...surfaceProp(...args), category: 'tableDesigns' }
 }
@@ -50,7 +56,8 @@ export const tableDesignEntries: CatalogEntry[] = [
   // `decor.candelabra-crystal`; these are the statement pieces.
   design('design.candelabrum-crystal', 'designCandelabrumCrystal',
     'a thirteen-light crystal candelabrum, two tiers of scrolled arms on a fluted column',
-    P('design-candelabrum-crystal.glb'), { width: 37.2, depth: 39.5, height: 75 }, '#969b96'),
+    P('design-candelabrum-crystal.glb'), { width: 37.2, depth: 39.5, height: 75 }, '#969b96',
+    'round', ['נר', 'נרות', 'פמוט', 'קנדלברה', 'קריסטל']),
   // Six slim glass rods at three heights rising from ONE square mirrored base —
   // rect, because that base is square and a disc would misdraw it. Each rod wears
   // a dark collar under a faceted flame finial. ⚠ It reads as solid glass in 3D:
@@ -59,14 +66,16 @@ export const tableDesignEntries: CatalogEntry[] = [
   // behaviour, not something this entry introduced.
   design('design.lamp-glass-rod', 'designLampGlassRod',
     'a cluster of six slim glass candle rods at staggered heights on one mirrored base',
-    P('design-lamp-glass-rod.glb'), { width: 20.8, depth: 20, height: 70 }, '#b5b4b3', 'rect'),
+    P('design-lamp-glass-rod.glb'), { width: 20.8, depth: 20, height: 70 }, '#b5b4b3', 'rect',
+    ['נר', 'נרות', 'זכוכית', 'מוט']),
   // Three white phalaenopsis stems with long trailing leaves, held in a tall
   // three-rod brass frame on a round brass base plate. The measured mean is warm
   // and olive rather than white because the brass and the leaves cover more area
   // than the flowers do.
   design('design.orchid-sculpture', 'designOrchidSculpture',
     'three white orchid stems with trailing leaves in a tall brass rod frame',
-    P('design-orchid-sculpture.glb'), { width: 26.4, depth: 26.3, height: 80 }, '#b5b191'),
+    P('design-orchid-sculpture.glb'), { width: 26.4, depth: 26.3, height: 80 }, '#b5b191',
+    'round', ['פרחים', 'פרח', 'סחלב', 'פליז']),
   // The fourth product shot, hf_20260728_113310, which gate 1 above reported as
   // having no model: the model arrived at 19:07 that evening, named
   // "crystal candelabrum 3d mode3l.glb" — the typo is why it does not read as a
@@ -87,5 +96,6 @@ export const tableDesignEntries: CatalogEntry[] = [
   // chosen: they are the exact prepped bounds that the height implies.
   design('design.candelabrum-hurricane', 'designCandelabrumHurricane',
     'a thirteen-light glass candelabrum, each candle inside a tall glass chimney, on scrolled glass arms',
-    P('design-candelabrum-hurricane.glb'), { width: 25.9, depth: 26.3, height: 85 }, '#cecdc8'),
+    P('design-candelabrum-hurricane.glb'), { width: 25.9, depth: 26.3, height: 85 }, '#cecdc8',
+    'round', ['נר', 'נרות', 'פמוט', 'קנדלברה', 'זכוכית']),
 ]

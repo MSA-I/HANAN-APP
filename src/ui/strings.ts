@@ -292,7 +292,8 @@ export const strings = {
       tableware: 'סכו״ם ומפיות',
       tableDecor: 'קישוטי שולחן',
       tableDesigns: 'עיצובי שולחן',
-      ringCenter: 'עיצובי שולחן עיגול גדול',
+      // `ringCenter: 'עיצובי שולחן עיגול גדול'` was here until v13. Its two items
+      // list under שולחנות now — see core/catalog/types.ts.
       lighting: 'תאורה',
       decor: 'עיצוב',
       chuppah: 'חופות',
@@ -308,7 +309,12 @@ export const strings = {
       counter: 'דלפק',
       pot: 'עציץ',
       foliage: 'עלווה',
-      panel: 'פאנל',
+      /**
+       * Round 4: the divider's curtain. It replaces `panel`, which was the
+       * placeholder screen's single slot and had no other reader once the real
+       * model arrived segmented into curtain + frame (entries/decor.ts).
+       */
+      fabric: 'בד',
       /** PLAN-02/A2: the figure's single material slot */
       figure: 'דמות',
       /**
@@ -349,6 +355,37 @@ export const strings = {
      */
     seatsSuffix: 'כסאות',
     seatsLabel: (n: number) => `${n} כסאות`,
+    /**
+     * The quick-filter chips under the search box.
+     *
+     * ⚠ EACH CHIP IS BOTH THE LABEL AND THE QUERY. Clicking one types it into the
+     * search box, so every word here has to read as something the user could have
+     * typed — not as a category name and not as an abbreviation. That is also why
+     * they are singular: the search matches by substring over normalised text
+     * (ui/librarySearch.ts), so 'נר' finds 'נרות' and 'שולחן' finds 'שולחנות',
+     * while the plural would find only itself.
+     *
+     * About a dozen, because the row wraps and a third line of chips costs more
+     * screen than the filtering saves. They are the families a user actually
+     * hunts for; anything rarer is what the box itself is for.
+     */
+    chips: [
+      'שולחן',
+      'כסא',
+      'חופה',
+      'תאורה',
+      'נר',
+      'פרחים',
+      'ואזה',
+      'מפית',
+      'בר',
+      'בופה',
+      'צמחייה',
+      'מחיצה',
+      // the one chip that is an adjective rather than a thing, and it earns its
+      // place: shape is how a venue manager asks for a table
+      'עגול',
+    ] as const,
   },
   presets: {
     tableDesign: 'עיצוב שולחן',
@@ -936,6 +973,17 @@ export const strings = {
     corridor: 'מעבר',
     passage: 'מעבר',
     kabalatPanim: 'קבלת פנים',
+    /**
+     * ZONE_SHVIL_HUPA — the aisle to the ceremony, painted 2026-07-29.
+     *
+     * ⚠ A NO-OP TODAY, and listed anyway. The zone is 140 cm wide, which leaves a
+     * 108 cm tag box, and `labelFits` refuses anything under 132 cm at the drawn
+     * font size (core/layout/zoneLabels.ts) — so nothing is printed and this
+     * string is never read. BRIEF §1.2 is that every user-facing string lives
+     * here regardless; without it, the day the aisle widens the plan silently
+     * falls back to the pack's own inline Hebrew instead.
+     */
+    shvilHupa: 'שביל החופה',
     /** the ring of deck the user drew around the pool — PLAN-01 adds the zone itself */
     saviv: 'סביב הבריכה',
     /**

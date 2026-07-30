@@ -20,7 +20,12 @@
  * A project saved before these rules existed must load exactly as it was.
  */
 import { getCatalogEntry } from '../catalog/registry'
-import type { CatalogEntry, FootprintPart, Outline } from '../catalog/types'
+import {
+  isFloorTable,
+  type CatalogEntry,
+  type FootprintPart,
+  type Outline,
+} from '../catalog/types'
 import type { Id, SceneObject, SceneState, Size3D, Transform2D, Vec2 } from '../model/types'
 import { composeTransform, relativeTransform, rotateVec } from '../space'
 import { getVenuePack, type RestrictedZone } from '../venuePacks'
@@ -526,7 +531,10 @@ function buildIndex(scene: SceneState): Index {
       selfBoxes: partBoxes.slice(0, self.length),
       parts,
       partBoxes,
-      isTable: entry.category === 'tables',
+      // defensive: this loop `continue`s on `obj.parentId`, and the two v13
+      // arrivals in 'tables' are surface children, so they never reach it. Asked
+      // the same way as everywhere else so the rule reads once (catalog/types.ts)
+      isTable: isFloorTable(entry),
       clearance: clearanceOf(outline),
     })
   }
@@ -595,7 +603,9 @@ export function allowedOnDeck(entry: CatalogEntry): boolean {
     // Guest tables belong up there with the chairs. Round-2 corrections §27, in the
     // user's words: "when I try to place tables or a chuppah in the reception area,
     // even when it is switched on, it will not let me."
-    entry.category === 'tables' ||
+    // defensive: `placementViolations` returns early for a surface item long
+    // before it reaches the deck branch, so the v13 arrivals never ask this.
+    isFloorTable(entry) ||
     entry.id === 'buffet.table'
   )
 }
@@ -885,7 +895,9 @@ function check(index: Index, candidate: PlacementCandidate): Violation[] {
     }
   }
 
-  const isTable = entry.category === 'tables'
+  // defensive, same reason as `allowedOnDeck` above: the surface branch returned
+  // ~60 lines up, so a v13 ring centrepiece never reaches the clearance loop
+  const isTable = isFloorTable(entry)
   const clearance = clearanceOf(outline)
   for (const other of index.occupants) {
     if (excluded.has(other.id)) continue

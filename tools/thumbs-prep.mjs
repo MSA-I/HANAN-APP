@@ -230,6 +230,18 @@ const MAPPING = [
   // render the 2D plan uses (public/plan/) is the same model from above, where a
   // person is a disc of hair, so it could not double as the tile.
   { id: 'figure.woman', glb: 'figure-woman.glb', view: 'front' },
+
+  // ── round 4 additions ──────────────────────────────────────────────────────
+  // The last two entries that had no picture at all. They were open from round 1
+  // (Plans/R1/handoff/BLOCKED-01-A1.md) purely for want of a source; the user
+  // supplied both a model and a shot for each, so these are ordinary photo rows.
+  //
+  // ⚠ `בופה אולם.png` IS A DIFFERENT PRODUCT — the HALL's built-in buffet — and
+  // must NOT be mapped here or anywhere. This project is resort-only, and the two
+  // filenames differ by one word. Same trap as the green-marble bar shot flagged
+  // at the `bar.resort-left` row above.
+  { id: 'buffet.table', src: 'בופה ריזורט.png' },
+  { id: 'divider.screen', src: 'מחיצה.png' },
 ]
 
 const outName = (id) => `${id.replaceAll('.', '-')}.webp`

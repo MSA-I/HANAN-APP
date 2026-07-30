@@ -77,6 +77,10 @@ function chuppahDecorProp(
     // The canopies it stands beside (entries/chuppah.ts) keep the default 'size':
     // a 3.5 m structure has to be checked against the ceremony spot.
     librarySubtitle: 'none',
+    // Library search. Carries 'חופה'/'חופות' like the canopy itself — a user
+    // hunting for ceremony pieces types the occasion, not the part — plus the
+    // words for what these actually are.
+    keywords: ['חופה', 'חופות', 'קישוט', 'עיצוב', 'טקס', 'פרחים', 'פרח'],
     materialSlots: [{ name: 'body', labelKey: 'body', defaultColor: color }],
     footprint: (s) => ({
       parts: [{ kind: 'rect', w: s.width, h: s.depth, cornerRadius: 3, slot: 'body' }],

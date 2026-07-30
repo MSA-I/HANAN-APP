@@ -3,7 +3,7 @@ import type { KonvaEventObject } from 'konva/lib/Node'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Stage } from 'react-konva'
 import { getCatalogEntry } from '../core/catalog/registry'
-import type { CatalogEntry } from '../core/catalog/types'
+import { isFloorTable, type CatalogEntry } from '../core/catalog/types'
 import { aabbIntersects, aabbUnion, pointInHole, pointInOutline, type AABB } from '../core/layout/bounds'
 import { checkPlacement } from '../core/layout/collision'
 import { snapValue } from '../core/layout/snapping'
@@ -454,7 +454,12 @@ export function Stage2D() {
       const obj = scene.objects[id]
       if (!obj || !isObjectVisible(scene, id)) continue
       const entry = getCatalogEntry(obj.catalogId)
-      if (entry.category !== 'tables') continue
+      // REACHABLE, unlike most of the v13 sites: `objectOrder` holds top-level
+      // objects only, but PASTE promotes a copied surface child to one
+      // (`root.parentId = null; delete root.attachment`, state/actions.ts). A
+      // pasted `ring.table` standing on the floor would otherwise become a drop
+      // target for table decor the moment it joined 'tables'.
+      if (!isFloorTable(entry)) continue
       const outline = entry.footprint(obj.size).outline
       if (pointInOutline(world, obj.transform, outline)) {
         return { id, inHole: pointInHole(world, obj.transform, outline) }
