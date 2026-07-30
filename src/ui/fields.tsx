@@ -1,11 +1,143 @@
-import { Minus, Plus } from 'lucide-react'
+import { ChevronDown, Minus, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { resolveOpenSections } from '../core/panelState'
+import { strings } from './strings'
 
 export function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="border-b border-line px-4 py-3.5">
       <h3 className="mb-3 text-[16px] font-semibold text-ink">{title}</h3>
       <div className="flex flex-col gap-2.5">{children}</div>
+    </section>
+  )
+}
+
+/**
+ * A heading INSIDE a section — the one `PresetsSection` already used for
+ * "עיצובים שמורים" / "פריסות אישיות", promoted so that a merged section and a
+ * collapsed sub-block cannot drift apart. Same classes, nothing new.
+ */
+export function SubHeading({ children }: { children: React.ReactNode }) {
+  return <h4 className="pt-1 text-[13px] font-semibold text-ink-soft">{children}</h4>
+}
+
+/**
+ * ONE localStorage key for every collapsible section, holding
+ * `{[sectionId]: boolean}` — not one key per section. The precedents in this app
+ * (`hanan.splitRatio`, `hanan.librarySize`) are single values, and N keys for one
+ * panel's worth of chevrons is N chances to leave a stale one behind.
+ */
+const SECTIONS_KEY = 'hanan.inspector.sections'
+
+/**
+ * Every id persisted under that key, in one place so a typo cannot silently mint
+ * a second entry that nothing ever reads. Values are the storage ids themselves;
+ * the DEFAULT open state stays at the call site, next to the section it belongs
+ * to, because that is a layout decision rather than a storage one.
+ */
+export const INSPECTOR_SECTION = {
+  hallLayouts: 'hallLayouts',
+  lighting: 'lighting',
+  lightingFine: 'lightingFine',
+  tableDesign: 'tableDesign',
+  layers: 'layers',
+} as const
+
+function storedSections(): unknown {
+  try {
+    return typeof localStorage !== 'undefined' ? localStorage.getItem(SECTIONS_KEY) : null
+  } catch {
+    // storage may be unavailable (private mode) — ignore
+    return null
+  }
+}
+
+/**
+ * MERGE, never replace: each section writes only its own id back, so toggling
+ * one cannot drop the other four. `resolveOpenSections` filters on the way in,
+ * which is what makes it safe to keep whatever else is already in there.
+ */
+function persistSection(id: string, open: boolean): void {
+  try {
+    if (typeof localStorage === 'undefined') return
+    const raw = localStorage.getItem(SECTIONS_KEY)
+    const parsed: unknown = raw ? JSON.parse(raw) : null
+    const base = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    localStorage.setItem(SECTIONS_KEY, JSON.stringify({ ...base, [id]: open }))
+  } catch {
+    // storage may be unavailable (private mode) — ignore
+  }
+}
+
+interface CollapsibleSectionProps {
+  /** persistence id — a key of `INSPECTOR_SECTION` */
+  id: string
+  title: string
+  /** what the section does the FIRST time this browser ever sees it */
+  defaultOpen?: boolean
+  /**
+   * A disclosure inside another section: no border, no padding of its own, and
+   * the `SubHeading` type rather than the section heading. `Section` is a ruled
+   * band across the panel and nesting one inside another draws a rule through
+   * the middle of it.
+   */
+  nested?: boolean
+  children: React.ReactNode
+}
+
+/**
+ * `Section` plus a chevron. Same markup and the same classes — the heading is a
+ * button now, and the body is absent rather than hidden when closed, so a
+ * collapsed section costs nothing to render.
+ */
+export function CollapsibleSection({
+  id,
+  title,
+  defaultOpen = false,
+  nested = false,
+  children,
+}: CollapsibleSectionProps) {
+  // read once: the panel remounts constantly (every trip through the 3D view),
+  // and re-reading on every render would fight the user's own toggle
+  const [open, setOpen] = useState(() => resolveOpenSections(storedSections(), { [id]: defaultOpen })[id])
+
+  const toggle = () => {
+    const next = !open
+    setOpen(next)
+    persistSection(id, next)
+  }
+
+  const trigger = (
+    <button
+      type="button"
+      aria-expanded={open}
+      title={open ? strings.inspector.collapse : strings.inspector.expand}
+      onClick={toggle}
+      className="flex w-full items-center justify-between gap-2 text-start"
+    >
+      {title}
+      {/* rotation on the VERTICAL axis only: a chevron flipped left/right would
+          mean opposite things under the two directions, and this panel is RTL */}
+      <ChevronDown
+        size={16}
+        className={`shrink-0 text-ink-soft transition-transform ${open ? 'rotate-180' : ''}`}
+      />
+    </button>
+  )
+
+  if (nested) {
+    return (
+      <div>
+        <SubHeading>{trigger}</SubHeading>
+        {open && <div className="mt-2.5 flex flex-col gap-2.5">{children}</div>}
+      </div>
+    )
+  }
+  return (
+    <section className="border-b border-line px-4 py-3.5">
+      {/* the heading's own bottom margin only exists when something follows it */}
+      <h3 className={`text-[16px] font-semibold text-ink ${open ? 'mb-3' : ''}`}>{trigger}</h3>
+      {open && <div className="flex flex-col gap-2.5">{children}</div>}
     </section>
   )
 }

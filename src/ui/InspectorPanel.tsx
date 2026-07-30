@@ -22,7 +22,6 @@ import {
 } from '../core/catalog/registry'
 import type { Category } from '../core/catalog/types'
 import { slotColor } from '../core/catalog/types'
-import { maxGapForSeats, maxSeatsForEntry } from '../core/layout/seatLayout'
 import type { LightingMode, SceneObject, ShadowSharpness } from '../core/model/types'
 import { composeTransform, relativeTransform } from '../core/space'
 import { displayName } from '../editor2d/ObjectNode'
@@ -48,18 +47,30 @@ import {
   setSeatingConfig,
   setSize,
 } from '../state/actions'
-import { categoryOf, isEffectivelyLocked, isFrozen, lightingOf, sceneCounts } from '../state/selectors'
+import { categoryOf, isEffectivelyLocked, isFrozen, lightingOf, seatBounds } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { useShallow } from 'zustand/react/shallow'
 import { LIGHTING_MODES } from '../viewer3d/lightingModes'
-import { ColorField, FieldRow, NumberField, Section, SliderField, Stepper } from './fields'
+import {
+  ColorField,
+  CollapsibleSection,
+  FieldRow,
+  INSPECTOR_SECTION,
+  NumberField,
+  Section,
+  SliderField,
+  Stepper,
+  SubHeading,
+} from './fields'
 import { LayersSection } from './LayersSection'
 import {
+  BakeFixturesSection,
+  HallDesignBlock,
   HallLayoutsSection,
+  LightingLayoutsBlock,
   SaveSelectionSection,
-  ScenePresetsSection,
+  TableDesignBlock,
   TableDesignHintSection,
-  TableDesignSection,
 } from './PresetsSection'
 import { strings } from './strings'
 
@@ -124,8 +135,24 @@ function ShadowSharpnessField({
   )
 }
 
-/** Outdoor lighting: mode chips + sun steering. Picking a mode resets the sun
- *  to that mode's canonical stance; the sliders then steer off it. */
+/**
+ * Every light in the hall, in one section instead of three.
+ *
+ * It used to be `תאורה חיצונית` (sun), then `פריסות תאורה` (ceiling fixtures)
+ * two bands below it, then `פריסות תאורה אישיות` (saved fixture layouts) below
+ * that — three separate places to look, two of them near-identically named.
+ *
+ * Inside, in the order someone actually reaches for them: the three mode chips
+ * answer "make it look like evening" in one click, then the fixtures, then the
+ * saved lighting layouts. The four expert sliders are NOT cut — each was a
+ * specific request in an earlier round — they are demoted behind `כוונון עדין`,
+ * closed, below the control that answers the question they were being used to
+ * answer by hand.
+ *
+ * ⚠ The section's title is `lighting.title` = "תאורה חיצונית", which now names
+ * only its first block. `strings.ts` is not this plan's file and has no plain
+ * "תאורה"; logged in handoff/FOUND-X3.md.
+ */
 function LightingSection() {
   const lighting = useEditorStore((s) => lightingOf(s.scene))
   const L = strings.lighting
@@ -139,7 +166,7 @@ function LightingSection() {
     setLighting({ mode: id, sunAzimuth: sun.azimuth, sunElevation: sun.elevation, sunIntensity: sun.intensity })
   }
   return (
-    <Section title={L.title}>
+    <CollapsibleSection id={INSPECTOR_SECTION.lighting} title={L.title}>
       <div className="flex gap-1">
         {modes.map((m) => (
           <button
@@ -158,29 +185,47 @@ function LightingSection() {
           </button>
         ))}
       </div>
-      <SliderField label={L.sunAzimuth} value={lighting.sunAzimuth} min={0} max={360} unit="°" onChange={(v) => setLighting({ sunAzimuth: v })} />
-      <SliderField label={L.sunElevation} value={lighting.sunElevation} min={10} max={90} unit="°" onChange={(v) => setLighting({ sunElevation: v })} />
-      <SliderField label={L.sunIntensity} value={lighting.sunIntensity} min={0} max={2} step={0.05} onChange={(v) => setLighting({ sunIntensity: v })} />
-      {/* Read with a fallback and never written on mount: absent already renders
-          as 'medium' (= the 4096 the rig always used), so materialising it here
-          would dirty every project that opens without changing a pixel. */}
-      <ShadowSharpnessField
-        value={lighting.shadowSharpness ?? 'medium'}
-        onChange={(v) => setLighting({ shadowSharpness: v })}
-      />
-    </Section>
+      <SubHeading>{strings.presets.hallDesign}</SubHeading>
+      <HallDesignBlock />
+      <SubHeading>{strings.presets.lightingLayouts}</SubHeading>
+      <LightingLayoutsBlock />
+      <CollapsibleSection id={INSPECTOR_SECTION.lightingFine} title={T.lightingFine} nested>
+        <SliderField label={L.sunAzimuth} value={lighting.sunAzimuth} min={0} max={360} unit="°" onChange={(v) => setLighting({ sunAzimuth: v })} />
+        <SliderField label={L.sunElevation} value={lighting.sunElevation} min={10} max={90} unit="°" onChange={(v) => setLighting({ sunElevation: v })} />
+        <SliderField label={L.sunIntensity} value={lighting.sunIntensity} min={0} max={2} step={0.05} onChange={(v) => setLighting({ sunIntensity: v })} />
+        {/* Read with a fallback and never written on mount: absent already renders
+            as 'medium' (= the 4096 the rig always used), so materialising it here
+            would dirty every project that opens without changing a pixel. */}
+        <ShadowSharpnessField
+          value={lighting.shadowSharpness ?? 'medium'}
+          onChange={(v) => setLighting({ shadowSharpness: v })}
+        />
+      </CollapsibleSection>
+    </CollapsibleSection>
   )
 }
 
+/**
+ * The panel with nothing selected.
+ *
+ * Order is the argument: whoever opens this app is seating 300 guests, so the
+ * hall layouts come second, straight after the project's own identity. Placing
+ * one chair by hand is not the entry point, and neither is a sun azimuth.
+ *
+ * WHAT WAS CUT: the `סיכום` section. It printed tables · chairs · seats from
+ * `sceneCounts`, which is byte for byte what `StatusBar.tsx:114-120` prints from
+ * the same selector, permanently, on every screen. One of the two was noise.
+ */
 function ProjectInspector() {
   const projectName = useEditorStore((s) => s.projectName)
   const venue = useEditorStore((s) => s.scene.venue)
-  const counts = useEditorStore(useShallow((s) => sceneCounts(s.scene)))
   const pack = getVenuePack(venue.venuePackId)
   const m = (cm: number) => String(Math.round(cm) / 100)
 
   return (
     <>
+      {/* project and venue were two sections and one border apart, and between
+          them they are four read-mostly lines — its own title already said both */}
       <Section title={T.projectTitle}>
         <FieldRow label={T.projectName}>
           <input
@@ -189,66 +234,56 @@ function ProjectInspector() {
             onChange={(e) => setProjectName(e.target.value)}
           />
         </FieldRow>
-      </Section>
-      <Section title={T.venue}>
         {pack && <InfoRow label={T.venueName} value={pack.name} />}
         <InfoRow label={T.venueDims} value={`${m(venue.size.width)} × ${m(venue.size.depth)} מ׳`} />
         <InfoRow label={T.wallHeightInfo} value={`${m(venue.wallHeight)} מ׳`} />
       </Section>
-      <Section title={T.summary}>
-        <p className="text-[14px] text-ink-soft">
-          <span className="ltr-nums">{counts.tables}</span> {strings.statusBar.tables} ·{' '}
-          <span className="ltr-nums">{counts.chairs}</span> {strings.statusBar.chairs} ·{' '}
-          <span className="ltr-nums">{counts.seats}</span> {strings.statusBar.seats}
-        </p>
-      </Section>
-      <LightingSection />
       <HallLayoutsSection />
-      <ScenePresetsSection />
+      {/* stays directly under the layout pickers — see BakeFixturesSection */}
+      <BakeFixturesSection />
+      <LightingSection />
       <TableDesignHintSection />
       <LayersSection />
     </>
   )
 }
 
-function SeatingSection({ obj }: { obj: SceneObject }) {
-  if (!obj.seating) return null
-  const entry = getCatalogEntry(obj.catalogId)
-  const cap = entry.seating
-  if (!cap) return null
-  const chairEntry = getCatalogEntry(obj.seating.chairCatalogId)
-  const max = Math.min(
-    cap.max,
-    maxSeatsForEntry(entry, obj.size, obj.seating, chairEntry.defaultSize),
-  )
+/**
+ * ⚠ NAME, EXPORT AND `{ obj }` PROPS ARE A CONTRACT — `viewer3d/SelectionBar3D`
+ * renders this component verbatim inside a 3D popover so that the seat caps
+ * cannot differ between the two views.
+ *
+ * The caps come from `seatBounds` rather than being recomputed here. Same two
+ * numbers, one implementation, and one guard this file did not have: an unknown
+ * `seating.chairCatalogId` used to throw out of `getCatalogEntry` and take the
+ * whole inspector down with it. Now the section simply does not render.
+ */
+export function SeatingSection({ obj }: { obj: SceneObject }) {
+  // shallow: `seatBounds` builds a fresh record every call, and a snapshot whose
+  // identity changes on every render loops forever
+  const bounds = useEditorStore(useShallow((s) => seatBounds(s.scene, obj.id)))
+  if (!obj.seating || !bounds) return null
   const chairModels = listByCategory('seating')
-  // Capacity is a step function of gap with narrow steps (the 160 square seats 12
-  // at gap 8 and 8 at gap 9), so a free 0–60 field could delete four chairs on one
-  // nudge. Cap it at whatever still seats the table's default count.
-  const gapMax = maxGapForSeats(
-    entry,
-    obj.size,
-    obj.seating,
-    chairEntry.defaultSize,
-    cap.defaultCount,
-  )
 
   return (
     <Section title={T.seating}>
       <Stepper
         label={T.seats}
         value={obj.seating.count}
-        min={cap.min}
-        max={max}
-        hint={`${T.maxSeats} ${max} לשולחן בגודל זה`}
+        min={bounds.min}
+        max={bounds.max}
+        hint={`${T.maxSeats} ${bounds.max} לשולחן בגודל זה`}
         onChange={(v) => setSeatCount(obj.id, v)}
       />
+      {/* Capacity is a step function of gap with narrow steps (the 160 square
+          seats 12 at gap 8 and 8 at gap 9), so a free 0–60 field could delete
+          four chairs on one nudge — hence `bounds.gapMax`. */}
       <NumberField
         label={T.spacing}
         value={obj.seating.gap}
         unit="cm"
         min={0}
-        max={gapMax}
+        max={bounds.gapMax}
         onCommit={(v) => setSeatingConfig(obj.id, { gap: v })}
       />
       <FieldRow label={T.chairModel}>
@@ -272,11 +307,33 @@ function SeatingSection({ obj }: { obj: SceneObject }) {
 const seatItemEntries = () => listCatalog().filter((entry) => entry.placement === 'seat')
 
 /**
+ * Whether there is anything to lay and anywhere to lay it. Shared by the
+ * exported section and by the merged `עיצוב השולחן` block, which has to know
+ * whether to print the sub-heading at all — a heading with nothing under it is
+ * worse than no heading.
+ */
+const canLayPlaceSettings = (obj: SceneObject) => !!obj.seating && seatItemEntries().length > 0
+
+/**
  * Source doc §17 — direct control over the place settings on a table. Until now
  * the only way to lay them was to drop the item from the library onto the table
  * and the only way to see how many were laid was to count them.
+ *
+ * ⚠ NAME, EXPORT AND `{ obj }` PROPS ARE A CONTRACT — `viewer3d/SelectionBar3D`
+ * renders this component verbatim inside a 3D popover. The inspector renders
+ * `PlaceSettingsBlock`, the same body without the `Section` chrome, so the two
+ * views cannot drift.
  */
-function PlaceSettingsSection({ obj }: { obj: SceneObject }) {
+export function PlaceSettingsSection({ obj }: { obj: SceneObject }) {
+  if (!canLayPlaceSettings(obj)) return null
+  return (
+    <Section title={strings.presets.placeSettings}>
+      <PlaceSettingsBlock obj={obj} />
+    </Section>
+  )
+}
+
+function PlaceSettingsBlock({ obj }: { obj: SceneObject }) {
   // .length, not the array: seatItems() builds a new array every call, and a
   // selector whose snapshot changes identity on every render loops forever
   const laid = useEditorStore((s) => seatItems(s.scene, obj.id).length)
@@ -292,7 +349,7 @@ function PlaceSettingsSection({ obj }: { obj: SceneObject }) {
   const active = laid > 0
 
   return (
-    <Section title={P.placeSettings}>
+    <>
       <p className="text-[14px] text-ink-soft">
         {active ? <span className="ltr-nums">{P.placeSettingsCount(laid, seats)}</span> : P.placeSettingsOff}
       </p>
@@ -329,7 +386,7 @@ function PlaceSettingsSection({ obj }: { obj: SceneObject }) {
           </button>
         )}
       </div>
-    </Section>
+    </>
   )
 }
 
@@ -465,7 +522,7 @@ function ReplaceButton({ id }: { id: string }) {
  * truss line itself; the bottom is 4 m below it. The 3D view draws a cord across
  * whatever gap the drop opens up.
  */
-function HangingSection({ obj }: { obj: SceneObject }) {
+export function HangingSection({ obj }: { obj: SceneObject }) {
   const venue = useEditorStore((s) => s.scene.venue)
   const range = hangRange(getVenuePack(venue.venuePackId), venue.wallHeight, obj.size.height)
   return (
@@ -566,8 +623,22 @@ function SingleInspector({ obj }: { obj: SceneObject }) {
       </Section>
       {entry.placement === 'ceiling' && <HangingSection obj={obj} />}
       <SeatingSection obj={obj} />
-      <PlaceSettingsSection obj={obj} />
-      <TableDesignSection obj={obj} />
+      {/* ONE section for dressing the table. `ערכת סכו״ם` used to sit directly
+          above `עיצוב שולחן` as two siblings doing the same job, with nothing to
+          say which of them lays the plates. Both bodies are the ones the 3D
+          popovers render, so the merge is a wrapper and not a fork. */}
+      {obj.seating && (
+        <Section title={T.tableStyling}>
+          {canLayPlaceSettings(obj) && (
+            <>
+              <SubHeading>{strings.presets.placeSettings}</SubHeading>
+              <PlaceSettingsBlock obj={obj} />
+            </>
+          )}
+          <SubHeading>{strings.presets.tableDesign}</SubHeading>
+          <TableDesignBlock obj={obj} />
+        </Section>
+      )}
       {editableSlot && (
         <Section title={T.appearance}>
           <ColorField
@@ -736,9 +807,6 @@ function MultiInspector({ ids }: { ids: string[] }) {
   ]
   return (
     <>
-      {/* keyed off the selection so a narrowed (or otherwise changed) selection
-          remounts it, which resets the ticked set for free */}
-      <SelectionFilter key={ids.join(',')} ids={ids} />
       <Section title={T.selectedCount(ids.length)}>
         <div>
           <span className="mb-1.5 block text-[14px] text-ink-soft">{T.align}</span>
@@ -784,6 +852,11 @@ function MultiInspector({ ids }: { ids: string[] }) {
           {T.deleteSelected}
         </button>
       </Section>
+      {/* AFTER the count, not before it: the count is the context and the filter
+          is a tool applied to that context. Keyed off the selection so a narrowed
+          (or otherwise changed) selection remounts it, which resets the ticked
+          set for free. */}
+      <SelectionFilter key={ids.join(',')} ids={ids} />
     </>
   )
 }
@@ -798,10 +871,13 @@ export function InspectorPanel() {
 
   return (
     <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-e border-line bg-panel 2xl:w-96">
-      {savable && <SaveSelectionSection />}
       {selection.length === 0 && <ProjectInspector />}
       {selection.length === 1 && first && <SingleInspector obj={first} />}
       {selection.length > 1 && <MultiInspector ids={selection} />}
+      {/* LAST. It rendered at the very top — above the selected object's own
+          name — so the first thing the panel said after clicking one chair was
+          "save this as a personal layout", which is nobody's next move. */}
+      {savable && <SaveSelectionSection />}
     </aside>
   )
 }

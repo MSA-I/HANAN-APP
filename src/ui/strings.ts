@@ -5,16 +5,68 @@
  */
 export const strings = {
   appName: 'מתכנן אירועים',
+  /**
+   * Unit suffixes, so a value and its unit stop being welded together in a
+   * dozen labels. `inspector.posX` and friends still spell theirs out inline;
+   * they can move onto these when someone is editing them anyway.
+   *
+   * ⚠ `meters` ends in a GERESH — U+05F3 ׳ — not an ASCII apostrophe. They look
+   * alike at 14px and are different characters: the ASCII one is a bidi-neutral
+   * quote that flips to the wrong side of the word under dir="rtl".
+   */
+  units: {
+    meters: 'מ׳',
+    degrees: '°',
+  },
   workspace: {
     loading: 'טוען פרויקט…',
     loading3d: 'מכינים את התצוגה התלת־ממדית…',
+    /**
+     * ⚠ UNCHANGED ON PURPOSE. It promises dragging, and dragging is being built
+     * this round — so it stops being a lie rather than needing a rewrite.
+     */
     emptyCanvasHint: 'גררו פריטים מהספרייה כדי להתחיל לתכנן',
+    /**
+     * The empty canvas today is one grey pill in the middle of the plan. These
+     * turn it into the three things a first-time user needs: what they are
+     * looking at, the second way in (the layout presets, which need no dragging
+     * at all), and where the rest of the answers live.
+     */
+    emptyCanvasTitle: 'האולם ריק',
+    emptyCanvasLayouts: 'או בחרו פריסת אולם מוכנה מהתפריט שמשמאל',
+    emptyCanvasHelp: 'כל הקיצורים והעזרה — בכפתור ?',
+    /** the drop target lights up under a dragged library tile */
+    dropHere: 'שחררו כאן כדי להציב',
+    /** the armed-placement chip: what is about to be placed, and the way out */
+    placingChip: (name: string) => `הצבת ${name} · Esc לביטול`,
+    /**
+     * The 3D view arrives in two stages and the wait is long enough that a bare
+     * spinner reads as a hang: first the viewer CHUNK (a dynamic import), then
+     * the venue model and its textures. Naming which stage is running is the
+     * difference between "slow" and "stuck".
+     */
+    loading3dModule: 'טוען את מנוע התלת־ממד…',
+    loading3dAssets: 'טוען את האולם…',
+    loading3dPercent: (n: number) => `${n}%`,
+    /** shown once the wait passes the point where silence starts to worry people */
+    loading3dSlow: 'הטעינה הראשונה אורכת מספר שניות',
   },
   toolbar: {
     backToDashboard: 'חזרה לפרויקטים',
     undo: 'ביטול',
     redo: 'ביצוע חוזר',
     clearAll: 'ניקוי כל האלמנטים',
+    /** the two pointer tools, for a tooltip that pairs with `chordFor('selectTool')` */
+    selectTool: 'כלי בחירה',
+    handTool: 'כלי יד',
+    help: 'עזרה וקיצורי מקלדת',
+    /**
+     * Clearing the plan is the one irreversible-feeling action in the toolbar,
+     * so it says how much it is about to take and then asks a second time —
+     * `clearAllArmed` is the label the button wears between the two presses.
+     */
+    clearAllWithCount: (n: number) => `ניקוי כל האלמנטים (${n})`,
+    clearAllArmed: 'לחצו שוב לניקוי הכול',
     export: 'ייצוא',
     exportPng: 'תוכנית רצפה (PNG)',
     exportJson: 'קובץ פרויקט (JSON)',
@@ -324,8 +376,17 @@ export const strings = {
     placeSettingsAdd: 'פריסה על כל המקומות',
     placeSettingsRemove: 'הסרת הערכות',
     placeSettingsType: 'סוג הערכה',
-    bakeConfirm: (count: number) =>
-      `לקבע ${count} אלמנטים לתוך קוד המקור?\n\nהפעולה כותבת את src/core/venueFixtures.ts. האלמנטים ייטענו בכל פרויקט חדש ולא ניתן יהיה להזיז או למחוק אותם.`,
+    /**
+     * ⚠ CHANGED VALUE, not a new key. The `\n\n` was a `window.confirm`
+     * artefact — the only way that dialog had to separate a question from its
+     * explanation. In a real dialog the question is the TITLE and the
+     * explanation is the BODY, so they are two strings now. Nothing fails at
+     * compile time if a caller keeps using `bakeConfirm` alone; it just loses
+     * the second paragraph, which is why this is called out here.
+     */
+    bakeConfirm: (count: number) => `לקבע ${count} אלמנטים לתוך קוד המקור?`,
+    bakeConfirmBody:
+      'הפעולה כותבת את src/core/venueFixtures.ts. האלמנטים ייטענו בכל פרויקט חדש ולא ניתן יהיה להזיז או למחוק אותם.',
     bakeDone: (count: number) => `${count} אלמנטים נכתבו ל-venueFixtures.ts`,
     bakeFailed: 'הקיבוע נכשל',
     bakeEmpty: 'אין אלמנטים לקיבוע',
@@ -495,6 +556,16 @@ export const strings = {
      */
     texture: 'טקסטורה',
     textureNone: 'ללא טקסטורה',
+    /** aria-labels for a collapsible section header — the pair `library` already has */
+    expand: 'הרחבה',
+    collapse: 'כיווץ',
+    /**
+     * `lightingFine` folds the four sun sliders away behind the three presets
+     * (יום / שקיעה / לילה), which is all most people ever touch.
+     * `tableStyling` is the heading over the per-table colour and decor controls.
+     */
+    lightingFine: 'כוונון עדין',
+    tableStyling: 'עיצוב השולחן',
   },
   statusBar: {
     tables: 'שולחנות',
@@ -542,77 +613,162 @@ export const strings = {
      */
     placeSettingLocked: 'ערכת הסכו״ם אינה ניתנת להזזה',
   },
+  /**
+   * The in-app replacements for `window.confirm` / `window.prompt`. Each dialog
+   * is a TITLE (the question) plus a CONFIRM label that names the thing it is
+   * about to do — never a bare "אישור", which forces the user to re-read the
+   * title to find out what they are agreeing to. `cancel` and `close` are
+   * shared by all of them.
+   *
+   * The explanatory body of each dialog stays with its own feature — see
+   * `presets.bakeConfirmBody`, `presets.confirmDeleteSavedLayout`,
+   * `presets.confirmOverwrite` — because that is where the counts and names
+   * that fill it come from.
+   */
+  dialog: {
+    cancel: 'ביטול',
+    // `close` was added here for symmetry with `cancel` and never had a caller:
+    // the dialogs dismiss with `cancel`, and the one close BUTTON in the app —
+    // the help panel's — has its own `help.close`. Removed in the same round
+    // that added it, by the audit that also caught `status.clearedAll`.
+    renameTitle: 'שינוי שם לפריסה',
+    renameConfirm: 'שינוי השם',
+    deleteLayoutTitle: 'מחיקת פריסה',
+    deleteLayoutConfirm: 'מחיקה',
+    overwriteTitle: 'החלפת פריסה קיימת',
+    overwriteConfirm: 'החלפה',
+    bakeTitle: 'קיבוע אלמנטים לקוד המקור',
+    bakeConfirmAction: 'קיבוע',
+  },
+  /**
+   * Transient toasts. Anything destructive that can be taken back says so and
+   * carries `undo` as a BUTTON, which is the whole reason these exist rather
+   * than a confirm dialog in front of every one of them.
+   */
+  notice: {
+    dismiss: 'סגירת ההודעה',
+    undo: 'בטל',
+    cleared: (n: number) => `${n} פריטים נמחקו`,
+    filled: (n: number) => `נוספו ${n} שולחנות`,
+    fillNone: 'אין מקום לשולחנות נוספים',
+    layoutApplied: (tables: number, seats: number) =>
+      `הפריסה הוחלה — ${tables} שולחנות, ${seats} מקומות`,
+    designAppliedAll: (n: number) => `העיצוב הוחל על ${n} שולחנות`,
+    exportPngDone: 'תוכנית הרצפה הורדה',
+    /** the capture reads the 2D canvas, which full-3D does not render */
+    exportPngFailed: 'ייצוא התוכנית אפשרי מתצוגת 2D או מפוצל בלבד',
+    importFailed: 'ייבוא הקובץ נכשל — הקובץ אינו קובץ פרויקט תקין',
+  },
   help: {
     title: 'קיצורי מקלדת',
     close: 'סגירה',
-    rows: [
-      ['V / H', 'כלי בחירה / כלי יד'],
-      ['Space (החזקה)', 'הזזת תצוגה זמנית'],
-      ['גלגלת עכבר', 'זום אל הסמן'],
-      ['Ctrl+Z / Ctrl+Y', 'ביטול / ביצוע חוזר'],
-      ['Ctrl+D', 'שכפול'],
-      ['Ctrl+C / X / V', 'העתקה / גזירה / הדבקה'],
-      ['Delete', 'מחיקת הנבחרים'],
-      ['Ctrl+A', 'בחירת הכול'],
-      ['חצים', 'הזזה 10 ס״מ (Shift: מטר · Alt: ס״מ)'],
-      ['R / Shift+R', 'סיבוב 90° עם/נגד כיוון השעון'],
-      // The snap is 5° and it is ALWAYS on; Shift releases it, the way Alt releases
-      // the grid snap on a move. Two call sites, one behaviour:
-      // editor2d/SelectionTransformer.tsx:85-86 · viewer3d/ObjectGroup.tsx:134.
-      // ⚠ These two have now been wrong in BOTH directions. Round 2 wave 1 fixed a
-      // line claiming 15° steps, and wave 3 then INVERTED the behaviour it had just
-      // been corrected to describe: rotation is free by default and Shift applies
-      // the snap, not the other way round. Two call sites, one behaviour:
-      // editor2d/SelectionTransformer.tsx:85 · viewer3d/ObjectGroup.tsx:138.
-      ['סיבוב בגיזמו', 'זווית חופשית'],
-      ['Shift בסיבוב', 'הצמדה לצעדים של 5°'],
-      ['G / Shift+G', 'הצגת רשת / הצמדה'],
-      ['Alt בזמן גרירה', 'עקיפת הצמדה'],
-      ['Shift+1 / Shift+2', 'התאמה לאולם / לבחירה'],
-      ['Ctrl+0', 'תצוגה 100%'],
-      ['דאבל־קליק על כיסא', 'בחירת כיסא בודד'],
-      ['Esc', 'ביטול בחירה / יציאה'],
-      ['?', 'חלונית זו'],
-    ],
-    title3d: 'ניווט בתלת־ממד (כמו בלומיון)',
-    rows3d: [
-      ['W / A / S / D / חצים', 'תנועה: קדימה / שמאלה / אחורה / ימינה'],
-      ['Q / E', 'עלייה / ירידה'],
-      ['Shift · Space · Shift+Space', 'מהיר · איטי מאוד · מהיר מאוד'],
-      ['לחצן ימני + גרירה', 'מבט חופשי'],
-      ['לחצן אמצעי + גרירה', 'הזזת המבט הצידה'],
-      ['גלגלת', 'תנועה קדימה / אחורה'],
-      ['O + לחצן ימני', 'סיבוב סביב המוקד'],
-      ['Ctrl+H', 'יישור המבט לאופק'],
-      ['דאבל־קליק ימני', 'קפיצה לנקודה'],
-      ['קליק שמאלי', 'בחירת פריט'],
-      ['גרירת קליק שמאלי', 'הזזת פריט על הרצפה'],
-      ['Shift + קליק שמאלי', 'הוספה או הסרה מהבחירה'],
-      ['Ctrl+D', 'שכפול הנבחרים'],
-      ['Delete / Backspace', 'מחיקת הנבחרים'],
-      ['Ctrl+Z / Ctrl+Y', 'ביטול / ביצוע מחדש'],
-    ],
+    /** the button that opens the panel — the panel's own heading is `title` */
+    open: 'קיצורי מקלדת ועזרה',
     /**
-     * ⚠ PLAN-09/G1 removes the 5° snap ALTOGETHER — Shift will stop snapping too.
-     * The moment it lands, the two rotation rows in `rows` above are wrong for the
-     * THIRD time (round 2 wave 1 fixed a line claiming 15°; wave 3 then inverted
-     * the behaviour it had just been corrected to describe; `0aabc1f` fixed it
-     * again). `rows` is a frozen array and PLAN-09 may not write to this file, so
-     * the corrected row is seeded here: swap it in for 'סיבוב בגיזמו' and DROP the
-     * 'Shift בסיבוב' row when the snap comes out.
+     * Section headings, one per `ShortcutGroup` in core/shortcuts.ts.
+     *
+     * ⚠ Each of these is rendered TWICE — once under `shortcutsFor('2d')` and
+     * once under `shortcutsFor('3d')` — so none of them may name a view. That
+     * is why `groupNav` is the bare 'ניווט' and not 'ניווט בתלת־ממד': the 2D
+     * half's `nav` group is `spacePan` and `midDragPan`, which are plan-panning
+     * gestures with no 3D in them. Each half is introduced by its own heading —
+     * `viewMode.d2` / `viewMode.d3` — so the view is already named there.
+     *
+     * `help.title3d` ('ניווט בתלת־ממד (כמו בלומיון)') was deleted for the same
+     * reason one level up: it headed a section that holds `edit` and `view`
+     * rows too, so calling the whole thing "3D navigation" was false.
      */
-    rotationFreeRow: ['סיבוב בגיזמו', 'זווית חופשית — אין הצמדה'],
+    groupTools: 'כלים',
+    groupEdit: 'עריכה',
+    groupView: 'תצוגה',
+    groupNav: 'ניווט',
     /**
-     * PLAN-09 items 16 and 24. `KeyR` and `Ctrl+A` both already exist and both are
-     * 2D-only, because the 3D branch of `useEditorShortcuts` returns early
-     * (`:47-83`) after handling Ctrl+Z/Y/D, Slash, Delete and Escape. When that
-     * branch is widened these two belong in the 3D list — which is likewise a
-     * frozen array PLAN-09 cannot append to.
+     * The DESCRIPTION column, one entry per `Shortcut.id` in
+     * `core/shortcuts.ts` — that file's `labelKey` is `help.keys.<id>`, and
+     * `shortcuts.test.ts` fails if any of them stops resolving here. The
+     * wording was lifted from the `rows` / `rows3d` tuple tables this group
+     * replaced — deleted once `ShortcutsHelp` stopped reading them — so the
+     * switch to the catalog regressed no existing row.
+     *
+     * The chord itself is NOT here. It lives on the catalog entry, where a test
+     * can check it against the codes the handler actually listens for — which
+     * is the entire reason this group replaces the tuple tables.
      */
-    rows3dExtra: [
-      ['R / Shift+R', 'סיבוב 90° עם/נגד כיוון השעון'],
-      ['Ctrl+A', 'בחירת הכול'],
-    ],
+    keys: {
+      selectTool: 'כלי בחירה',
+      handTool: 'כלי יד',
+      /** Alt on the click that commits a placement — the tool stays armed for the next one */
+      placeRepeat: 'הצבה חוזרת — הפריט נשאר דרוך',
+      /**
+       * Round 4's headline gesture. Added by the lead: plan D2 built the drag and
+       * owns `core/shortcuts.ts`, but the catalog's test requires `help.keys.<id>`
+       * to resolve HERE, and D2 did not own this file — so the one gesture the
+       * round added would have been the one gesture the help table omitted, which
+       * is precisely the drift `core/shortcuts.ts` exists to prevent.
+       */
+      dragFromLibrary: 'גרירת פריט מהספרייה אל הלוח',
+      /**
+       * The right mouse button is free-look in 3D and stays that way, so the
+       * actions menu opens from the `⋯` button on the selection bar. This is the
+       * OS-standard keyboard route to the same menu.
+       */
+      contextMenu3d: 'תפריט פעולות על הנבחרים',
+      undoRedo: 'ביטול / ביצוע חוזר',
+      redoAlt: 'ביצוע חוזר (קיצור חלופי)',
+      duplicate: 'שכפול',
+      clipboard: 'העתקה / גזירה / הדבקה',
+      deleteSelection: 'מחיקת הנבחרים',
+      selectAll: 'בחירת הכול',
+      rotate90: 'סיבוב 90° עם כיוון השעון',
+      rotate90ccw: 'סיבוב 90° נגד כיוון השעון',
+      nudge: 'הזזה 10 ס״מ (Shift: מטר · Alt: ס״מ)',
+      escape: 'ביטול בחירה / יציאה',
+      selectItem: 'בחירת פריט',
+      addToSelection: 'הוספה או הסרה מהבחירה',
+      dragItem: 'הזזת פריט על הרצפה',
+      snapBypass: 'עקיפת הצמדה',
+      dragDuplicate: 'שכפול הפריט תוך כדי גרירה',
+      keepRatio: 'שמירה על יחס הצלעות',
+      resizeFromCenter: 'שינוי גודל מהמרכז',
+      /**
+       * ⚠ THE ONE PLACE the gizmo's snap angle is written down. It has been
+       * printed as 15°, then as 5° with the Shift polarity inverted, then as a
+       * 5° snap that had already been removed. The user chose 45°;
+       * `shortcuts.test.ts` asserts this string names it and names neither of
+       * the dead values.
+       */
+      gizmoRotate: 'זווית חופשית — Shift להצמדה 45°',
+      contextMenu: 'תפריט פעולות לפריט',
+      designEdit: 'עריכת עיצוב השולחן',
+      drillChair: 'בחירת כיסא בודד',
+      toggleGrid: 'הצגת הרשת',
+      toggleSnap: 'הצמדה לרשת',
+      zoomIn: 'התקרבות',
+      zoomOut: 'התרחקות',
+      zoom100: 'תצוגה 100%',
+      fitVenue: 'התאמה לאולם',
+      fitSelection: 'התאמה לבחירה',
+      wheelZoom: 'זום אל הסמן',
+      help: 'חלונית הקיצורים והעזרה',
+      spacePan: 'הזזת תצוגה זמנית',
+      midDragPan: 'הזזת התצוגה',
+      fly: 'תנועה: קדימה / שמאלה / אחורה / ימינה',
+      flyVertical: 'עלייה / ירידה',
+      flyFast: 'תנועה מהירה',
+      flySlow: 'תנועה איטית מאוד',
+      flyVeryFast: 'תנועה מהירה מאוד',
+      /**
+       * Names the discrimination, because it is the one thing about this gesture
+       * a user has to know: a left drag turns the view UNLESS it started on an
+       * object, in which case it moves the object.
+       */
+      look: 'הסתכלות סביב (על שטח ריק — גרירה על פריט מזיזה אותו)',
+      panView3d: 'הזזת המבט הצידה',
+      wheelFly: 'תנועה קדימה / אחורה',
+      orbit: 'סיבוב סביב המוקד',
+      resetPitch: 'יישור המבט לאופק',
+      teleport: 'קפיצה לנקודה',
+    },
   },
   menu: {
     duplicate: 'שכפול',
@@ -622,6 +778,8 @@ export const strings = {
     pasteHere: 'הדבקה כאן',
     delete: 'מחיקה',
     rotate90: 'סיבוב 90°',
+    /** the other direction — `Shift+R` has always existed, the menu only offered one way */
+    rotate90ccw: 'סיבוב 90° נגד כיוון השעון',
     replace: 'החלפת פריט…',
     bringForward: 'הבא קדימה',
     sendBackward: 'שלח אחורה',

@@ -1,6 +1,7 @@
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import type { Category } from '../core/catalog/types'
 import { outlineAABB, type AABB } from '../core/layout/bounds'
+import { maxGapForSeats, maxSeatsForEntry } from '../core/layout/seatLayout'
 import {
   childSortKey,
   DEFAULT_LIGHTING,
@@ -200,6 +201,52 @@ export function visibleTopLevelIds(scene: SceneState): Id[] {
   return scene.objectOrder.filter((id) => isObjectVisible(scene, id))
 }
 
+/**
+ * Has the user placed anything at all?
+ *
+ * ⚠ THIS IS NOT `scene.objectOrder.length`, and the difference has now caused
+ * three separate bugs, so it lives here rather than being re-derived.
+ * `createDefaultScene` (core/model/factory.ts) seeds every parentless BAKED
+ * VENUE FIXTURE into `objectOrder` — the bars, the perimeter greenery, the DJ
+ * booths — and the resort pack, the only pack that ships, contributes 25 of
+ * them. So `objectOrder` reads like "what the user placed" and never is:
+ *
+ *  · `EmptyCanvasHint` rendered on `objectOrder.length === 0` and therefore
+ *    NEVER rendered at all — the app's only onboarding affordance was dead code
+ *    in production for as long as the resort pack has existed.
+ *  · `hasObjects` armed the clear-all button on a plan with nothing to clear,
+ *    which then reported "0 items cleared".
+ *  · A verification harness drove `objectOrder[0]`, hit a frozen wall, and
+ *    reported three features broken that were in fact refusing correctly.
+ *
+ * Fixtures are `frozen`, and `frozen` is exactly "belongs to the hall rather
+ * than to this event", so that is the right test.
+ */
+export function hasUserObjects(scene: SceneState): boolean {
+  return scene.objectOrder.some((id) => {
+    const obj = scene.objects[id]
+    return obj !== undefined && !isFrozen(obj)
+  })
+}
+
+/**
+ * How many objects `clearAllObjects` would actually remove.
+ *
+ * Deliberately a DIFFERENT question from `hasUserObjects`, and the difference is
+ * the chairs: this walks every object rather than `objectOrder`, because clearing
+ * takes attached children with their parents, and a count that said "3 tables"
+ * before removing 39 things would be its own small lie. `hasUserObjects` asks
+ * about top-level placement, which is what an empty canvas is about.
+ *
+ * They share the one rule that matters — a fixture is `frozen` — so the two can
+ * disagree about scope but never about what counts as the user's.
+ */
+export function userObjectCount(scene: SceneState): number {
+  let n = 0
+  for (const obj of Object.values(scene.objects)) if (!isFrozen(obj)) n++
+  return n
+}
+
 /** Objects per category, children included (matches what the eye toggle affects). */
 export function categoryCounts(scene: SceneState): Partial<Record<Category, number>> {
   const out: Partial<Record<Category, number>> = {}
@@ -232,4 +279,275 @@ export function sceneCounts(scene: SceneState): SceneCounts {
     }
   }
   return { tables, chairs, seats }
+}
+
+// --- what the pointer may do (round 4) --------------------------------------
+
+/** The top-level object an id belongs to — itself, or the table it hangs off. */
+function rootOf(scene: SceneState, id: Id): Id | null {
+  let current: SceneObject | undefined = scene.objects[id]
+  if (!current) return null
+  while (current.parentId) {
+    const parent: SceneObject | undefined = scene.objects[current.parentId]
+    if (!parent) break
+    current = parent
+  }
+  return current.id
+}
+
+/**
+ * Is the pointer allowed to react to this object at all — the one question
+ * behind the `move` cursor, the hover outline and the 3D highlight.
+ *
+ * ⚠ BOTH renderers must ask THIS, not their own three conditions. A hover
+ * highlight the plan draws and 3D does not is how the same locked chandelier ends
+ * up looking grabbable in one view and inert in the other, and that is the bug
+ * class this file exists for (see `isArrangeableDecor`).
+ *
+ * ⚠ Unlike `isDesignEditMuted`, this takes the RAW `designEditTableId` straight
+ * off the store. It has `scene` in hand, so it validates for you rather than
+ * making every hover handler remember the two-step. Pass `state.designEditTableId`.
+ *
+ * A CHILD is judged by its top-level ancestor: the chairs and the china of the
+ * isolated table stay live while another table's do not, which is what the mode
+ * means. `isDesignEditMuted` compares ids directly and is therefore only correct
+ * for top-level nodes — its own doc says so, and this is the wrapper that makes
+ * the question askable of anything.
+ *
+ * Locked counts as not hoverable: nothing can be done to a locked object by
+ * pointer, and a `move` cursor over one is a promise the next press will break.
+ */
+export function isHoverable(scene: SceneState, id: Id, designEditTableId: Id | null): boolean {
+  const obj = scene.objects[id]
+  if (!obj) return false
+  if (!isObjectVisible(scene, id)) return false
+  if (isEffectivelyLocked(scene, obj)) return false
+  const root = rootOf(scene, id)
+  return root !== null && !isDesignEditMuted(designEditTable(scene, designEditTableId), root)
+}
+
+/**
+ * May this object be dragged across the floor?
+ *
+ * Lifted verbatim from the filter `editor2d/dragController.ts` applies when a
+ * drag starts, and it must keep meaning exactly that: an object that EXISTS, is
+ * TOP-LEVEL, and is not effectively locked.
+ *
+ * The `!parentId` clause is the one that surprises people. An attached chair or a
+ * table-top setting is not "movable" in this sense — it never travels with a
+ * floor drag, it moves only on its own drill-in / design-edit path, and including
+ * it here would drag a chair off its seat every time its table was moved.
+ * `canRotateObject` deliberately has no such clause; see it.
+ */
+export function canMoveObject(scene: SceneState, id: Id): boolean {
+  const obj = scene.objects[id]
+  return !!obj && !obj.parentId && !isEffectivelyLocked(scene, obj)
+}
+
+/**
+ * May this object be turned?
+ *
+ * The gate `rotateObjectsBy` applies (`actions.ts` → `editable`): exists and is
+ * not effectively locked. NO `!parentId` clause, and that asymmetry with
+ * `canMoveObject` is real rather than an oversight — a drilled-in chair can be
+ * angled at its own seat, and `rotateObjectsBy` explicitly lets a child through
+ * without even a pose probe.
+ *
+ * It answers "is turning this legal", not "will the result fit": the placement
+ * probe runs inside the action, because whether a turned table clears its
+ * neighbours depends on the angle, and a handle that vanished mid-drag would be
+ * worse than one that refuses at the end with a reason.
+ */
+export function canRotateObject(scene: SceneState, id: Id): boolean {
+  const obj = scene.objects[id]
+  return !!obj && !isEffectivelyLocked(scene, obj)
+}
+
+/**
+ * May design-edit mode be opened on this object?
+ *
+ * Deliberately the SAME question `designEditTable` asks on every read, delegated
+ * rather than restated: a double-click that opened a mode the read-guard then
+ * refused to show would look exactly like a dead gesture.
+ *
+ * Locked is NOT part of it, on purpose. Locking a table pins the TABLE; the decor
+ * standing on it is other objects with their own flags, and arranging them is the
+ * whole point of the mode.
+ */
+export function canEditTable(scene: SceneState, id: Id): boolean {
+  return designEditTable(scene, id) !== null
+}
+
+/**
+ * The one table the user has selected, or null — what a rotation ring, a seating
+ * section or a table-design panel keys off.
+ *
+ * Its four clauses coincide with `designEditTable`'s today and are still written
+ * out here, because they are justified differently: this is about what a SELECTION
+ * addresses, that is about what a MODE may stay open on. Kept separate so a change
+ * to one is a decision rather than a side effect.
+ *
+ *  - exactly one id, since "the table" has no meaning for a multi-selection;
+ *  - it still exists, since a selection outlives a delete until `pruneSelection`;
+ *  - it is top-level, since an attached chair carries `seating` on some entries;
+ *  - it is visible, since a ring drawn round a hidden table is a control floating
+ *    over nothing.
+ */
+export function selectedTable(scene: SceneState, selection: Id[]): Id | null {
+  if (selection.length !== 1) return null
+  const id = selection[0]
+  const obj = scene.objects[id]
+  if (!obj || obj.parentId) return null
+  if (!isTable(obj) || !isObjectVisible(scene, id)) return null
+  return id
+}
+
+/** The limits the seating fields must not let the user past. */
+export interface SeatBounds {
+  /** fewest chairs the catalog entry allows */
+  min: number
+  /** most that the entry AND the geometry allow, at the current gap */
+  max: number
+  /** largest whole-cm gap that still seats the entry's default count */
+  gapMax: number
+}
+
+/**
+ * Both seating limits for a table, or null if it is not one.
+ *
+ * Moved here out of `ui/InspectorPanel.tsx`, where it was computed inline: the
+ * same two numbers are what a 3D seating control and any "add chairs" affordance
+ * must clamp to, and a second copy of `Math.min(cap.max, maxSeatsForEntry(...))`
+ * is a second place for the two to disagree.
+ *
+ * `gapMax` is not decoration. Capacity is a STEP function of gap with very narrow
+ * steps — the 160 square seats 12 at gap 8 and 8 at gap 9 — so a free 0–60 field
+ * deletes four chairs on one nudge (`core/layout/seatLayout.ts` carries the
+ * measurements).
+ *
+ * It is stricter than the inline version in one way: the chair's catalog id is
+ * checked before it is looked up. `getCatalogEntry` THROWS on an unknown id, and
+ * a scene saved with a chair model that has since been retired would take the
+ * whole inspector down rather than hide one section.
+ */
+export function seatBounds(scene: SceneState, id: Id): SeatBounds | null {
+  const obj = scene.objects[id]
+  if (!obj?.seating || !hasCatalogEntry(obj.catalogId)) return null
+  const entry = getCatalogEntry(obj.catalogId)
+  const cap = entry.seating
+  if (!cap || !hasCatalogEntry(obj.seating.chairCatalogId)) return null
+  const chair = getCatalogEntry(obj.seating.chairCatalogId).defaultSize
+  return {
+    min: cap.min,
+    max: Math.min(cap.max, maxSeatsForEntry(entry, obj.size, obj.seating, chair)),
+    gapMax: maxGapForSeats(entry, obj.size, obj.seating, chair, cap.defaultCount),
+  }
+}
+
+/**
+ * Which menu a right-click earned. Three of them are objects and differ only in
+ * what may be done to the thing under the pointer; 'canvas' is the empty-floor
+ * menu, whose entries (paste, select all, zoom) are questions for the clipboard
+ * and the viewport rather than for the scene.
+ */
+export type MenuTargetKind = 'canvas' | 'object' | 'surfaceChild' | 'attachedChild'
+
+export interface MenuCapabilities {
+  kind: MenuTargetKind
+  /** the ids the entries act on — the selection for an object, the one child otherwise */
+  ids: Id[]
+  canDuplicate: boolean
+  canCopy: boolean
+  canCut: boolean
+  canRotate: boolean
+  canReplace: boolean
+  canReorder: boolean
+  canLock: boolean
+  canDelete: boolean
+  /** the lock entry reads "unlock" when any acted-on object carries `flags.locked` */
+  anyLocked: boolean
+}
+
+/**
+ * What a context menu on `targetId` may legally offer.
+ *
+ * Modelled on the menu `editor2d/Stage2D.tsx` builds today, with one difference
+ * that is the reason it moved: today only `replace` is disabled, and every other
+ * entry is shown and then silently dropped inside the action — `removeObjects`
+ * skips a locked object, `duplicateObjects` skips a child, `setLocked` skips a
+ * frozen one. "Delete" that does nothing is the exact failure round 3 was
+ * criticised for. These booleans state the rules the actions already enforce, so
+ * a menu can grey the entry instead of lying about it.
+ *
+ * `ids` is resolved rather than assumed. Stage2D selects the target before it
+ * opens the menu, so the two normally agree — but making this a pure function of
+ * its arguments means a caller that has not selected yet gets the target's own
+ * menu instead of the previous selection's.
+ *
+ * Each flag names the action that owns it:
+ *   canDuplicate/canReorder  top-level only (`duplicateObjects` skips children,
+ *                            `reorder` only touches `objectOrder`)
+ *   canCopy                  anything at all; copying mutates nothing
+ *   canCut                   copy + delete, so it needs both
+ *   canRotate                `canRotateObject` (children included)
+ *   canReplace               exactly one selected, and it unlocked — byte-for-byte
+ *                            the condition Stage2D disables the entry on today
+ *   canLock                  `setLocked` guards on `isFrozen`, not on locked
+ *   canDelete                `removeObjects` guards on `isEffectivelyLocked`
+ */
+export function menuCapabilities(
+  scene: SceneState,
+  selection: Id[],
+  targetId: Id | null,
+): MenuCapabilities {
+  const target = targetId ? scene.objects[targetId] : undefined
+  if (!targetId || !target) return emptyCapabilities('canvas')
+
+  if (target.parentId) {
+    const kind: MenuTargetKind =
+      target.attachment?.kind === 'surface' ? 'surfaceChild' : 'attachedChild'
+    return {
+      ...emptyCapabilities(kind),
+      ids: [targetId],
+      // a table-top item lives on its table: it is deleted, never detached, and a
+      // drilled-in chair is deleted as "one seat less" — either way, one entry
+      canDelete: !isEffectivelyLocked(scene, target),
+      anyLocked: target.flags.locked,
+    }
+  }
+
+  const ids = (selection.includes(targetId) ? selection : [targetId]).filter(
+    (id) => !!scene.objects[id],
+  )
+  const topLevel = ids.filter((id) => !scene.objects[id].parentId)
+  const removable = ids.some((id) => !isEffectivelyLocked(scene, scene.objects[id]))
+  return {
+    kind: 'object',
+    ids,
+    canDuplicate: topLevel.length > 0,
+    canCopy: ids.length > 0,
+    canCut: ids.length > 0 && removable,
+    canRotate: ids.some((id) => canRotateObject(scene, id)),
+    canReplace: ids.length === 1 && !isEffectivelyLocked(scene, target),
+    canReorder: topLevel.length > 0,
+    canLock: ids.some((id) => !isFrozen(scene.objects[id])),
+    canDelete: removable,
+    anyLocked: ids.some((id) => scene.objects[id].flags.locked),
+  }
+}
+
+function emptyCapabilities(kind: MenuTargetKind): MenuCapabilities {
+  return {
+    kind,
+    ids: [],
+    canDuplicate: false,
+    canCopy: false,
+    canCut: false,
+    canRotate: false,
+    canReplace: false,
+    canReorder: false,
+    canLock: false,
+    canDelete: false,
+    anyLocked: false,
+  }
 }

@@ -1,6 +1,6 @@
 import type Konva from 'konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Stage } from 'react-konva'
 import { getCatalogEntry } from '../core/catalog/registry'
 import type { CatalogEntry } from '../core/catalog/types'
@@ -23,6 +23,7 @@ import {
 } from '../state/actions'
 import {
   designEditTable,
+  hasUserObjects,
   isEffectivelyLocked,
   isObjectVisible,
   objectAABB,
@@ -35,6 +36,8 @@ import { exitDesignEdit } from '../ui/DesignEditMode'
 import { strings } from '../ui/strings'
 import { BeamLayer } from './BeamLayer'
 import { clipboardHasContent, copySelection, cutSelection, pasteClipboard } from './clipboard'
+import { cursorFor } from './cursor'
+import { CATALOG_MIME, catalogIdFromDrop } from './dropPayload'
 import { GridLayer } from './GridLayer'
 import { displayName } from './ObjectNode'
 import { ObjectsLayer } from './ObjectsLayer'
@@ -59,8 +62,65 @@ interface MenuState {
   targetId: Id | null
 }
 
-/** Chip shown while an attached child is drilled into, naming its table and the way out. */
-function DrillBreadcrumb() {
+/**
+ * The canvas cursor, written straight onto the container's style.
+ *
+ * It renders NOTHING, and that is the whole reason it exists. `cursorFor` needs
+ * five overlay fields, two of which — the hover and the pan flag — change while
+ * the pointer is simply crossing the plan; subscribing to them in `Stage2D` would
+ * re-render the stage, all six layers and every one of the ~350 `ObjectNode`s each
+ * time. Here the churn stops at a component with no output.
+ *
+ * Konva's Transformer sets its own rotation-aware per-anchor cursors on
+ * `stage.content`, a CHILD of this element — the two compose, the anchor wins
+ * where it applies, and nothing here has to fight it.
+ */
+function CanvasCursor({ target }: { target: React.RefObject<HTMLDivElement | null> }) {
+  const panMode = useOverlayStore((s) => s.spacePan || s.handTool)
+  const panning = useOverlayStore((s) => s.panning)
+  const placing = useOverlayStore((s) => s.placing !== null)
+  // a BOOLEAN, not the ghost object: the ghost is rewritten on every mouse move
+  // while an item is armed, and this only cares when validity flips
+  const ghostValid = useOverlayStore((s) => s.ghost?.valid === true)
+  const hovering = useOverlayStore((s) => s.hoveredId !== null)
+  const cursor = cursorFor({ panMode, panning, placing, ghostValid, hovering })
+  useEffect(() => {
+    const el = target.current
+    if (el) el.style.cursor = cursor
+  }, [cursor, target])
+  return null
+}
+
+/**
+ * The top-centre chip slot. One shell, so a second tenant cannot arrive with a
+ * second look — the placing chip added this round is the same pill in the same
+ * place as the drill breadcrumb that was already there.
+ */
+function Chip({ children }: { children: ReactNode }) {
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
+      <div className="flex items-center gap-2 rounded-full border border-line bg-panel px-3 py-1.5 text-[13px] shadow-sm">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Whatever the slot has to say, at most one thing at a time.
+ *
+ * PRECEDENCE: design-edit > drill > placing. Design-edit brings its own chip and
+ * its own Esc, so anything here would be a second of each — one saying "back to
+ * the table" and one "leave the mode" — and they contradict each other. A drill is
+ * a place you are IN; an armed item is a thing about to happen, and the ghost is
+ * already saying so on the canvas, so it yields.
+ *
+ * Without the placing tenant, arming an item is completely silent apart from the
+ * tile's tint eighty centimetres away in the library: the ghost only appears once
+ * the pointer is over the canvas, so from the moment of the click until the mouse
+ * moves there is nothing at all to say a mode was entered or how to leave it.
+ */
+function StageChips({ dropActive }: { dropActive: boolean }) {
   const tableName = useEditorStore((s) => {
     if (s.selection.length !== 1) return null
     const child = s.scene.objects[s.selection[0]]
@@ -76,20 +136,30 @@ function DrillBreadcrumb() {
       ? displayName(child.name, child.catalogId, undefined)
       : strings.drill.chair
   })
-  // Design-edit mode brings its own chip and its own Esc — two of each, one
-  // saying "back to the table" and one "leave the mode", contradict each other.
   const inDesignEdit = useEditorStore((s) => designEditTable(s.scene, s.designEditTableId) !== null)
-  if (!tableName || inDesignEdit) return null
-  return (
-    <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
-      <div className="flex items-center gap-2 rounded-full border border-line bg-panel px-3 py-1.5 text-[13px] shadow-sm">
+  const placing = useOverlayStore((s) => s.placing)
+
+  if (inDesignEdit) return null
+  if (tableName) {
+    return (
+      <Chip>
         <span className="font-semibold">{tableName}</span>
         <span className="text-ink-soft">◂</span>
         <span>{childLabel}</span>
         <span className="text-ink-soft">·</span>
         <span className="ltr-nums text-ink-soft">{strings.drill.escHint}</span>
-      </div>
-    </div>
+      </Chip>
+    )
+  }
+  if (!placing) return null
+  return (
+    <Chip>
+      <span>
+        {dropActive
+          ? strings.workspace.dropHere
+          : strings.workspace.placingChip(displayName('', placing, undefined))}
+      </span>
+    </Chip>
   )
 }
 
@@ -120,10 +190,11 @@ export function Stage2D() {
   const stageRef = useRef<Konva.Stage>(null)
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [initialView, setInitialView] = useState<ViewFit | null>(null)
+  /** an HTML5 drag from the library is over this canvas right now */
+  const [dropActive, setDropActive] = useState(false)
   const spacePan = useOverlayStore((s) => s.spacePan)
   const handTool = useOverlayStore((s) => s.handTool)
   const placing = useOverlayStore((s) => s.placing)
-  const placingPreset = useOverlayStore((s) => s.placingPreset)
   const panMode = spacePan || handTool
   const marqueeRef = useRef<Vec2 | null>(null)
   const midPanRef = useRef<{ pointer: Vec2; stagePos: Vec2 } | null>(null)
@@ -202,6 +273,30 @@ export function Stage2D() {
     registerZoomApi(zoomApi)
     return () => registerZoomApi(null)
   }, [zoomApi])
+
+  /**
+   * End a middle-button pan that was released off the canvas.
+   *
+   * Konva binds its mouse events to its own canvas element and nothing else
+   * (`Stage.js:308` — unlike its drag-and-drop, which listens on `window`), so a
+   * middle-drag finished outside the viewport never reaches `handleMouseUp`: the
+   * pan stayed armed and the next move over the canvas jumped the view by however
+   * far the pointer had travelled meanwhile. That was invisible until this round;
+   * with `panning` feeding the cursor it would also leave the closed hand on with
+   * no gesture behind it.
+   *
+   * Cheap because it only acts when a pan is actually in flight — the ordinary
+   * in-canvas release has already cleared the ref by the time this bubbles up.
+   */
+  useEffect(() => {
+    const endMidPan = () => {
+      if (!midPanRef.current) return
+      midPanRef.current = null
+      overlay.setPanning(false)
+    }
+    window.addEventListener('mouseup', endMidPan)
+    return () => window.removeEventListener('mouseup', endMidPan)
+  }, [])
 
   // dev-only debug handle for inspecting the live stage from the console
   useEffect(() => {
@@ -393,6 +488,46 @@ export function Stage2D() {
     return violations.length === 0
   }
 
+  /**
+   * Put one catalog item on the plan at `world` — THE one placement path.
+   *
+   * Both ways in end here: the click that commits an armed item, and the drop that
+   * ends a drag from the library. HTML5 drag-and-drop is a second way to ARM and
+   * COMMIT the pipeline that already existed (`setPlacing` → `setGhost` →
+   * `ghostValidity`), not a second placement system — if the two had their own
+   * copies of the surface/seat/preset branching they would drift, and the drop
+   * would be the copy nobody notices is wrong.
+   *
+   * `keepArmed` is the Alt-on-commit rule (`core/shortcuts.ts` `placeRepeat`),
+   * which now works on a drop as well as on a click. A REFUSED placement returns
+   * before it, so the item stays armed either way and the status bar keeps the
+   * reason `ghostValidity` just published.
+   */
+  const commitPlacement = (catalogId: string, world: Vec2, keepArmed: boolean) => {
+    if (!ghostValidity(catalogId, world)) return
+    const entry = getCatalogEntry(catalogId)
+    if (attachesToTable(entry)) {
+      const target = surfaceTargetAt(world)
+      // 'seat' fills the whole table; 'surface' drops exactly at the pointer
+      // (grid snap is meaningless on a table top)
+      if (target) {
+        if (entry.placement === 'seat') addSeatItemsToTable(catalogId, target.id)
+        else addObjectToSurface(catalogId, target.id, world, target.inHole)
+      }
+    } else {
+      const { settings } = useEditorStore.getState().scene
+      const pos = settings.snapEnabled
+        ? { x: snapValue(world.x, settings.gridSize), y: snapValue(world.y, settings.gridSize) }
+        : world
+      // read at commit time, not off a render-scope binding: a drop handler runs
+      // outside the render that armed it
+      const preset = useOverlayStore.getState().placingPreset
+      if (preset) addTablePreset(preset, pos)
+      else addObject(catalogId, pos)
+    }
+    if (!keepArmed) overlay.setPlacing(null)
+  }
+
   const handleMouseDown = (e: KonvaEventObject<MouseEvent>) => {
     const stage = stageRef.current
     if (!stage) return
@@ -400,7 +535,10 @@ export function Stage2D() {
       e.evt.preventDefault()
       userTouchedViewRef.current = true
       const pointer = stage.getPointerPosition()
-      if (pointer) midPanRef.current = { pointer, stagePos: stage.position() }
+      if (pointer) {
+        midPanRef.current = { pointer, stagePos: stage.position() }
+        overlay.setPanning(true)
+      }
       return
     }
     if (placing) return
@@ -444,32 +582,12 @@ export function Stage2D() {
   const handleMouseUp = (e: KonvaEventObject<MouseEvent>) => {
     if (midPanRef.current) {
       midPanRef.current = null
+      overlay.setPanning(false)
       return
     }
     if (placing) {
       const world = worldPointer()
-      if (world && ghostValidity(placing, world)) {
-        const entry = getCatalogEntry(placing)
-        if (attachesToTable(entry)) {
-          const target = surfaceTargetAt(world)
-          // 'seat' fills the whole table; 'surface' drops exactly at the pointer
-          // (grid snap is meaningless on a table top)
-          if (target) {
-            if (entry.placement === 'seat') addSeatItemsToTable(placing, target.id)
-            else addObjectToSurface(placing, target.id, world, target.inHole)
-          }
-        } else {
-          const { settings } = useEditorStore.getState().scene
-          const pos = settings.snapEnabled
-            ? { x: snapValue(world.x, settings.gridSize), y: snapValue(world.y, settings.gridSize) }
-            : world
-          if (placingPreset) addTablePreset(placingPreset, pos)
-          else addObject(placing, pos)
-        }
-        if (!e.evt.altKey) {
-          overlay.setPlacing(null)
-        }
-      }
+      if (world) commitPlacement(placing, world, e.evt.altKey)
       return
     }
     if (!marqueeRef.current) return
@@ -509,6 +627,70 @@ export function Stage2D() {
       return b && aabbIntersects(box, b) && !!obj && !isEffectivelyLocked(state.scene, obj)
     })
     select(e.evt.shiftKey ? [...new Set([...state.selection, ...hits])] : hits)
+  }
+
+  // -------------------------------------------------------------------------
+  // HTML5 drag-and-drop from the library.
+  //
+  // ⚠ THESE LIVE ON THE CONTAINER <div>, NOT ON <Stage>. Konva does not forward
+  // DOM drag events — it listens for pointer events on its own canvas and has no
+  // dragover/drop of its own (`Konva.DragEvent` is a different, internal thing) —
+  // so a handler on the Stage would simply never fire.
+  //
+  // The pointer position comes from `setPointersPositions(nativeEvent)`, which is
+  // how Konva itself resolves a raw DOM event into stage coordinates, and then
+  // through `getRelativePointerPosition` so pan and zoom are already accounted for.
+  // -------------------------------------------------------------------------
+
+  const dropWorld = (e: React.DragEvent<HTMLDivElement>): Vec2 | null => {
+    const stage = stageRef.current
+    if (!stage) return null
+    stage.setPointersPositions(e.nativeEvent)
+    return stage.getRelativePointerPosition() as Vec2 | null
+  }
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    // `types` is readable during a drag; `getData` is NOT — it returns '' outside
+    // the drop event in every browser's protected mode. So the payload identifies
+    // the drag here and the STORE supplies the catalog id, which the tile armed on
+    // dragstart.
+    const armed = useOverlayStore.getState().placing
+    if (!armed || !e.dataTransfer.types.includes(CATALOG_MIME)) return
+    // without this the browser refuses the drop and `onDrop` never fires
+    e.preventDefault()
+    setDropActive(true)
+    const world = dropWorld(e)
+    if (!world) return
+    const valid = ghostValidity(armed, world)
+    overlay.setGhost({ x: world.x, y: world.y, valid })
+    overlay.setCursorWorld(world)
+    // ⚠ THE ONLY WAY TO SAY "NO" DURING A DRAG. The browser owns the cursor for
+    // the whole gesture and CSS `cursor` on the container is ignored, so
+    // `cursorFor`'s `not-allowed` cannot be shown here. Setting 'none' also makes
+    // the browser suppress the drop outright, which is what keeps an invalid
+    // release from reaching `commitPlacement` at all.
+    e.dataTransfer.dropEffect = valid ? 'copy' : 'none'
+  }
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    // dragleave fires every time the pointer crosses onto a CHILD of the target —
+    // and this container has a canvas and three absolutely-positioned overlays in
+    // it. Without the containment test the ghost would flicker off constantly.
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+    setDropActive(false)
+    overlay.setGhost(null)
+  }
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    setDropActive(false)
+    const catalogId = catalogIdFromDrop((mime) => e.dataTransfer.getData(mime))
+    if (!catalogId) return
+    e.preventDefault()
+    const world = dropWorld(e)
+    // Alt on the drop keeps the item armed, exactly as Alt on a click does. The
+    // ghost is left alone: it is already at the drop point, and `setPlacing(null)`
+    // clears it for the ordinary (disarming) case.
+    if (world) commitPlacement(catalogId, world, e.altKey)
   }
 
   const handleContextMenu = (e: KonvaEventObject<PointerEvent>) => {
@@ -560,6 +742,13 @@ export function Stage2D() {
         { label: strings.menu.cut, shortcut: 'Ctrl+X', onClick: () => cutSelection() },
         'separator',
         { label: strings.menu.rotate90, shortcut: 'R', onClick: () => rotateObjectsBy(sel, 90) },
+        // Shift+R has always turned the other way; the menu only ever offered one
+        // direction, so the second one was reachable exclusively by keyboard.
+        {
+          label: strings.menu.rotate90ccw,
+          shortcut: 'Shift+R',
+          onClick: () => rotateObjectsBy(sel, -90),
+        },
         {
           // arms the library's replace mode — the actual pick happens there
           label: strings.menu.replace,
@@ -597,7 +786,9 @@ export function Stage2D() {
     <div
       ref={containerRef}
       className="relative h-full w-full overflow-hidden bg-canvas"
-      style={{ cursor: panMode ? 'grab' : placing ? 'copy' : 'default' }}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
       {width > 0 && height > 0 && initialView && (
         <Stage
@@ -614,10 +805,15 @@ export function Stage2D() {
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onContextMenu={handleContextMenu}
+          onDragStart={(e) => {
+            if (e.target === stageRef.current) overlay.setPanning(true)
+          }}
           onDragEnd={(e) => {
             // stage drag = space/hand pan (object drags don't bubble this far
             // with a stage target)
-            if (e.target === stageRef.current) userTouchedViewRef.current = true
+            if (e.target !== stageRef.current) return
+            userTouchedViewRef.current = true
+            overlay.setPanning(false)
           }}
         >
           <VenueLayer />
@@ -629,21 +825,42 @@ export function Stage2D() {
           <BeamLayer />
         </Stage>
       )}
-      <DrillBreadcrumb />
+      <CanvasCursor target={containerRef} />
+      <StageChips dropActive={dropActive} />
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
       <EmptyCanvasHint />
     </div>
   )
 }
 
+/**
+ * The first thing a new operator sees, and until round 4 it was never seen at
+ * all: the condition was `objectOrder.length === 0`, which is never true on the
+ * resort pack because 25 baked fixtures are seeded into `objectOrder`. Asking
+ * `hasUserObjects` is the fix — rewriting the text alone would have left every
+ * line exactly as invisible while making the round look finished.
+ *
+ * Four lines in reading order, and they are a designed set rather than four
+ * ways of saying one thing: what you are looking at · the direct gesture, which
+ * now genuinely works · **the way in that needs no dragging at all** · where the
+ * rest of the answers live. The layouts line matters most for the person this
+ * round is for — someone seating 300 guests does not start by placing one chair.
+ */
 function EmptyCanvasHint() {
-  const isEmpty = useEditorStore((s) => s.scene.objectOrder.length === 0)
-  if (!isEmpty) return null
+  const empty = useEditorStore((s) => !hasUserObjects(s.scene))
+  const placing = useOverlayStore((s) => s.placing !== null)
+  // while an item is armed the placing chip already owns the top of the canvas,
+  // and the ghost is the instruction — two overlays would compete
+  if (!empty || placing) return null
+  const W = strings.workspace
   return (
     <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-      <p className="rounded-full border border-line bg-panel/85 px-4 py-2 text-[13px] text-ink-soft shadow-sm">
-        {strings.workspace.emptyCanvasHint}
-      </p>
+      <div className="max-w-xs rounded-xl border border-line bg-panel/85 px-5 py-4 text-center shadow-sm">
+        <p className="text-[15px] font-semibold text-ink">{W.emptyCanvasTitle}</p>
+        <p className="mt-2 text-[13px] text-ink-soft">{W.emptyCanvasHint}</p>
+        <p className="mt-1 text-[13px] text-ink-soft">{W.emptyCanvasLayouts}</p>
+        <p className="mt-3 text-[13px] text-ink-soft">{W.emptyCanvasHelp}</p>
+      </div>
     </div>
   )
 }

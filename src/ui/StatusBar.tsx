@@ -1,15 +1,15 @@
 import { Maximize, Minus, Plus, TriangleAlert } from 'lucide-react'
-import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Violation } from '../core/layout/collision'
+import { chordFor } from '../core/shortcuts'
 import { getVenuePack } from '../core/venuePacks'
 import { useSaveStatus } from '../persistence/autosave'
-import { clearNotice, NOTICE_MS, useNoticeStore } from '../state/notice'
 import { sceneCounts } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { useOverlayStore } from '../editor2d/overlayStore'
 import { useViewportStore, ZOOM_100 } from '../editor2d/viewportStore'
 import { zoomApi } from '../editor2d/zoomBus'
+import { Tooltip } from './Tooltip'
 import { strings } from './strings'
 
 const S = strings.statusBar
@@ -63,12 +63,22 @@ function ViolationNotice() {
   )
 }
 
-function ZoomButton({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+type ZoomButtonProps = Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'title'> & {
+  title: string
+}
+
+function ZoomButton({ title, children, ...rest }: ZoomButtonProps) {
   return (
     <button
+      // ⚠ Derived attributes FIRST, `...rest` last — the same ordering
+      // `Toolbar`'s `IconButton` needs and for the same reason. `Tooltip` clones
+      // its child with `title: undefined`, `aria-label` and `aria-describedby`;
+      // if the derived `aria-label={title}` were written after the spread it
+      // would resolve to undefined and wipe out the real name, leaving an
+      // icon-only button with none at all.
       title={title}
       aria-label={title}
-      onClick={onClick}
+      {...rest}
       className="rounded p-1.5 text-ink-soft transition-colors hover:bg-accent-tint hover:text-ink"
     >
       {children}
@@ -89,28 +99,41 @@ export function StatusBar() {
       {/* start (right in RTL): cursor coordinates + zoom controls */}
       <div className="flex items-center gap-3">
         <span className="ltr-nums inline-block w-24 text-start">{cursorText}</span>
+        {/* `placement="top"` on every one of them: this bar is the bottom 36px
+            of the window, and a tooltip below its trigger computes an offset
+            past the viewport and gets clamped back on top of the button it is
+            describing. The chords come from `core/shortcuts.ts`, never from a
+            literal here. */}
         <div className="flex items-center gap-0.5">
-          <ZoomButton title={S.zoomOut} onClick={() => zoomApi()?.zoomOut()}>
-            <Minus size={15} />
-          </ZoomButton>
-          <button
-            title={strings.menu.zoom100}
-            aria-label={strings.menu.zoom100}
-            onClick={() => zoomApi()?.zoom100()}
-            className="ltr-nums min-h-7 w-12 rounded py-1 text-center font-mono text-[13px] text-ink hover:bg-accent-tint"
-          >
-            {pct}%
-          </button>
-          <ZoomButton title={S.zoomIn} onClick={() => zoomApi()?.zoomIn()}>
-            <Plus size={15} />
-          </ZoomButton>
-          <ZoomButton title={S.zoomFit} onClick={() => zoomApi()?.fitVenue()}>
-            <Maximize size={15} />
-          </ZoomButton>
+          <Tooltip label={S.zoomOut} chord={chordFor('zoomOut')} placement="top">
+            <ZoomButton title={S.zoomOut} onClick={() => zoomApi()?.zoomOut()}>
+              <Minus size={15} />
+            </ZoomButton>
+          </Tooltip>
+          {/* the only one with visible text — and "100%" is a READOUT, not a
+              name: nothing on it says that pressing it resets the zoom */}
+          <Tooltip label={strings.menu.zoom100} chord={chordFor('zoom100')} placement="top">
+            <button
+              title={strings.menu.zoom100}
+              aria-label={strings.menu.zoom100}
+              onClick={() => zoomApi()?.zoom100()}
+              className="ltr-nums min-h-7 w-12 rounded py-1 text-center font-mono text-[13px] text-ink hover:bg-accent-tint"
+            >
+              {pct}%
+            </button>
+          </Tooltip>
+          <Tooltip label={S.zoomIn} chord={chordFor('zoomIn')} placement="top">
+            <ZoomButton title={S.zoomIn} onClick={() => zoomApi()?.zoomIn()}>
+              <Plus size={15} />
+            </ZoomButton>
+          </Tooltip>
+          <Tooltip label={S.zoomFit} chord={chordFor('fitVenue')} placement="top">
+            <ZoomButton title={S.zoomFit} onClick={() => zoomApi()?.fitVenue()}>
+              <Maximize size={15} />
+            </ZoomButton>
+          </Tooltip>
         </div>
       </div>
-
-      <Notice />
 
       {/* end (left in RTL): why the last action was refused, counts, save status */}
       <div className="flex items-center gap-3">
@@ -128,24 +151,11 @@ export function StatusBar() {
   )
 }
 
-/** Why the last action did nothing — see state/notice.ts. Clears itself. */
-function Notice() {
-  const message = useNoticeStore((s) => s.message)
-  const seq = useNoticeStore((s) => s.seq)
-
-  useEffect(() => {
-    if (!message) return
-    const timer = setTimeout(clearNotice, NOTICE_MS)
-    return () => clearTimeout(timer)
-  }, [message, seq])
-
-  if (!message) return null
-  return (
-    <span role="status" className="truncate rounded-full bg-warning/15 px-3 py-0.5 font-semibold text-warning">
-      {message}
-    </span>
-  )
-}
+// The one-slot `Notice` used to render here. It moved to `ui/NoticeStack.tsx`,
+// mounted from `App` — a message with an undo button in it cannot live in a
+// 36px bar that already carries six things, and it must not be overwritten by
+// the next mouse move. `ViolationNotice` stays: it is positional feedback about
+// the thing under the cursor, not a transient event.
 
 function SaveIndicator() {
   const { status } = useSaveStatus()

@@ -2,6 +2,7 @@ import { ChevronsLeft, ChevronsRight, RefreshCw, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { CATEGORY_ORDER, listByCategory } from '../core/catalog/registry'
 import type { CatalogEntry, FootprintPart } from '../core/catalog/types'
+import { CATALOG_MIME } from '../editor2d/dropPayload'
 import { overlay, useOverlayStore } from '../editor2d/overlayStore'
 import { canReplaceObject, replaceObject } from '../state/actions'
 import { isEffectivelyLocked } from '../state/selectors'
@@ -10,6 +11,34 @@ import { SliderField } from './fields'
 import { strings } from './strings'
 
 const SIZE_KEY = 'hanan.librarySize'
+
+/** 1×1 fully transparent GIF. */
+const BLANK_PIXEL =
+  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+
+let blankDragImage: HTMLImageElement | null = null
+
+/**
+ * The drag image handed to `setDragImage` — deliberately invisible.
+ *
+ * KILLING THE BROWSER'S OWN GHOST IS THE POINT. Left alone it drags a snapshot of
+ * the TILE, at tile scale, while the Konva ghost under it draws the same item at
+ * true plan scale: two previews of one object, at two different sizes, moving
+ * together. That is precisely what makes bolted-on drag-and-drop feel bolted on.
+ *
+ * Created once and warmed on mount so it has decoded long before anyone drags —
+ * an image still loading gives an empty drag image in some browsers, which is the
+ * same result by accident rather than on purpose. Guarded for the node test
+ * environment, where `Image` does not exist.
+ */
+function blankDragImageEl(): HTMLImageElement | null {
+  if (typeof Image === 'undefined') return null
+  if (!blankDragImage) {
+    blankDragImage = new Image()
+    blankDragImage.src = BLANK_PIXEL
+  }
+  return blankDragImage
+}
 
 /**
  * The three display densities of the grid. One slider drives all four classes at
@@ -179,6 +208,11 @@ export function LibraryPanel() {
     }
   }, [sizeStep])
 
+  // decode the blank drag image now, not on the first dragstart
+  useEffect(() => {
+    blankDragImageEl()
+  }, [])
+
   const placing = useOverlayStore((s) => s.placing)
   const selectedObject = useEditorStore((s) => {
     if (s.selection.length !== 1) return null
@@ -296,8 +330,39 @@ export function LibraryPanel() {
                           : strings.library.replaceIncompatible
                         : strings.library.placeHint
                     }
-                    onMouseDown={(e) => {
-                      e.preventDefault()
+                    // Replace mode is a two-click exchange, not a placement — a
+                    // drag out of it would arm the canvas with an item the user
+                    // asked to swap IN, and silently cancel the swap.
+                    draggable={!replacing}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData(CATALOG_MIME, entry.id)
+                      e.dataTransfer.effectAllowed = 'copy'
+                      const blank = blankDragImageEl()
+                      if (blank) e.dataTransfer.setDragImage(blank, 0, 0)
+                      // The drag ARMS the same click-to-place pipeline; the drop
+                      // just commits it from a different event. Nothing about
+                      // placement is duplicated, and `dragover` could not read the
+                      // payload back anyway — `getData` returns '' outside `drop`.
+                      overlay.setPlacing(entry.id)
+                    }}
+                    onDragEnd={(e) => {
+                      // 'none' is the browser saying nothing accepted the drop —
+                      // released over the panel, over the window chrome, or over a
+                      // spot the canvas marked invalid. Either way the gesture
+                      // asked for a placement and did not get one, so leaving the
+                      // tile armed afterwards would be a mode nobody chose.
+                      if (e.dataTransfer.dropEffect !== 'none') return
+                      overlay.setPlacing(null)
+                      overlay.setGhost(null)
+                    }}
+                    // ⚠ ON CLICK, NOT ON MOUSEDOWN. This used to be an
+                    // `onMouseDown` with `e.preventDefault()`, and
+                    // `preventDefault()` on mousedown CANCELS DRAG INITIATION in
+                    // Chromium — with it there, `draggable` above does nothing at
+                    // all and the drag silently never starts. The inner
+                    // `<img draggable={false}>` is a different thing and stays: it
+                    // only suppresses the browser's image ghost.
+                    onClick={() => {
                       if (replacing && selectedId) {
                         if (replaceObject(selectedId, entry.id)) overlay.setReplaceTarget(null)
                         return

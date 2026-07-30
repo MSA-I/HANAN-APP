@@ -15,7 +15,7 @@ import type { Category } from '../core/catalog/types'
 import { setLayerHidden, setLayerLocked } from '../state/actions'
 import { categoryCounts, isLayerHidden, isLayerLocked } from '../state/selectors'
 import { useEditorStore } from '../state/store'
-import { Section } from './fields'
+import { CollapsibleSection, INSPECTOR_SECTION } from './fields'
 import { strings } from './strings'
 
 const T = strings.inspector
@@ -68,11 +68,13 @@ export function LayersSection() {
     ),
   )
   const rows = CATEGORY_ORDER.filter((c) => (counts[c] ?? 0) > 0 || flagged.includes(c))
+  // Closed by default and last in the panel: hiding and locking whole categories
+  // is a power move, and the panel's first screen belongs to seating a hall.
   return (
-    <Section title={T.layers}>
+    <CollapsibleSection id={INSPECTOR_SECTION.layers} title={T.layers}>
       {rows.map((cat) => (
         <LayerRow key={cat} category={cat} count={counts[cat] ?? 0} />
       ))}
-    </Section>
+    </CollapsibleSection>
   )
 }

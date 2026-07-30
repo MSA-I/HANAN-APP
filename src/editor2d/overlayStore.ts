@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import type { AABB } from '../core/layout/bounds'
 import type { Violation } from '../core/layout/collision'
+import type { Id, Vec2 } from '../core/model/types'
 
 export interface Marquee {
   x1: number
@@ -16,6 +17,24 @@ export interface PlacingGhost {
   valid: boolean
 }
 
+/**
+ * The live numbers a transform gesture is producing, written every frame by
+ * `SelectionTransformer` and cleared when the gesture ends. Null the rest of the
+ * time — nothing else may leave a stale readout standing.
+ *
+ * `at` is a WORLD point the readout hangs off, not the text's own position: the
+ * top edge of the transform box for a rotate, the bottom edge for a resize. The
+ * few pixels of clearance are applied by `OverlayLayer`, which is where `1 / zoom`
+ * already lives — a readout that drifted with the zoom would be the one thing on
+ * the canvas that did.
+ *
+ * SINGLE SELECTION ONLY. "137°" over a group of six tables would be the angle of
+ * the group box, which is not a number the user asked for or can act on.
+ */
+export type GestureReadout =
+  | { kind: 'rotate'; deg: number; snapped: boolean; at: Vec2 }
+  | { kind: 'resize'; width: number; depth: number; at: Vec2 }
+
 interface OverlayState {
   guides: { x: number | null; y: number | null }
   /** combined AABB of the dragged selection, for wall-distance indicators */
@@ -24,7 +43,23 @@ interface OverlayState {
   spacePan: boolean
   /** persistent hand tool (toolbar H) */
   handTool: boolean
+  /** the VIEW is being dragged right now — space/hand pan or a middle-drag */
+  panning: boolean
+  /**
+   * Is Shift down, asked of the store rather than of an event.
+   *
+   * Written by `useEditorShortcuts`' keydown/keyup pair (and cleared on window
+   * blur, or alt-tabbing away mid-hold leaves it stuck on). Read by BOTH rotation
+   * gizmos to decide whether the 45° snap is engaged: 2D could read
+   * `e.evt.shiftKey` off the Konva event, but drei's `TransformControls` hands its
+   * callback no DOM event at all, so the 3D half has no other way to ask. One
+   * field, so the two views cannot answer the question differently.
+   */
   shiftHeld: boolean
+  /** the object the pointer is over, or null — see `isHoverSuppressed` */
+  hoveredId: Id | null
+  /** live readout of the transform gesture in flight */
+  gesture: GestureReadout | null
   /** click-to-place mode armed with a catalog id */
   placing: string | null
   /**
@@ -73,13 +108,40 @@ export function isLightingPlanOn(s: Pick<OverlayState, 'lightingPlan' | 'placing
   return getCatalogEntry(s.placing).category === 'lighting'
 }
 
+/**
+ * When the hover outline must not be drawn even though `hoveredId` is set.
+ *
+ * `hoveredId` keeps tracking through all of these on purpose — it is what the
+ * CURSOR reads, and a cursor that forgot what it was over would be worse than one
+ * that is briefly overruled by `cursorFor`'s higher ranks. Only the outline is
+ * suppressed, and only while the answer it gives would be noise:
+ *
+ *  - `dragBox` — an object drag is in flight. Konva keeps hit-testing while it
+ *    drags, so a fast move sweeps the pointer across neighbours and lights each
+ *    one up in turn. (Set for floor drags only; an attached child's drag is over
+ *    its own already-selected node, where the hover ring sits under the selection
+ *    ring and is invisible either way.)
+ *  - `marquee` — a rubber band already says what it will catch.
+ *  - `placing` — the ghost is the subject; a second outline competes with it.
+ *  - `panning` — the view is moving under a stationary pointer, so every object
+ *    that slides past would flash.
+ */
+export function isHoverSuppressed(
+  s: Pick<OverlayState, 'dragBox' | 'marquee' | 'placing' | 'panning'>,
+): boolean {
+  return s.dragBox !== null || s.marquee !== null || s.placing !== null || s.panning
+}
+
 export const useOverlayStore = create<OverlayState>()(() => ({
   guides: { x: null, y: null },
   dragBox: null,
   marquee: null,
   spacePan: false,
   handTool: false,
+  panning: false,
   shiftHeld: false,
+  hoveredId: null,
+  gesture: null,
   placing: null,
   placingPreset: null,
   replaceTarget: null,
@@ -103,8 +165,25 @@ export const overlay = {
   setSpacePan(spacePan: boolean) {
     useOverlayStore.setState({ spacePan })
   },
+  setPanning(panning: boolean) {
+    useOverlayStore.setState({ panning })
+  },
   setShiftHeld(shiftHeld: boolean) {
     useOverlayStore.setState({ shiftHeld })
+  },
+  setHovered(hoveredId: Id | null) {
+    // fires on every mouseenter/mouseleave; a no-op write would re-run 350 node
+    // selectors for nothing
+    if (useOverlayStore.getState().hoveredId === hoveredId) return
+    useOverlayStore.setState({ hoveredId })
+  },
+  /** Only the node that OWNS the hover may release it — see ObjectNode's leave. */
+  clearHovered(hoveredId: Id) {
+    if (useOverlayStore.getState().hoveredId !== hoveredId) return
+    useOverlayStore.setState({ hoveredId: null })
+  },
+  setGesture(gesture: GestureReadout | null) {
+    useOverlayStore.setState({ gesture })
   },
   clearDragVisuals() {
     useOverlayStore.setState({ guides: { x: null, y: null }, dragBox: null })

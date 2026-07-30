@@ -20,7 +20,15 @@
  * the card's own corner, which applies the layout exactly as before.
  */
 import { ChevronRight, Pencil, Pin, Save, Trash2, Zap } from 'lucide-react'
-import { useEffect, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+  type ReactNode,
+} from 'react'
 import { getCatalogEntry, hasCatalogEntry, listByCategory } from '../core/catalog/registry'
 import { layoutStats, layoutsForVenue, type HallLayout } from '../core/hallLayouts'
 import { hangRange } from '../core/layout/beams'
@@ -62,15 +70,18 @@ import {
   removeTableDesign,
   setElevation,
   tableDesignBlock,
+  type HallLayoutOptions,
 } from '../state/actions'
 import { notify } from '../state/notice'
 import { isEffectivelyLocked } from '../state/selectors'
 import { useEditorStore } from '../state/store'
-import { Section, SliderField } from './fields'
+import { ConfirmDialog, Dialog } from './Dialog'
+import { CollapsibleSection, INSPECTOR_SECTION, Section, SliderField, SubHeading } from './fields'
 import { LayoutThumbnail, SavedLayoutThumbnail } from './LayoutThumbnail'
 import { strings } from './strings'
 
 const T = strings.presets
+const N = strings.notice
 const repo = indexedDbRepository
 
 /**
@@ -285,33 +296,91 @@ function appliedHallElevation(scene: SceneState): number | null {
   return first ? scene.objects[first].transform.elevation : null
 }
 
-/** Name-a-thing modal, shared by the three "save this arrangement" buttons. */
+interface ConfirmRequest {
+  title: string
+  body?: ReactNode
+  confirmLabel: string
+  danger?: boolean
+}
+
+type ConfirmFn = (request: ConfirmRequest) => Promise<boolean>
+
+/**
+ * `window.confirm` in the app's own chrome, and the reason it returns a PROMISE:
+ * `saveOrOverwrite` discovers the clash halfway through an async save, and a
+ * callback-shaped dialog would force that one flow to be turned inside out into
+ * a state machine. Awaiting the answer lets the question be asked where it
+ * arises.
+ *
+ * The only four confirmations left in this file are the ones undo cannot reach —
+ * saved layouts live in IndexedDB and the bake writes a source file. Everything
+ * inside `scene` is 100 steps of `zundo` away and gets no dialog: confirmation
+ * fatigue teaches people to click through the one that mattered.
+ */
+function useConfirm(): { ask: ConfirmFn; dialog: ReactNode; open: boolean } {
+  const [pending, setPending] = useState<
+    (ConfirmRequest & { resolve: (ok: boolean) => void }) | null
+  >(null)
+
+  const ask = useCallback<ConfirmFn>(
+    (request) => new Promise<boolean>((resolve) => setPending({ ...request, resolve })),
+    [],
+  )
+
+  const answer = (ok: boolean) => {
+    pending?.resolve(ok)
+    setPending(null)
+  }
+
+  return {
+    ask,
+    open: pending !== null,
+    dialog: pending && (
+      <ConfirmDialog
+        title={pending.title}
+        body={pending.body}
+        danger={pending.danger}
+        cancelLabel={strings.dialog.cancel}
+        confirmLabel={pending.confirmLabel}
+        onCancel={() => answer(false)}
+        onConfirm={() => answer(true)}
+      />
+    ),
+  }
+}
+
+/**
+ * Name-a-thing modal, shared by the three "save this arrangement" buttons and by
+ * rename. Built on `Dialog`, so it gains the focus trap and the focus restore it
+ * never had; everything else — the form, the required field, Enter to submit —
+ * is what it already was.
+ */
 function NameDialog({
   title,
   fieldLabel,
   placeholder,
+  initialName = '',
+  confirmLabel = T.saveLayout,
+  /** true while a confirm sits on top of this one: Escape belongs to that one. */
+  escapeDisabled = false,
   onClose,
   onSubmit,
   children,
 }: {
   title: string
   fieldLabel: string
-  placeholder: string
+  placeholder?: string
+  initialName?: string
+  confirmLabel?: string
+  escapeDisabled?: boolean
   onClose: () => void
   onSubmit: (name: string) => Promise<void>
   children?: ReactNode
 }) {
-  const [name, setName] = useState('')
+  const titleId = useId()
+  const [name, setName] = useState(initialName)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -328,22 +397,14 @@ function NameDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
-      <form
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="save-layout-title"
-        className="w-full max-w-md rounded-xl border border-line bg-panel p-5 shadow-2xl"
-        onMouseDown={(event) => event.stopPropagation()}
-        onSubmit={(event) => void submit(event)}
-      >
-        <h2 id="save-layout-title" className="mb-4 text-[18px] font-semibold text-ink">
+    <Dialog onClose={() => !escapeDisabled && onClose()} labelledBy={titleId}>
+      <form onSubmit={(event) => void submit(event)}>
+        <h2 id={titleId} className="mb-4 text-[18px] font-semibold text-ink">
           {title}
         </h2>
         <label className="block">
           <span className="mb-1.5 block text-[14px] font-medium text-ink-soft">{fieldLabel}</span>
           <input
-            autoFocus
             required
             value={name}
             onChange={(event) => setName(event.target.value)}
@@ -366,30 +427,51 @@ function NameDialog({
             disabled={!name.trim() || saving}
             className="min-h-10 rounded-md bg-accent px-4 py-2 text-[14px] font-semibold text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-45"
           >
-            {T.saveLayout}
+            {confirmLabel}
           </button>
         </div>
       </form>
-    </div>
+    </Dialog>
   )
 }
 
 /**
  * Reuse the id of a same-named layout instead of piling up duplicates — the
  * "overwrite" half of rename/overwrite, asked for once and then honoured.
+ *
+ * `ask` is threaded in rather than imported: the dialog has to be MOUNTED by a
+ * component, and this is a plain async function.
  */
-async function saveOrOverwrite(layout: SavedLayout, existing: SavedLayout[]): Promise<void> {
+async function saveOrOverwrite(
+  layout: SavedLayout,
+  existing: SavedLayout[],
+  ask: ConfirmFn,
+): Promise<void> {
   const clash = existing.find((item) => item.name === layout.name && item.kind === layout.kind)
   if (clash) {
-    if (!window.confirm(T.confirmOverwrite(layout.name))) return
+    const ok = await ask({
+      title: strings.dialog.overwriteTitle,
+      body: T.confirmOverwrite(layout.name),
+      confirmLabel: strings.dialog.overwriteConfirm,
+    })
+    if (!ok) return
     await repo.saveLayout({ ...layout, id: clash.id, createdAt: clash.createdAt })
     return
   }
   await repo.saveLayout(layout)
 }
 
-/** Rename / delete affordances shared by every saved-layout card. */
+/**
+ * Rename / delete affordances shared by every saved-layout card.
+ *
+ * Both dialogs are in-app now. Delete keeps its confirmation because a saved
+ * layout lives in IndexedDB, outside the 100 undo steps `zundo` holds over
+ * `scene` — there is nothing to take it back with. Rename does not confirm; it
+ * needs a text field, which `ConfirmDialog` deliberately does not offer.
+ */
 function CardActions({ layout }: { layout: SavedLayout }) {
+  const [renaming, setRenaming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const fail = (error: unknown) => {
     console.error('saved layout write failed', error)
     notify(strings.status.saveFailed)
@@ -401,11 +483,7 @@ function CardActions({ layout }: { layout: SavedLayout }) {
         title={T.renameSavedLayout}
         aria-label={`${T.renameSavedLayout}: ${layout.name}`}
         className="rounded-md bg-panel/90 p-1.5 text-ink-soft shadow-sm hover:bg-accent-tint hover:text-accent"
-        onClick={() => {
-          const next = window.prompt(T.renamePrompt, layout.name)
-          if (next === null) return
-          void repo.renameLayout(layout.id, next).catch(fail)
-        }}
+        onClick={() => setRenaming(true)}
       >
         <Pencil size={14} />
       </button>
@@ -414,13 +492,36 @@ function CardActions({ layout }: { layout: SavedLayout }) {
         title={T.deleteSavedLayout}
         aria-label={`${T.deleteSavedLayout}: ${layout.name}`}
         className="rounded-md bg-panel/90 p-1.5 text-ink-soft shadow-sm hover:bg-danger/10 hover:text-danger"
-        onClick={() => {
-          if (!window.confirm(T.confirmDeleteSavedLayout(layout.name))) return
-          void repo.removeLayout(layout.id).catch(fail)
-        }}
+        onClick={() => setDeleting(true)}
       >
         <Trash2 size={15} />
       </button>
+      {renaming && (
+        <NameDialog
+          title={strings.dialog.renameTitle}
+          fieldLabel={T.renamePrompt}
+          initialName={layout.name}
+          confirmLabel={strings.dialog.renameConfirm}
+          onClose={() => setRenaming(false)}
+          onSubmit={async (next) => {
+            await repo.renameLayout(layout.id, next)
+          }}
+        />
+      )}
+      {deleting && (
+        <ConfirmDialog
+          danger
+          title={strings.dialog.deleteLayoutTitle}
+          body={T.confirmDeleteSavedLayout(layout.name)}
+          cancelLabel={strings.dialog.cancel}
+          confirmLabel={strings.dialog.deleteLayoutConfirm}
+          onCancel={() => setDeleting(false)}
+          onConfirm={() => {
+            setDeleting(false)
+            void repo.removeLayout(layout.id).catch(fail)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -476,10 +577,28 @@ function SavedLayoutCard({
   )
 }
 
-/** Apply a ready-made decor set to this table — or to every table at once. */
+/**
+ * Apply a ready-made decor set to this table — or to every table at once.
+ *
+ * ⚠ NAME, EXPORT AND `{ obj }` PROPS ARE A CONTRACT. `viewer3d/SelectionBar3D`
+ * imports this component and renders it verbatim inside a 3D popover, which is
+ * what makes a 2D/3D divergence in table dressing structurally impossible. The
+ * inspector's merged "עיצוב השולחן" section renders `TableDesignBlock` — the
+ * same body without the `Section` chrome — for the same reason.
+ */
 export function TableDesignSection({ obj }: { obj: SceneObject }) {
+  if (!obj.seating) return null
+  return (
+    <Section title={T.tableDesign}>
+      <TableDesignBlock obj={obj} />
+    </Section>
+  )
+}
+
+export function TableDesignBlock({ obj }: { obj: SceneObject }) {
   const [designId, setDesignId] = useState(TABLE_DESIGNS[0].id)
   const [saving, setSaving] = useState(false)
+  const confirm = useConfirm()
   const applied = useEditorStore((s) => designItems(s.scene, obj.id).length > 0)
   const block = useEditorStore((s) => tableDesignBlock(s.scene, obj.id))
   // apply-to-all is a dead no-op when every table is locked — say so by disabling
@@ -502,14 +621,30 @@ export function TableDesignSection({ obj }: { obj: SceneObject }) {
     if (savedDesign) applySavedTableDesign(savedDesign, obj.id)
     else applyTableDesign(id, obj.id)
   }
+  /**
+   * No confirmation: every table's decor is one `mutateScene`, so this is one
+   * Ctrl+Z away — but it used to complete in total silence on a panel the user
+   * cannot see all of, which is the actual defect. The RESULT is what gets
+   * announced.
+   */
   const applyAll = () => {
     const savedDesign = saved.find((item) => item.id === designId)
-    if (savedDesign) applySavedTableDesignToAll(savedDesign)
-    else applyTableDesignToAll(designId)
+    const ids = savedDesign ? applySavedTableDesignToAll(savedDesign) : applyTableDesignToAll(designId)
+    // `layAll` raises its own refusal when nothing landed — one toast, not two
+    if (!ids.length) return
+    // the ids are the DECOR that was laid; what the user counts is TABLES, which
+    // is how many distinct parents that decor hangs off
+    const { objects } = useEditorStore.getState().scene
+    const tables = new Set<Id>()
+    for (const id of ids) {
+      const parent = objects[id]?.parentId
+      if (parent) tables.add(parent)
+    }
+    notify(N.designAppliedAll(tables.size), { tone: 'info' })
   }
 
   return (
-    <Section title={T.tableDesign}>
+    <>
       {blocked && <p className="text-[13px] text-warning">{T.designLocked}</p>}
       <ThumbGrid
         value={designId}
@@ -519,7 +654,7 @@ export function TableDesignSection({ obj }: { obj: SceneObject }) {
       />
       {saved.length > 0 && (
         <>
-          <h4 className="pt-1 text-[13px] font-semibold text-ink-soft">{T.savedDesigns}</h4>
+          <SubHeading>{T.savedDesigns}</SubHeading>
           <div className="grid grid-cols-2 gap-1.5">
             {saved.map((layout) => (
               <SavedLayoutCard
@@ -556,6 +691,7 @@ export function TableDesignSection({ obj }: { obj: SceneObject }) {
           title={T.saveDesignTitle}
           fieldLabel={T.designName}
           placeholder={T.designNamePlaceholder}
+          escapeDisabled={confirm.open}
           onClose={() => setSaving(false)}
           onSubmit={async (name) => {
             const layout = captureTableDesign(obj.id, name)
@@ -563,11 +699,12 @@ export function TableDesignSection({ obj }: { obj: SceneObject }) {
               notify(T.noDesignToSave)
               return
             }
-            await saveOrOverwrite(layout, saved)
+            await saveOrOverwrite(layout, saved, confirm.ask)
           }}
         />
       )}
-    </Section>
+      {confirm.dialog}
+    </>
   )
 }
 
@@ -575,10 +712,15 @@ export function TableDesignSection({ obj }: { obj: SceneObject }) {
  * The same grid in the project inspector, disabled, with the reason. Without a
  * selection the whole section used to be absent, so the designs were invisible
  * until you happened to click a table (source doc §23).
+ *
+ * COLLAPSED by default, and that is the same fix rather than a retreat from it:
+ * §23 needed the designs to be DISCOVERABLE, and a titled section says "table
+ * designs live here" in one line. What it costs otherwise is ~200px of four
+ * permanently disabled cards on the panel's first screen.
  */
 export function TableDesignHintSection() {
   return (
-    <Section title={T.tableDesign}>
+    <CollapsibleSection id={INSPECTOR_SECTION.tableDesign} title={T.tableDesign}>
       <p className="text-[13px] text-ink-soft">{T.designPickHint}</p>
       <ThumbGrid
         value=""
@@ -586,8 +728,31 @@ export function TableDesignHintSection() {
         onChange={() => {}}
         options={TABLE_DESIGNS.map((d) => ({ ...d, thumbnail: designThumb(d) }))}
       />
-    </Section>
+    </CollapsibleSection>
   )
+}
+
+/**
+ * Apply a named layout and then say what landed.
+ *
+ * `applyHallLayout` returns the TABLE ids it placed — its own comment says so
+ * (`actions.ts:1524`) — and the seats are read back off those tables rather than
+ * taken from `layoutStats`: a placement whose preset the catalog no longer has
+ * is skipped, and the authored figure would then over-report what is on the
+ * floor.
+ *
+ * No confirmation in front of it. Replacing every table in the hall is one
+ * `mutateScene`, so it is one Ctrl+Z away and `zundo` holds 100 of them; the
+ * defect this fixes is that the operation completed in SILENCE. It is also
+ * synchronous and blocks the main thread, so there is no spinner here either —
+ * one would never paint, and a progress bar that cannot progress is a lie.
+ */
+function applyLayoutAndReport(layoutId: string, options?: HallLayoutOptions): void {
+  const ids = applyHallLayout(layoutId, options)
+  if (!ids.length) return
+  const { objects } = useEditorStore.getState().scene
+  const seats = ids.reduce((total, id) => total + (objects[id]?.seating?.count ?? 0), 0)
+  notify(N.layoutApplied(ids.length, seats), { tone: 'info' })
 }
 
 /** The tables and seats a layout produces, the same line the card carries. */
@@ -681,7 +846,7 @@ function HallLayoutOptions({ layout, onBack }: { layout: HallLayout; onBack: () 
         data-apply-layout
         className="min-h-10 rounded-md bg-accent px-3 py-2 text-[14px] font-semibold text-white hover:bg-accent-hover"
         onClick={() => {
-          applyHallLayout(layout.id, {
+          applyLayoutAndReport(layout.id, {
             ...(chairId && { chairCatalogId: chairId }),
             ...(designId && { designId }),
           })
@@ -717,10 +882,10 @@ export function HallLayoutsSection() {
   const [optionsFor, setOptionsFor] = useState<string | null>(null)
   const pending = layouts.find((layout) => layout.id === optionsFor) ?? null
 
-  if (!layouts.length && !saved.length) return null
-
+  // No early return any more: the auto-fill footer below is always available,
+  // and it used to be a section of its own that rendered whatever this one did.
   return (
-    <Section title={T.layouts}>
+    <CollapsibleSection id={INSPECTOR_SECTION.hallLayouts} title={T.layouts} defaultOpen>
       {pending ? (
         <HallLayoutOptions layout={pending} onBack={() => setOptionsFor(null)} />
       ) : (
@@ -746,7 +911,7 @@ export function HallLayoutsSection() {
                   data-apply-now
                   title={T.layoutApplyNow}
                   aria-label={`${T.layoutApplyNow}: ${label(layout.labelKey)}`}
-                  onClick={() => applyHallLayout(layout.id)}
+                  onClick={() => applyLayoutAndReport(layout.id)}
                   className="absolute end-1.5 top-1.5 rounded-md bg-panel/90 p-1.5 text-ink-soft shadow-sm hover:bg-accent-tint hover:text-accent"
                 >
                   <Zap size={14} />
@@ -758,7 +923,7 @@ export function HallLayoutsSection() {
       )}
       {saved.length > 0 && (
         <>
-          <h4 className="pt-1 text-[13px] font-semibold text-ink-soft">{T.savedLayouts}</h4>
+          <SubHeading>{T.savedLayouts}</SubHeading>
           <div className="grid grid-cols-2 gap-1.5">
             {saved.map((layout) => (
               <SavedLayoutCard
@@ -781,7 +946,32 @@ export function HallLayoutsSection() {
           {T.removeLayout}
         </button>
       )}
-    </Section>
+      <AutoFillFooter />
+    </CollapsibleSection>
+  )
+}
+
+/**
+ * "Fill the hall with tables" IS a hall layout — an unnamed one, computed rather
+ * than authored — so it is this section's footer instead of the section of its
+ * own it used to have. Nothing about it changed but where it sits and the fact
+ * that it now says what it did.
+ */
+function AutoFillFooter() {
+  const [presetId, setPresetId] = useState(TABLE_PRESETS[0].id)
+  const fill = () => {
+    const ids = fillHallWithTables(presetId)
+    // "no room left" is a refusal, not a result — it keeps the warning colour
+    notify(ids.length ? N.filled(ids.length) : N.fillNone, { tone: ids.length ? 'info' : 'warn' })
+  }
+  return (
+    <>
+      <SubHeading>{T.autoFill}</SubHeading>
+      <Picker value={presetId} onChange={setPresetId} options={TABLE_PRESETS} />
+      <button className={buttonClass} title={T.fillHint} onClick={fill}>
+        {T.fillHall}
+      </button>
+    </>
   )
 }
 
@@ -789,18 +979,24 @@ export function HallLayoutsSection() {
  * Source doc §32 — the lighting counterpart of the hall-layout picker. Its own
  * `meta` tag means a saved lighting layout and a saved table layout are applied
  * side by side instead of replacing each other.
+ *
+ * A BLOCK, not a section: it is the third thing inside the one merged lighting
+ * section. It used to be its own band titled "פריסות תאורה אישיות", one below
+ * "פריסות תאורה", one below "תאורה חיצונית" — three places to look for the
+ * lights, two of them near-identically named.
  */
-export function LightingLayoutsSection() {
+export function LightingLayoutsBlock() {
   const venuePackId = useEditorStore((s) => s.scene.venue.venuePackId)
   const venueWidth = useEditorStore((s) => s.scene.venue.size.width)
   const venueDepth = useEditorStore((s) => s.scene.venue.size.depth)
   const applied = useEditorStore((s) => appliedLightingLayoutId(s.scene))
   const [saving, setSaving] = useState(false)
+  const confirm = useConfirm()
   const { layouts: all } = useVenueLayouts(venuePackId, venueWidth, venueDepth)
   const saved = all.filter((layout) => layout.kind === 'lighting')
 
   return (
-    <Section title={T.lightingLayouts}>
+    <>
       {saved.length > 0 && (
         <div className="grid grid-cols-2 gap-1.5">
           {saved.map((layout) => (
@@ -827,6 +1023,7 @@ export function LightingLayoutsSection() {
           title={T.saveLightingTitle}
           fieldLabel={T.layoutName}
           placeholder={T.layoutNamePlaceholder}
+          escapeDisabled={confirm.open}
           onClose={() => setSaving(false)}
           onSubmit={async (name) => {
             const layout = createLightingLayout(name, useEditorStore.getState().scene)
@@ -834,14 +1031,21 @@ export function LightingLayoutsSection() {
               notify(T.noLighting)
               return
             }
-            await saveOrOverwrite(layout, saved)
+            await saveOrOverwrite(layout, saved, confirm.ask)
           }}
         />
       )}
-    </Section>
+      {confirm.dialog}
+    </>
   )
 }
 
+/**
+ * "Save this selection as a personal layout." Rendered at the BOTTOM of the
+ * inspector: it used to sit above even the selected object's own name, which
+ * made the first thing the panel offered after clicking one chair a question
+ * about saving a layout.
+ */
 export function SaveSelectionSection() {
   const selectionCount = useEditorStore((s) => s.selection.length)
   const venuePackId = useEditorStore((s) => s.scene.venue.venuePackId)
@@ -849,6 +1053,7 @@ export function SaveSelectionSection() {
   const venueDepth = useEditorStore((s) => s.scene.venue.size.depth)
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<SavedLayoutMode>('layout-design')
+  const confirm = useConfirm()
   const { layouts: existing } = useVenueLayouts(venuePackId, venueWidth, venueDepth)
   if (!selectionCount) return null
 
@@ -872,12 +1077,13 @@ export function SaveSelectionSection() {
           title={T.saveTitle}
           fieldLabel={T.layoutName}
           placeholder={T.layoutNamePlaceholder}
+          escapeDisabled={confirm.open}
           onClose={() => setOpen(false)}
           onSubmit={async (name) => {
             const { scene, selection } = useEditorStore.getState()
             const layout = createSavedLayout(name, scene, selection, mode)
             if (!layout) return
-            await saveOrOverwrite(layout, existing)
+            await saveOrOverwrite(layout, existing, confirm.ask)
           }}
         >
           <div className="mt-4 grid gap-2">
@@ -903,9 +1109,14 @@ export function SaveSelectionSection() {
   )
 }
 
-/** Hall-wide operations: fill the floor with tables, hang a ceiling design. */
-export function ScenePresetsSection() {
-  const [presetId, setPresetId] = useState(TABLE_PRESETS[0].id)
+/**
+ * The ceiling-fixture picker and the one height every fixture hangs at.
+ *
+ * A BLOCK, not a section: it is the second thing inside the merged lighting
+ * section. Its old title was "פריסות תאורה", which sat two bands below
+ * "פריסות תאורה אישיות" and answered a different question from both.
+ */
+export function HallDesignBlock() {
   const [pickedId, setPickedId] = useState(HALL_DESIGNS[0].id)
   // cm above the floor, i.e. transform.elevation: the BOTTOM of the fixture.
   // Only consulted before anything hangs — once it does, the scene is the truth.
@@ -956,56 +1167,39 @@ export function ScenePresetsSection() {
 
   return (
     <>
-      {/* FIRST, not last: this section renders immediately below HallLayoutsSection,
-          so the dev button lands right under "פריסות אישיות" — the neighbour the
-          user named when he reported it missing. See BakeFixturesSection. */}
-      <BakeFixturesSection />
-      <Section title={T.autoFill}>
-        <Picker value={presetId} onChange={setPresetId} options={TABLE_PRESETS} />
-        <button
-          className={buttonClass}
-          title={T.fillHint}
-          onClick={() => fillHallWithTables(presetId)}
-        >
-          {T.fillHall}
+      <ThumbGrid
+        value={hallId}
+        onChange={(id) => {
+          // each design carries its own authored height; absent one, the seeded
+          // hang (top against the truss) is the top of that fixture's band
+          const next = getHallDesign(id)
+          const entry = next ? getCatalogEntry(next.catalogId) : null
+          const band = entry
+            ? hangRange(getVenuePack(venuePackId), wallHeight, entry.defaultSize.height)
+            : range
+          const cm = next?.floorDistance ?? band.max
+          setPickedId(id)
+          setHangCm(cm)
+          applyHall(id, cm)
+        }}
+        options={HALL_DESIGNS.map((d) => ({ ...d, thumbnail: hallThumb(d) }))}
+      />
+      <SliderField
+        label={T.floorDistance}
+        value={Math.round(shown) / 100}
+        min={Math.round(range.min) / 100}
+        max={Math.round(range.max) / 100}
+        step={0.05}
+        onChange={(v) => {
+          setHangCm(v * 100)
+          retrim(v * 100)
+        }}
+      />
+      {hallApplied && (
+        <button className={dangerClass} onClick={() => removeHallDesign()}>
+          {T.remove}
         </button>
-      </Section>
-      <Section title={T.hallDesign}>
-        <ThumbGrid
-          value={hallId}
-          onChange={(id) => {
-            // each design carries its own authored height; absent one, the seeded
-            // hang (top against the truss) is the top of that fixture's band
-            const next = getHallDesign(id)
-            const entry = next ? getCatalogEntry(next.catalogId) : null
-            const band = entry
-              ? hangRange(getVenuePack(venuePackId), wallHeight, entry.defaultSize.height)
-              : range
-            const cm = next?.floorDistance ?? band.max
-            setPickedId(id)
-            setHangCm(cm)
-            applyHall(id, cm)
-          }}
-          options={HALL_DESIGNS.map((d) => ({ ...d, thumbnail: hallThumb(d) }))}
-        />
-        <SliderField
-          label={T.floorDistance}
-          value={Math.round(shown) / 100}
-          min={Math.round(range.min) / 100}
-          max={Math.round(range.max) / 100}
-          step={0.05}
-          onChange={(v) => {
-            setHangCm(v * 100)
-            retrim(v * 100)
-          }}
-        />
-        {hallApplied && (
-          <button className={dangerClass} onClick={() => removeHallDesign()}>
-            {T.remove}
-          </button>
-        )}
-      </Section>
-      <LightingLayoutsSection />
+      )}
     </>
   )
 }
@@ -1040,6 +1234,11 @@ export function ScenePresetsSection() {
  *      hall design and lighting layouts. It is now the FIRST thing under the
  *      layout pickers, i.e. directly beneath "פריסות אישיות" — the section he
  *      said he could see while looking for this one.
+ *      ⚠ ROUND 4 KEEPS THAT, AND KEEPS IT RELATIONALLY. "פריסות אולם" was
+ *      promoted from fifth section to second, and this button moved with it so
+ *      that it is still the first thing under the layout pickers. Pinning it to
+ *      an absolute position instead would have detached it from the neighbour
+ *      the whole fix is built on. It is not collapsed, not gated and not hidden.
  *   3. SILENCE — measured 2026-07-29: writing venueFixtures.ts makes Vite push an
  *      HMR update through every module that imports it, which is most of the app.
  *      Fast Refresh remounts this component and re-evaluates the notice store, so
@@ -1052,9 +1251,12 @@ export function ScenePresetsSection() {
  */
 const BAKE_RESULT_KEY = 'hanan.bakeResult'
 
-function BakeFixturesSection() {
+export function BakeFixturesSection() {
   const venueId = useEditorStore((s) => s.scene.venue.venuePackId)
   const [status, setStatus] = useState(() => sessionStorage.getItem(BAKE_RESULT_KEY) ?? '')
+  // what the confirm is about to write, collected before the question is asked
+  // so the count in the dialog is the count that gets posted
+  const [pending, setPending] = useState<SceneObject[] | null>(null)
   if (!import.meta.env.DEV || !venueId) return null
 
   const say = (message: string) => {
@@ -1063,24 +1265,36 @@ function BakeFixturesSection() {
     notify(message)
   }
 
-  const bake = async () => {
+  const collect = (): SceneObject[] => {
     const { scene } = useEditorStore.getState()
     // `objectOrder` is top-level only, and the chairs and table decor the user
     // arranged are exactly what is NOT in it — walking it was why the button
     // saved a hall of bare tables. Roots keep their z-order, children follow
     // their root, and bakeSource re-parents both into its own id space.
     const roots = new Set(scene.objectOrder)
-    const objects: SceneObject[] = [
+    // frozen fixtures are sent BACK rather than filtered out, so a second bake
+    // rewrites the first one instead of deleting what it produced
+    return [
       ...scene.objectOrder.map((id) => scene.objects[id]).filter((o): o is SceneObject => !!o),
       ...Object.values(scene.objects).filter((o) => !roots.has(o.id)),
     ]
-    // frozen fixtures are sent BACK rather than filtered out, so a second bake
-    // rewrites the first one instead of deleting what it produced
+  }
+
+  /**
+   * This one KEEPS its confirmation while the scene operations around it lose
+   * theirs, and the line is the same line everywhere in this file: undo reaches
+   * `scene`, and this writes a source file on disk. There is no Ctrl+Z for that.
+   */
+  const ask = () => {
+    const objects = collect()
     if (!objects.length) {
       notify(T.bakeEmpty)
       return
     }
-    if (!window.confirm(T.bakeConfirm(objects.length))) return
+    setPending(objects)
+  }
+
+  const bake = async (objects: SceneObject[]) => {
     try {
       const res = await fetch('/__bake', {
         method: 'POST',
@@ -1104,7 +1318,7 @@ function BakeFixturesSection() {
         type="button"
         data-bake-fixtures
         className={`${buttonClass} flex w-full items-center justify-center gap-2`}
-        onClick={() => void bake()}
+        onClick={ask}
       >
         <Pin size={15} />
         {T.bakeSaveElements}
@@ -1125,6 +1339,23 @@ function BakeFixturesSection() {
         <p role="status" className="text-[13px] text-success">
           {status}
         </p>
+      )}
+      {pending && (
+        <ConfirmDialog
+          danger
+          title={strings.dialog.bakeTitle}
+          // the question carries the count, the second sentence says what the
+          // write actually does — `window.confirm` could only run them together
+          // with a `\n\n` between them
+          body={`${T.bakeConfirm(pending.length)} ${T.bakeConfirmBody}`}
+          cancelLabel={strings.dialog.cancel}
+          confirmLabel={strings.dialog.bakeConfirmAction}
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            setPending(null)
+            void bake(pending)
+          }}
+        />
       )}
     </div>
   )

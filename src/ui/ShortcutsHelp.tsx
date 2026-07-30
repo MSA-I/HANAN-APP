@@ -1,37 +1,70 @@
+/**
+ * The shortcut reference, rendered FROM `core/shortcuts.ts`.
+ *
+ * It used to render `strings.help.rows` — a hand-copied prose duplicate of the
+ * handlers — and then patch itself at render time by string-matching the two
+ * rows it distrusted, because the plans that kept finding those rows wrong were
+ * not allowed to edit `strings.ts`. The rotation row alone was wrong three
+ * times. The catalog is now the one source this panel and every tooltip read,
+ * and `shortcuts.test.ts` checks each printed chord against the codes the
+ * handler actually listens for — so there is nothing left here to correct, and
+ * no filtering, patching or string matching remains.
+ *
+ * The four tuple tables this file used to read — `help.rows`, `rows3d`,
+ * `rows3dExtra`, `rotationFreeRow` — went with it, along with the `RowKeys` tsc
+ * tripwire derived from `rows` being `as const`. Nothing here references them by
+ * any name.
+ */
 import { X } from 'lucide-react'
 import { useEffect } from 'react'
+import {
+  chordFor,
+  shortcutsFor,
+  type Shortcut,
+  type ShortcutGroup,
+  type ShortcutScope,
+} from '../core/shortcuts'
 import { overlay, useOverlayStore } from '../editor2d/overlayStore'
+import { chordIsLatin, Tooltip } from './Tooltip'
 import { strings } from './strings'
 
-type HelpRow = readonly [string, string]
+/** Rendered in this order. A group with no entries in the scope is skipped. */
+const GROUP_ORDER: readonly ShortcutGroup[] = ['tools', 'edit', 'view', 'nav']
+
+const GROUP_HEADING: Readonly<Record<ShortcutGroup, string>> = {
+  tools: strings.help.groupTools,
+  edit: strings.help.groupEdit,
+  view: strings.help.groupView,
+  nav: strings.help.groupNav,
+}
 
 /**
- * `strings.help.rows` / `rows3d` are frozen `as const` arrays and strings.ts is a
- * pure dictionary, so PLAN-09's corrections were SEEDED beside them
- * (strings.ts:595-615) rather than written into them. Applying them is this file's
- * job, and it is done here — at the one place that renders the table — so there is
- * no second list to keep in step.
+ * `labelKey` is a dotted path because `core/` may not import `ui/` — resolving
+ * it is the other half of that contract. Read the FIELD rather than rebuilding
+ * `help.keys.${id}` from the id: the catalog's own test only guarantees that the
+ * field resolves.
  *
- * Matched BY CONTENT, never by index: these two rotation rows have now been wrong
- * three times (15° steps → inverted Shift → the snap removed entirely), and an
- * index would happily rewrite whichever row drifted into that slot.
- *
- * `RowKeys` is the tripwire that makes the matching safe: `rows` is `as const`, so
- * typing the two labels as "one of the key columns that actually exist" turns a
- * renamed row into a BUILD failure instead of a silent no-match that quietly
- * restores the wrong help text.
+ * A key that does not resolve falls back to the path itself, never to an empty
+ * string. `shortcuts.test.ts` fails on a missing key, so this can only fire on a
+ * catalog entry added without one — and a row reading `help.keys.foo` says which
+ * key is missing, where a blank row says nothing at all.
  */
-type RowKeys = (typeof strings.help.rows)[number][0]
-const ROTATION_KEYS: RowKeys = 'סיבוב בגיזמו'
-/** Gone with the 5° snap in PLAN-09/G1 — it now describes behaviour that is absent. */
-const SHIFT_ROTATION_KEYS: RowKeys = 'Shift בסיבוב'
+function labelFor(labelKey: string): string {
+  let node: unknown = strings
+  for (const segment of labelKey.split('.')) {
+    if (typeof node !== 'object' || node === null) return labelKey
+    node = (node as Record<string, unknown>)[segment]
+  }
+  return typeof node === 'string' && node.length > 0 ? node : labelKey
+}
 
-const HELP_ROWS: readonly HelpRow[] = strings.help.rows
-  .filter(([keys]) => keys !== SHIFT_ROTATION_KEYS)
-  .map((row) => (row[0] === ROTATION_KEYS ? strings.help.rotationFreeRow : row))
-
-/** R and Ctrl+A reach 3D as of PLAN-09 (items 16, 24) — see useEditorShortcuts.ts. */
-const HELP_ROWS_3D: readonly HelpRow[] = [...strings.help.rows3d, ...strings.help.rows3dExtra]
+function groupsOf(scope: ShortcutScope): Array<{ group: ShortcutGroup; rows: Shortcut[] }> {
+  const entries = shortcutsFor(scope)
+  return GROUP_ORDER.map((group) => ({
+    group,
+    rows: entries.filter((s) => s.group === group),
+  })).filter(({ rows }) => rows.length > 0)
+}
 
 export function ShortcutsHelp() {
   const open = useOverlayStore((s) => s.helpOpen)
@@ -60,34 +93,62 @@ export function ShortcutsHelp() {
       >
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-[18px] font-semibold">{strings.help.title}</h2>
-          <button
-            title={strings.help.close}
-            aria-label={strings.help.close}
-            className="rounded-md p-2 text-ink-soft hover:bg-accent-tint hover:text-ink"
-            onClick={() => overlay.setHelpOpen(false)}
-          >
-            <X size={18} />
-          </button>
+          <Tooltip label={strings.help.close} chord={chordFor('escape')}>
+            <button
+              title={strings.help.close}
+              aria-label={strings.help.close}
+              className="rounded-md p-2 text-ink-soft hover:bg-accent-tint hover:text-ink"
+              onClick={() => overlay.setHelpOpen(false)}
+            >
+              <X size={18} />
+            </button>
+          </Tooltip>
         </div>
-        <Rows rows={HELP_ROWS} />
-        <h3 className="mt-5 mb-1.5 text-[16px] font-semibold">{strings.help.title3d}</h3>
-        <Rows rows={HELP_ROWS_3D} />
+        {/* The app's own two names for its two views, from the toolbar switch.
+            Every `scope: 'both'` entry appears under both headings on purpose:
+            a user in 3D reading the 3D half must not have to know that half the
+            gestures were listed above under a heading that said 2D. */}
+        <Section scope="2d" title={strings.viewMode.d2} />
+        <Section scope="3d" title={strings.viewMode.d3} />
       </div>
     </div>
   )
 }
 
-function Rows({ rows }: { rows: readonly HelpRow[] }) {
+function Section({ scope, title }: { scope: Exclude<ShortcutScope, 'both'>; title: string }) {
   return (
-    <table className="w-full text-[14px]">
-      <tbody>
-        {rows.map(([keys, label]) => (
-          <tr key={keys} className="border-b border-line/60 last:border-0">
-            <td className="py-2 pe-3 text-ink-soft">{label}</td>
-            <td className="ltr-nums py-2 text-end font-mono text-[13px] text-ink">{keys}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <>
+      <h3 className="mt-5 mb-1.5 text-[16px] font-semibold">{title}</h3>
+      {groupsOf(scope).map(({ group, rows }) => (
+        <div key={group}>
+          <h4 className="mt-4 mb-1 text-[13px] font-semibold text-ink-soft">{GROUP_HEADING[group]}</h4>
+          <table className="w-full text-[14px]">
+            <tbody>
+              {rows.map((entry) => (
+                <tr key={entry.id} className="border-b border-line/60 last:border-0">
+                  <td className="py-2 pe-3 text-ink-soft">{labelFor(entry.labelKey)}</td>
+                  {/* PER ROW, never on the column. `.ltr-nums` is
+                      `direction: ltr; unicode-bidi: isolate` plus the mono
+                      family, which is right for `Ctrl+Z` and MANGLES the third
+                      of the catalog whose chords are Hebrew prose
+                      (`לחצן ימני + גרירה`, `גרירה מהספרייה`); the mixed
+                      `Shift + קליק שמאלי` is the worst case, where an
+                      LTR-forced run reorders the Hebrew against the Latin
+                      token. `chordIsLatin` is the predicate `Tooltip` already
+                      uses on the same cell. */}
+                  <td
+                    className={`py-2 text-end text-[13px] text-ink${
+                      chordIsLatin(entry.chord) ? ' ltr-nums' : ''
+                    }`}
+                  >
+                    {entry.chord}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </>
   )
 }

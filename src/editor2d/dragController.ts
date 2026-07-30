@@ -10,7 +10,14 @@ import { aabbUnion, type AABB } from '../core/layout/bounds'
 import { collectSnapLines, snapAABB, type SnapLines } from '../core/layout/snapping'
 import type { Id } from '../core/model/types'
 import { rotateVec } from '../core/space'
-import { beginGesture, endGesture, moveObjectsBy, select } from '../state/actions'
+import {
+  beginGesture,
+  duplicateObjects,
+  endGesture,
+  moveObjectsBy,
+  select,
+  toggleSelect,
+} from '../state/actions'
 import { isEffectivelyLocked, isTable, objectAABB, visibleTopLevelIds } from '../state/selectors'
 import { setDesignEditTable, useEditorStore } from '../state/store'
 import { overlay } from './overlayStore'
@@ -19,24 +26,50 @@ import { useViewportStore } from './viewportStore'
 let ctx: { ids: Id[]; lines: SnapLines } | null = null
 let childCtx: { id: Id; parentRotation: number } | null = null
 
+/**
+ * The id the shift+mousedown of the CURRENT press just added to the selection.
+ *
+ * Shift+mousedown has to ADD (or a shift-drag would move only the object under the
+ * pointer instead of the whole set) while shift+CLICK has to REMOVE — and the two
+ * fire one after the other on the same press. Without this, adding an object with
+ * shift+click would immediately un-add it. Every mousedown re-answers the question,
+ * so a shift-DRAG — which fires no click at all — cannot leave the flag standing
+ * for the next press.
+ */
+let shiftAdded: Id | null = null
+
 export function onObjectMouseDown(id: Id, e: KonvaEventObject<MouseEvent>): void {
   if (e.evt.button !== 0) return
   e.cancelBubble = true
+  shiftAdded = null
   const { selection, scene } = useEditorStore.getState()
   if (e.evt.shiftKey) {
-    // toggle handled on click-without-drag; here just make sure it's selectable
-    if (!selection.includes(id)) select([...selection, id])
+    if (!selection.includes(id) && scene.objects[id]) {
+      shiftAdded = id
+      select([...selection, id])
+    }
     return
   }
   if (!selection.includes(id) && scene.objects[id]) select([id])
 }
 
+/**
+ * Shift+click toggles — INCLUDING the last object left selected.
+ *
+ * The guard used to be `selection.length > 1`, which made the final object the one
+ * thing shift-click could not release, while 3D calls `toggleSelect` and empties
+ * the selection without complaint. The same gesture answering differently in the
+ * two views is this repo's most expensive bug class, so 2D now goes through the
+ * same action rather than through a second rule that happens to disagree.
+ */
 export function onObjectClick(id: Id, e: KonvaEventObject<MouseEvent>): void {
   e.cancelBubble = true
-  const { selection } = useEditorStore.getState()
-  if (e.evt.shiftKey && selection.includes(id) && selection.length > 1) {
-    select(selection.filter((s) => s !== id))
-  }
+  if (!e.evt.shiftKey) return
+  const added = shiftAdded
+  shiftAdded = null
+  // this click is the tail of the mousedown that just added it
+  if (added === id) return
+  toggleSelect(id)
 }
 
 /**
@@ -59,6 +92,7 @@ export function onObjectDblClick(id: Id, e: KonvaEventObject<MouseEvent>): void 
 
 export function onObjectDragStart(id: Id, e: KonvaEventObject<DragEvent>): void {
   e.cancelBubble = true
+  shiftAdded = null
   const state = useEditorStore.getState()
   let sel = state.selection
   if (!sel.includes(id)) {
@@ -78,6 +112,30 @@ export function onObjectDragStart(id: Id, e: KonvaEventObject<DragEvent>): void 
   staticBoxes.push({ minX: 0, minY: 0, maxX: venue.width, maxY: venue.depth })
   ctx = { ids, lines: collectSnapLines(staticBoxes) }
   beginGesture()
+  /**
+   * Ctrl+drag duplicates. CTRL and not Alt — Alt is already snap-bypass, and it is
+   * documented as such in `core/shortcuts.ts` and shown in the help table.
+   *
+   * The copies are made IN PLACE and the ORIGINALS are what travel. Konva is
+   * already dragging the original nodes; handing the pointer to a different node
+   * mid-gesture is where this normally goes wrong, and the user cannot tell the
+   * difference between "the copy moved" and "the original moved" anyway.
+   *
+   * Two traps, both real:
+   *  - `duplicateObjects` ends with `select(newIds)`, which would give the drag's
+   *    selection to the copies parked at the start point — so the originals are
+   *    re-selected on the next line;
+   *  - the call must land AFTER `beginGesture()`, or the duplication and the move
+   *    are two undo entries and Ctrl+Z leaves a copy behind.
+   *
+   * The snap lines above were collected before the copies existed, which is the
+   * behaviour we want: lines through objects sitting exactly under the pointer
+   * would glue the drag to its own starting point.
+   */
+  if (e.evt.ctrlKey || e.evt.metaKey) {
+    duplicateObjects(ctx.ids, { x: 0, y: 0 })
+    select(ctx.ids)
+  }
 }
 
 export function onObjectDragMove(id: Id, e: KonvaEventObject<DragEvent>): void {
