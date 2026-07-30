@@ -291,6 +291,27 @@ export function shapeGap(a: Shape, b: Shape): number {
   return Math.max(0, pointPolyDistance({ x: circle.x, y: circle.y }, cornersOf(rect)) - circle.r)
 }
 
+/**
+ * Do any two parts of two subtrees touch?
+ *
+ * The per-PAIR box reject is the whole point. The subtree-level `aabbIntersects`
+ * further down only says the two objects are near each other; inside a near pair
+ * every part was then SAT-tested against every other, which for a table with
+ * twelve chairs beside another is 169 tests of 121 ns. A box test is 6.4 ns and
+ * kills all but a handful of them (both measured on this machine — see the note on
+ * `Shape`), and it is exact in the safe direction: a box that misses guarantees
+ * the shapes miss, so nothing legal is refused and nothing illegal is admitted.
+ */
+function partsOverlap(a: Shape[], aBoxes: AABB[], b: Shape[], bBoxes: AABB[]): boolean {
+  for (let i = 0; i < a.length; i++) {
+    for (let j = 0; j < b.length; j++) {
+      if (!aabbIntersects(aBoxes[i], bBoxes[j])) continue
+      if (shapesOverlap(a[i], b[j])) return true
+    }
+  }
+  return false
+}
+
 function shapesOverlap(a: Shape, b: Shape): boolean {
   if (a.kind === 'circle' && b.kind === 'circle') {
     return Math.hypot(a.x - b.x, a.y - b.y) < a.r + b.r
@@ -313,6 +334,12 @@ interface Occupant {
   self: Shape
   /** own outline + every attached chair: what overlap is tested against */
   parts: Shape[]
+  /**
+   * `parts[i]`'s own box, built here because it is a property of the scene and the
+   * candidate side asks about it on every one of the fourteen probes a drag frame
+   * makes. It is the second half of the pair reject in `partsOverlap`.
+   */
+  partBoxes: AABB[]
   isTable: boolean
   clearance: number
 }
@@ -405,11 +432,13 @@ function buildIndex(scene: SceneState): Index {
       if (child.attachment?.kind !== 'seat') continue // table-top decor is not a footprint
       parts.push(shapeOf(composeTransform(obj.transform, child.transform), outlineOf(child)))
     }
+    const partBoxes = parts.map(shapeAABB)
     occupants.push({
       id,
-      box: unionBox(parts.map(shapeAABB)),
+      box: unionBox(partBoxes),
       self,
       parts,
+      partBoxes,
       isTable: entry.category === 'tables',
       clearance: clearanceOf(outline),
     })
@@ -696,7 +725,8 @@ function check(index: Index, candidate: PlacementCandidate): Violation[] {
   const outline = entry.footprint(candidate.size).outline
   const self = shapeOf(candidate.transform, outline)
   const parts = candidateParts(index, candidate, self)
-  const box = unionBox(parts.map(shapeAABB))
+  const partBoxes = parts.map(shapeAABB)
+  const box = unionBox(partBoxes)
 
   const out: Violation[] = []
   if (box.minX < -0.01 || box.minY < -0.01 || box.maxX > index.width + 0.01 || box.maxY > index.depth + 0.01) {
@@ -772,7 +802,7 @@ function check(index: Index, candidate: PlacementCandidate): Violation[] {
     }
     if (!aabbIntersects(grown, other.box)) continue
 
-    if (parts.some((p) => other.parts.some((q) => shapesOverlap(p, q)))) {
+    if (partsOverlap(parts, partBoxes, other.parts, other.partBoxes)) {
       out.push({ kind: 'collision', withId: other.id })
       continue
     }
