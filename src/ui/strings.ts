@@ -5,16 +5,68 @@
  */
 export const strings = {
   appName: 'מתכנן אירועים',
+  /**
+   * Unit suffixes, so a value and its unit stop being welded together in a
+   * dozen labels. `inspector.posX` and friends still spell theirs out inline;
+   * they can move onto these when someone is editing them anyway.
+   *
+   * ⚠ `meters` ends in a GERESH — U+05F3 ׳ — not an ASCII apostrophe. They look
+   * alike at 14px and are different characters: the ASCII one is a bidi-neutral
+   * quote that flips to the wrong side of the word under dir="rtl".
+   */
+  units: {
+    meters: 'מ׳',
+    degrees: '°',
+  },
   workspace: {
     loading: 'טוען פרויקט…',
     loading3d: 'מכינים את התצוגה התלת־ממדית…',
+    /**
+     * ⚠ UNCHANGED ON PURPOSE. It promises dragging, and dragging is being built
+     * this round — so it stops being a lie rather than needing a rewrite.
+     */
     emptyCanvasHint: 'גררו פריטים מהספרייה כדי להתחיל לתכנן',
+    /**
+     * The empty canvas today is one grey pill in the middle of the plan. These
+     * turn it into the three things a first-time user needs: what they are
+     * looking at, the second way in (the layout presets, which need no dragging
+     * at all), and where the rest of the answers live.
+     */
+    emptyCanvasTitle: 'האולם ריק',
+    emptyCanvasLayouts: 'או בחרו פריסת אולם מוכנה מהתפריט שמשמאל',
+    emptyCanvasHelp: 'כל הקיצורים והעזרה — בכפתור ?',
+    /** the drop target lights up under a dragged library tile */
+    dropHere: 'שחררו כאן כדי להציב',
+    /** the armed-placement chip: what is about to be placed, and the way out */
+    placingChip: (name: string) => `הצבת ${name} · Esc לביטול`,
+    /**
+     * The 3D view arrives in two stages and the wait is long enough that a bare
+     * spinner reads as a hang: first the viewer CHUNK (a dynamic import), then
+     * the venue model and its textures. Naming which stage is running is the
+     * difference between "slow" and "stuck".
+     */
+    loading3dModule: 'טוען את מנוע התלת־ממד…',
+    loading3dAssets: 'טוען את האולם…',
+    loading3dPercent: (n: number) => `${n}%`,
+    /** shown once the wait passes the point where silence starts to worry people */
+    loading3dSlow: 'הטעינה הראשונה אורכת מספר שניות',
   },
   toolbar: {
     backToDashboard: 'חזרה לפרויקטים',
     undo: 'ביטול',
     redo: 'ביצוע חוזר',
     clearAll: 'ניקוי כל האלמנטים',
+    /** the two pointer tools, for a tooltip that pairs with `chordFor('selectTool')` */
+    selectTool: 'כלי בחירה',
+    handTool: 'כלי יד',
+    help: 'עזרה וקיצורי מקלדת',
+    /**
+     * Clearing the plan is the one irreversible-feeling action in the toolbar,
+     * so it says how much it is about to take and then asks a second time —
+     * `clearAllArmed` is the label the button wears between the two presses.
+     */
+    clearAllWithCount: (n: number) => `ניקוי כל האלמנטים (${n})`,
+    clearAllArmed: 'לחצו שוב לניקוי הכול',
     export: 'ייצוא',
     exportPng: 'תוכנית רצפה (PNG)',
     exportJson: 'קובץ פרויקט (JSON)',
@@ -64,6 +116,13 @@ export const strings = {
     saving: 'שומר…',
     saveFailed: 'השמירה נכשלה — מנסים שוב',
     loadFailed: 'טעינת הפריסות נכשלה',
+    /**
+     * The status line after a clear-all. It names the escape hatch inline
+     * because that is the moment someone needs it most — see `notice.cleared` +
+     * `notice.undo` for the toast version, which offers a BUTTON instead and is
+     * the better pattern where there is room for one.
+     */
+    clearedAll: (n: number) => `${n} פריטים נוקו · Ctrl+Z לביטול`,
     /**
      * PLAN-09 item 15. `rotateObjectsBy` is all-or-nothing by design (`poseAllowed`,
      * actions.ts:210-216 · :1801-1811) and today refuses in complete silence, which
@@ -324,8 +383,17 @@ export const strings = {
     placeSettingsAdd: 'פריסה על כל המקומות',
     placeSettingsRemove: 'הסרת הערכות',
     placeSettingsType: 'סוג הערכה',
-    bakeConfirm: (count: number) =>
-      `לקבע ${count} אלמנטים לתוך קוד המקור?\n\nהפעולה כותבת את src/core/venueFixtures.ts. האלמנטים ייטענו בכל פרויקט חדש ולא ניתן יהיה להזיז או למחוק אותם.`,
+    /**
+     * ⚠ CHANGED VALUE, not a new key. The `\n\n` was a `window.confirm`
+     * artefact — the only way that dialog had to separate a question from its
+     * explanation. In a real dialog the question is the TITLE and the
+     * explanation is the BODY, so they are two strings now. Nothing fails at
+     * compile time if a caller keeps using `bakeConfirm` alone; it just loses
+     * the second paragraph, which is why this is called out here.
+     */
+    bakeConfirm: (count: number) => `לקבע ${count} אלמנטים לתוך קוד המקור?`,
+    bakeConfirmBody:
+      'הפעולה כותבת את src/core/venueFixtures.ts. האלמנטים ייטענו בכל פרויקט חדש ולא ניתן יהיה להזיז או למחוק אותם.',
     bakeDone: (count: number) => `${count} אלמנטים נכתבו ל-venueFixtures.ts`,
     bakeFailed: 'הקיבוע נכשל',
     bakeEmpty: 'אין אלמנטים לקיבוע',
@@ -495,6 +563,16 @@ export const strings = {
      */
     texture: 'טקסטורה',
     textureNone: 'ללא טקסטורה',
+    /** aria-labels for a collapsible section header — the pair `library` already has */
+    expand: 'הרחבה',
+    collapse: 'כיווץ',
+    /**
+     * `lightingFine` folds the four sun sliders away behind the three presets
+     * (יום / שקיעה / לילה), which is all most people ever touch.
+     * `tableStyling` is the heading over the per-table colour and decor controls.
+     */
+    lightingFine: 'כוונון עדין',
+    tableStyling: 'עיצוב השולחן',
   },
   statusBar: {
     tables: 'שולחנות',
@@ -542,9 +620,138 @@ export const strings = {
      */
     placeSettingLocked: 'ערכת הסכו״ם אינה ניתנת להזזה',
   },
+  /**
+   * The in-app replacements for `window.confirm` / `window.prompt`. Each dialog
+   * is a TITLE (the question) plus a CONFIRM label that names the thing it is
+   * about to do — never a bare "אישור", which forces the user to re-read the
+   * title to find out what they are agreeing to. `cancel` and `close` are
+   * shared by all of them.
+   *
+   * The explanatory body of each dialog stays with its own feature — see
+   * `presets.bakeConfirmBody`, `presets.confirmDeleteSavedLayout`,
+   * `presets.confirmOverwrite` — because that is where the counts and names
+   * that fill it come from.
+   */
+  dialog: {
+    cancel: 'ביטול',
+    close: 'סגירה',
+    renameTitle: 'שינוי שם לפריסה',
+    renameConfirm: 'שינוי השם',
+    deleteLayoutTitle: 'מחיקת פריסה',
+    deleteLayoutConfirm: 'מחיקה',
+    overwriteTitle: 'החלפת פריסה קיימת',
+    overwriteConfirm: 'החלפה',
+    bakeTitle: 'קיבוע אלמנטים לקוד המקור',
+    bakeConfirmAction: 'קיבוע',
+  },
+  /**
+   * Transient toasts. Anything destructive that can be taken back says so and
+   * carries `undo` as a BUTTON, which is the whole reason these exist rather
+   * than a confirm dialog in front of every one of them.
+   */
+  notice: {
+    dismiss: 'סגירת ההודעה',
+    undo: 'בטל',
+    cleared: (n: number) => `${n} פריטים נמחקו`,
+    filled: (n: number) => `נוספו ${n} שולחנות`,
+    fillNone: 'אין מקום לשולחנות נוספים',
+    layoutApplied: (tables: number, seats: number) =>
+      `הפריסה הוחלה — ${tables} שולחנות, ${seats} מקומות`,
+    designAppliedAll: (n: number) => `העיצוב הוחל על ${n} שולחנות`,
+    exportPngDone: 'תוכנית הרצפה הורדה',
+    /** the capture reads the 2D canvas, which full-3D does not render */
+    exportPngFailed: 'ייצוא התוכנית אפשרי מתצוגת 2D או מפוצל בלבד',
+    importFailed: 'ייבוא הקובץ נכשל — הקובץ אינו קובץ פרויקט תקין',
+  },
   help: {
     title: 'קיצורי מקלדת',
     close: 'סגירה',
+    /** the button that opens the panel — the panel's own heading is `title` */
+    open: 'קיצורי מקלדת ועזרה',
+    /** section headings, one per `ShortcutGroup` in core/shortcuts.ts */
+    groupTools: 'כלים',
+    groupEdit: 'עריכה',
+    groupView: 'תצוגה',
+    groupNav: 'ניווט בתלת־ממד',
+    /**
+     * The DESCRIPTION column, one entry per `Shortcut.id` in
+     * `core/shortcuts.ts` — that file's `labelKey` is `help.keys.<id>`, and
+     * `shortcuts.test.ts` fails if any of them stops resolving here. The
+     * wording is lifted from the `rows` / `rows3d` tables below wherever an
+     * equivalent row existed, so replacing those tables regresses nothing.
+     *
+     * The chord itself is NOT here. It lives on the catalog entry, where a test
+     * can check it against the codes the handler actually listens for — which
+     * is the entire reason this group replaces the tuple tables.
+     */
+    keys: {
+      selectTool: 'כלי בחירה',
+      handTool: 'כלי יד',
+      /** Alt on the click that commits a placement — the tool stays armed for the next one */
+      placeRepeat: 'הצבה חוזרת — הפריט נשאר דרוך',
+      undoRedo: 'ביטול / ביצוע חוזר',
+      redoAlt: 'ביצוע חוזר (קיצור חלופי)',
+      duplicate: 'שכפול',
+      clipboard: 'העתקה / גזירה / הדבקה',
+      deleteSelection: 'מחיקת הנבחרים',
+      selectAll: 'בחירת הכול',
+      rotate90: 'סיבוב 90° עם כיוון השעון',
+      rotate90ccw: 'סיבוב 90° נגד כיוון השעון',
+      nudge: 'הזזה 10 ס״מ (Shift: מטר · Alt: ס״מ)',
+      escape: 'ביטול בחירה / יציאה',
+      selectItem: 'בחירת פריט',
+      addToSelection: 'הוספה או הסרה מהבחירה',
+      dragItem: 'הזזת פריט על הרצפה',
+      snapBypass: 'עקיפת הצמדה',
+      dragDuplicate: 'שכפול הפריט תוך כדי גרירה',
+      keepRatio: 'שמירה על יחס הצלעות',
+      resizeFromCenter: 'שינוי גודל מהמרכז',
+      /**
+       * ⚠ THE ONE PLACE the gizmo's snap angle is written down. It has been
+       * printed as 15°, then as 5° with the Shift polarity inverted, then as a
+       * 5° snap that had already been removed. The user chose 45°;
+       * `shortcuts.test.ts` asserts this string names it and names neither of
+       * the dead values.
+       */
+      gizmoRotate: 'זווית חופשית — Shift להצמדה 45°',
+      contextMenu: 'תפריט פעולות לפריט',
+      designEdit: 'עריכת עיצוב השולחן',
+      drillChair: 'בחירת כיסא בודד',
+      toggleGrid: 'הצגת הרשת',
+      toggleSnap: 'הצמדה לרשת',
+      zoomIn: 'התקרבות',
+      zoomOut: 'התרחקות',
+      zoom100: 'תצוגה 100%',
+      fitVenue: 'התאמה לאולם',
+      fitSelection: 'התאמה לבחירה',
+      wheelZoom: 'זום אל הסמן',
+      help: 'חלונית הקיצורים והעזרה',
+      spacePan: 'הזזת תצוגה זמנית',
+      midDragPan: 'הזזת התצוגה',
+      fly: 'תנועה: קדימה / שמאלה / אחורה / ימינה',
+      flyVertical: 'עלייה / ירידה',
+      flyFast: 'תנועה מהירה',
+      flySlow: 'תנועה איטית מאוד',
+      flyVeryFast: 'תנועה מהירה מאוד',
+      look: 'מבט חופשי',
+      panView3d: 'הזזת המבט הצידה',
+      wheelFly: 'תנועה קדימה / אחורה',
+      orbit: 'סיבוב סביב המוקד',
+      resetPitch: 'יישור המבט לאופק',
+      teleport: 'קפיצה לנקודה',
+    },
+    /**
+     * @deprecated Superseded by `core/shortcuts.ts` + `help.keys` above. These
+     * four tuple tables are the prose duplicate that has been wrong three times
+     * and that `ShortcutsHelp.tsx:24-34` has to patch by string-matching at
+     * render time.
+     *
+     * ⚠ STILL LOAD-BEARING — do not delete them here. `ShortcutsHelp.tsx` reads
+     * all four, and its `RowKeys` type (`:24`) is derived from `rows` being
+     * `as const`, so removing a row is a `tsc` failure, not a dead-code
+     * cleanup. **Plan X4 is the one that stops reading them**, and X4 deletes
+     * them in the same change.
+     */
     rows: [
       ['V / H', 'כלי בחירה / כלי יד'],
       ['Space (החזקה)', 'הזזת תצוגה זמנית'],
@@ -575,6 +782,7 @@ export const strings = {
       ['?', 'חלונית זו'],
     ],
     title3d: 'ניווט בתלת־ממד (כמו בלומיון)',
+    /** @deprecated with `rows` above — X4 removes it. Replaced by `shortcutsFor('3d')`. */
     rows3d: [
       ['W / A / S / D / חצים', 'תנועה: קדימה / שמאלה / אחורה / ימינה'],
       ['Q / E', 'עלייה / ירידה'],
@@ -600,6 +808,10 @@ export const strings = {
      * again). `rows` is a frozen array and PLAN-09 may not write to this file, so
      * the corrected row is seeded here: swap it in for 'סיבוב בגיזמו' and DROP the
      * 'Shift בסיבוב' row when the snap comes out.
+     *
+     * @deprecated The seed-and-patch dance ends with `rows`. `help.keys.gizmoRotate`
+     * is the row now, and it is the value this one should have carried: Shift
+     * regains a snap this round, at 45°. X4 removes this together with `rows`.
      */
     rotationFreeRow: ['סיבוב בגיזמו', 'זווית חופשית — אין הצמדה'],
     /**
@@ -608,6 +820,10 @@ export const strings = {
      * (`:47-83`) after handling Ctrl+Z/Y/D, Slash, Delete and Escape. When that
      * branch is widened these two belong in the 3D list — which is likewise a
      * frozen array PLAN-09 cannot append to.
+     *
+     * @deprecated with `rows` above — X4 removes it. Both entries are now
+     * `scope: 'both'` in `core/shortcuts.ts`, which is what "reaches 3D" means
+     * there, so there is nothing left to append.
      */
     rows3dExtra: [
       ['R / Shift+R', 'סיבוב 90° עם/נגד כיוון השעון'],
@@ -622,6 +838,8 @@ export const strings = {
     pasteHere: 'הדבקה כאן',
     delete: 'מחיקה',
     rotate90: 'סיבוב 90°',
+    /** the other direction — `Shift+R` has always existed, the menu only offered one way */
+    rotate90ccw: 'סיבוב 90° נגד כיוון השעון',
     replace: 'החלפת פריט…',
     bringForward: 'הבא קדימה',
     sendBackward: 'שלח אחורה',
