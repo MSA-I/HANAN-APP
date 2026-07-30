@@ -627,7 +627,10 @@ export const strings = {
    */
   dialog: {
     cancel: 'ביטול',
-    close: 'סגירה',
+    // `close` was added here for symmetry with `cancel` and never had a caller:
+    // the dialogs dismiss with `cancel`, and the one close BUTTON in the app —
+    // the help panel's — has its own `help.close`. Removed in the same round
+    // that added it, by the audit that also caught `status.clearedAll`.
     renameTitle: 'שינוי שם לפריסה',
     renameConfirm: 'שינוי השם',
     deleteLayoutTitle: 'מחיקת פריסה',

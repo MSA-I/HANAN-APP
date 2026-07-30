@@ -23,7 +23,7 @@ import { makeProjectFile, saveNow } from '../persistence/autosave'
 import { downloadProjectJson, exportFloorPlanPng, importProjectJson } from '../persistence/export'
 import { clearAllObjects, closeProject, loadProject, redo, setActiveZone, setMode, setProjectName, undo, updateSettings } from '../state/actions'
 import { notify } from '../state/notice'
-import { isFrozen } from '../state/selectors'
+import { userObjectCount } from '../state/selectors'
 import { temporalStore, useEditorStore, type ViewMode } from '../state/store'
 import { chordFor } from '../core/shortcuts'
 import { getVenuePack } from '../core/venuePacks'
@@ -305,10 +305,9 @@ function ClearAllControl() {
   // exactly what `clearAllObjects` will remove: everything but the baked venue
   // fixtures, which are part of the hall and not of the event. The old
   // `disabled={!hasObjects}` counted those too, so a plan holding nothing but
-  // fixtures offered a live button that would clear nothing.
-  const count = useEditorStore(
-    (s) => Object.values(s.scene.objects).filter((obj) => !isFrozen(obj)).length,
-  )
+  // fixtures offered a live button that would clear nothing. The rule lives in
+  // `selectors.ts` beside the note on why this question keeps being got wrong.
+  const count = useEditorStore((s) => userObjectCount(s.scene))
   const [armed, setArmed] = useState(false)
 
   // The timeout lives with the state it expires, so disarming by any other

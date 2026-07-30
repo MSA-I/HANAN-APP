@@ -201,6 +201,52 @@ export function visibleTopLevelIds(scene: SceneState): Id[] {
   return scene.objectOrder.filter((id) => isObjectVisible(scene, id))
 }
 
+/**
+ * Has the user placed anything at all?
+ *
+ * ⚠ THIS IS NOT `scene.objectOrder.length`, and the difference has now caused
+ * three separate bugs, so it lives here rather than being re-derived.
+ * `createDefaultScene` (core/model/factory.ts) seeds every parentless BAKED
+ * VENUE FIXTURE into `objectOrder` — the bars, the perimeter greenery, the DJ
+ * booths — and the resort pack, the only pack that ships, contributes 25 of
+ * them. So `objectOrder` reads like "what the user placed" and never is:
+ *
+ *  · `EmptyCanvasHint` rendered on `objectOrder.length === 0` and therefore
+ *    NEVER rendered at all — the app's only onboarding affordance was dead code
+ *    in production for as long as the resort pack has existed.
+ *  · `hasObjects` armed the clear-all button on a plan with nothing to clear,
+ *    which then reported "0 items cleared".
+ *  · A verification harness drove `objectOrder[0]`, hit a frozen wall, and
+ *    reported three features broken that were in fact refusing correctly.
+ *
+ * Fixtures are `frozen`, and `frozen` is exactly "belongs to the hall rather
+ * than to this event", so that is the right test.
+ */
+export function hasUserObjects(scene: SceneState): boolean {
+  return scene.objectOrder.some((id) => {
+    const obj = scene.objects[id]
+    return obj !== undefined && !isFrozen(obj)
+  })
+}
+
+/**
+ * How many objects `clearAllObjects` would actually remove.
+ *
+ * Deliberately a DIFFERENT question from `hasUserObjects`, and the difference is
+ * the chairs: this walks every object rather than `objectOrder`, because clearing
+ * takes attached children with their parents, and a count that said "3 tables"
+ * before removing 39 things would be its own small lie. `hasUserObjects` asks
+ * about top-level placement, which is what an empty canvas is about.
+ *
+ * They share the one rule that matters — a fixture is `frozen` — so the two can
+ * disagree about scope but never about what counts as the user's.
+ */
+export function userObjectCount(scene: SceneState): number {
+  let n = 0
+  for (const obj of Object.values(scene.objects)) if (!isFrozen(obj)) n++
+  return n
+}
+
 /** Objects per category, children included (matches what the eye toggle affects). */
 export function categoryCounts(scene: SceneState): Partial<Record<Category, number>> {
   const out: Partial<Record<Category, number>> = {}

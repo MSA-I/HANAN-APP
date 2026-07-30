@@ -21,6 +21,7 @@ import {
   addObjectToSurface,
   addSeatItemsToTable,
   newProject,
+  removeObjects,
   setLayerHidden,
   setLayerLocked,
   setLocked,
@@ -30,11 +31,13 @@ import {
   canEditTable,
   canMoveObject,
   canRotateObject,
+  hasUserObjects,
   isEffectivelyLocked,
   isHoverable,
   menuCapabilities,
   seatBounds,
   selectedTable,
+  userObjectCount,
 } from './selectors'
 import { useEditorStore } from './store'
 
@@ -474,5 +477,49 @@ describe('menuCapabilities', () => {
       const chair = chairOf(table)
       expect(menuCapabilities(scene(), [table, plant, chair], chair).ids).toEqual([chair])
     })
+  })
+})
+
+/**
+ * The trap that produced THREE separate bugs in one round, so it gets pinned:
+ * `objectOrder` holds the baked venue fixtures too, and therefore never reads
+ * as "what the user placed".
+ *
+ * The resort pack is used deliberately rather than a hand-built scene — the bug
+ * only exists because a real pack seeds real fixtures, and a scene assembled by
+ * the test would have proved nothing about the case that actually shipped.
+ */
+describe('user objects vs baked fixtures', () => {
+  it('a fresh resort project has a non-empty objectOrder and no user objects', () => {
+    newProject({ name: 'fixtures', venuePackId: 'resort' })
+    // this is the whole bug: the naive `length === 0` test never fires
+    expect(scene().objectOrder.length).toBeGreaterThan(0)
+    expect(hasUserObjects(scene())).toBe(false)
+    expect(userObjectCount(scene())).toBe(0)
+  })
+
+  it('flips as soon as one object is placed, and back when it is removed', () => {
+    newProject({ name: 'fixtures', venuePackId: 'resort' })
+    const id = addObject(TABLE, { x: 1000, y: 500 })
+    expect(hasUserObjects(scene())).toBe(true)
+    removeObjects([id])
+    expect(hasUserObjects(scene())).toBe(false)
+  })
+
+  it('counts attached children, because clearing removes them too', () => {
+    newProject({ name: 'fixtures', venuePackId: 'resort' })
+    const id = addObject(TABLE, { x: 1000, y: 500 })
+    const bare = userObjectCount(scene())
+    addSeatItemsToTable(SETTING, id)
+    // the count is what a clear would take, so the settings must raise it while
+    // `hasUserObjects` — a question about top-level placement — does not change
+    expect(userObjectCount(scene())).toBeGreaterThan(bare)
+    expect(hasUserObjects(scene())).toBe(true)
+  })
+
+  it('a venue with no bake has neither fixtures nor user objects', () => {
+    newProject({ name: 'bare', venueWidth: 2000, venueDepth: 2000 })
+    expect(scene().objectOrder.length).toBe(0)
+    expect(hasUserObjects(scene())).toBe(false)
   })
 })

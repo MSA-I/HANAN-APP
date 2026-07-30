@@ -28,6 +28,13 @@ const SNAP_ANGLES = rotationSnapsDeg(ROTATION_SNAP_DEG)
  */
 const SNAP_TOLERANCE_DEG = ROTATION_SNAP_DEG / 2
 
+/**
+ * The smallest box a resize gesture may produce, in WORLD centimetres — see the
+ * note on `boundBoxFunc`. Twelve centimetres is below every catalog minimum, so
+ * this floor only ever stops a degenerate box, never a legitimate size.
+ */
+const MIN_BOX_CM = 12
+
 const ALL_ANCHORS = [
   'top-left',
   'top-center',
@@ -194,8 +201,25 @@ export function SelectionTransformer({ stageRef }: Props) {
         anchorCornerRadius={1}
         ignoreStroke
         shouldOverdrawWholeArea={false}
+        /**
+         * ⚠ Konva hands this function ABSOLUTE, SCREEN coordinates — not world
+         * units. The floor below was written as though they were world units,
+         * and at the zoom the venue actually opens at that is fatal rather than
+         * theoretical: the hall fits at ~20%, where the stage scale is about
+         * 0.128 px/cm, so a 76 cm-deep buffet table measures ~10 screen px. Every
+         * resize was refused before it began — nothing moved and nothing said
+         * why — and it was invisible to the test suite, because a node-only
+         * suite has no zoom. Found by driving the real app (round 4).
+         *
+         * So convert to world centimetres before comparing. The floor only has to
+         * stop a degenerate or inverted box mid-drag; per-entry minimums are the
+         * catalog's job and `setSize` clamps to them on commit.
+         */
         boundBoxFunc={(oldBox, newBox) => {
-          if (Math.abs(newBox.width) < 12 || Math.abs(newBox.height) < 12) return oldBox
+          const scale = trRef.current?.getStage()?.scaleX() || 1
+          const wCm = Math.abs(newBox.width) / scale
+          const hCm = Math.abs(newBox.height) / scale
+          if (wCm < MIN_BOX_CM || hCm < MIN_BOX_CM) return oldBox
           return newBox
         }}
         onTransformStart={() => {
