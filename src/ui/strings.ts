@@ -117,13 +117,6 @@ export const strings = {
     saveFailed: 'השמירה נכשלה — מנסים שוב',
     loadFailed: 'טעינת הפריסות נכשלה',
     /**
-     * The status line after a clear-all. It names the escape hatch inline
-     * because that is the moment someone needs it most — see `notice.cleared` +
-     * `notice.undo` for the toast version, which offers a BUTTON instead and is
-     * the better pattern where there is room for one.
-     */
-    clearedAll: (n: number) => `${n} פריטים נוקו · Ctrl+Z לביטול`,
-    /**
      * PLAN-09 item 15. `rotateObjectsBy` is all-or-nothing by design (`poseAllowed`,
      * actions.ts:210-216 · :1801-1811) and today refuses in complete silence, which
      * from the outside is indistinguishable from a rotation that is stuck on
@@ -668,17 +661,31 @@ export const strings = {
     close: 'סגירה',
     /** the button that opens the panel — the panel's own heading is `title` */
     open: 'קיצורי מקלדת ועזרה',
-    /** section headings, one per `ShortcutGroup` in core/shortcuts.ts */
+    /**
+     * Section headings, one per `ShortcutGroup` in core/shortcuts.ts.
+     *
+     * ⚠ Each of these is rendered TWICE — once under `shortcutsFor('2d')` and
+     * once under `shortcutsFor('3d')` — so none of them may name a view. That
+     * is why `groupNav` is the bare 'ניווט' and not 'ניווט בתלת־ממד': the 2D
+     * half's `nav` group is `spacePan` and `midDragPan`, which are plan-panning
+     * gestures with no 3D in them. Each half is introduced by its own heading —
+     * `viewMode.d2` / `viewMode.d3` — so the view is already named there.
+     *
+     * `help.title3d` ('ניווט בתלת־ממד (כמו בלומיון)') was deleted for the same
+     * reason one level up: it headed a section that holds `edit` and `view`
+     * rows too, so calling the whole thing "3D navigation" was false.
+     */
     groupTools: 'כלים',
     groupEdit: 'עריכה',
     groupView: 'תצוגה',
-    groupNav: 'ניווט בתלת־ממד',
+    groupNav: 'ניווט',
     /**
      * The DESCRIPTION column, one entry per `Shortcut.id` in
      * `core/shortcuts.ts` — that file's `labelKey` is `help.keys.<id>`, and
      * `shortcuts.test.ts` fails if any of them stops resolving here. The
-     * wording is lifted from the `rows` / `rows3d` tables below wherever an
-     * equivalent row existed, so replacing those tables regresses nothing.
+     * wording was lifted from the `rows` / `rows3d` tuple tables this group
+     * replaced — deleted once `ShortcutsHelp` stopped reading them — so the
+     * switch to the catalog regressed no existing row.
      *
      * The chord itself is NOT here. It lives on the catalog entry, where a test
      * can check it against the codes the handler actually listens for — which
@@ -697,6 +704,12 @@ export const strings = {
        * is precisely the drift `core/shortcuts.ts` exists to prevent.
        */
       dragFromLibrary: 'גרירת פריט מהספרייה אל הלוח',
+      /**
+       * The right mouse button is free-look in 3D and stays that way, so the
+       * actions menu opens from the `⋯` button on the selection bar. This is the
+       * OS-standard keyboard route to the same menu.
+       */
+      contextMenu3d: 'תפריט פעולות על הנבחרים',
       undoRedo: 'ביטול / ביצוע חוזר',
       redoAlt: 'ביצוע חוזר (קיצור חלופי)',
       duplicate: 'שכפול',
@@ -748,95 +761,6 @@ export const strings = {
       resetPitch: 'יישור המבט לאופק',
       teleport: 'קפיצה לנקודה',
     },
-    /**
-     * @deprecated Superseded by `core/shortcuts.ts` + `help.keys` above. These
-     * four tuple tables are the prose duplicate that has been wrong three times
-     * and that `ShortcutsHelp.tsx:24-34` has to patch by string-matching at
-     * render time.
-     *
-     * ⚠ STILL LOAD-BEARING — do not delete them here. `ShortcutsHelp.tsx` reads
-     * all four, and its `RowKeys` type (`:24`) is derived from `rows` being
-     * `as const`, so removing a row is a `tsc` failure, not a dead-code
-     * cleanup. **Plan X4 is the one that stops reading them**, and X4 deletes
-     * them in the same change.
-     */
-    rows: [
-      ['V / H', 'כלי בחירה / כלי יד'],
-      ['Space (החזקה)', 'הזזת תצוגה זמנית'],
-      ['גלגלת עכבר', 'זום אל הסמן'],
-      ['Ctrl+Z / Ctrl+Y', 'ביטול / ביצוע חוזר'],
-      ['Ctrl+D', 'שכפול'],
-      ['Ctrl+C / X / V', 'העתקה / גזירה / הדבקה'],
-      ['Delete', 'מחיקת הנבחרים'],
-      ['Ctrl+A', 'בחירת הכול'],
-      ['חצים', 'הזזה 10 ס״מ (Shift: מטר · Alt: ס״מ)'],
-      ['R / Shift+R', 'סיבוב 90° עם/נגד כיוון השעון'],
-      // The snap is 5° and it is ALWAYS on; Shift releases it, the way Alt releases
-      // the grid snap on a move. Two call sites, one behaviour:
-      // editor2d/SelectionTransformer.tsx:85-86 · viewer3d/ObjectGroup.tsx:134.
-      // ⚠ These two have now been wrong in BOTH directions. Round 2 wave 1 fixed a
-      // line claiming 15° steps, and wave 3 then INVERTED the behaviour it had just
-      // been corrected to describe: rotation is free by default and Shift applies
-      // the snap, not the other way round. Two call sites, one behaviour:
-      // editor2d/SelectionTransformer.tsx:85 · viewer3d/ObjectGroup.tsx:138.
-      ['סיבוב בגיזמו', 'זווית חופשית'],
-      ['Shift בסיבוב', 'הצמדה לצעדים של 5°'],
-      ['G / Shift+G', 'הצגת רשת / הצמדה'],
-      ['Alt בזמן גרירה', 'עקיפת הצמדה'],
-      ['Shift+1 / Shift+2', 'התאמה לאולם / לבחירה'],
-      ['Ctrl+0', 'תצוגה 100%'],
-      ['דאבל־קליק על כיסא', 'בחירת כיסא בודד'],
-      ['Esc', 'ביטול בחירה / יציאה'],
-      ['?', 'חלונית זו'],
-    ],
-    title3d: 'ניווט בתלת־ממד (כמו בלומיון)',
-    /** @deprecated with `rows` above — X4 removes it. Replaced by `shortcutsFor('3d')`. */
-    rows3d: [
-      ['W / A / S / D / חצים', 'תנועה: קדימה / שמאלה / אחורה / ימינה'],
-      ['Q / E', 'עלייה / ירידה'],
-      ['Shift · Space · Shift+Space', 'מהיר · איטי מאוד · מהיר מאוד'],
-      ['לחצן ימני + גרירה', 'מבט חופשי'],
-      ['לחצן אמצעי + גרירה', 'הזזת המבט הצידה'],
-      ['גלגלת', 'תנועה קדימה / אחורה'],
-      ['O + לחצן ימני', 'סיבוב סביב המוקד'],
-      ['Ctrl+H', 'יישור המבט לאופק'],
-      ['דאבל־קליק ימני', 'קפיצה לנקודה'],
-      ['קליק שמאלי', 'בחירת פריט'],
-      ['גרירת קליק שמאלי', 'הזזת פריט על הרצפה'],
-      ['Shift + קליק שמאלי', 'הוספה או הסרה מהבחירה'],
-      ['Ctrl+D', 'שכפול הנבחרים'],
-      ['Delete / Backspace', 'מחיקת הנבחרים'],
-      ['Ctrl+Z / Ctrl+Y', 'ביטול / ביצוע מחדש'],
-    ],
-    /**
-     * ⚠ PLAN-09/G1 removes the 5° snap ALTOGETHER — Shift will stop snapping too.
-     * The moment it lands, the two rotation rows in `rows` above are wrong for the
-     * THIRD time (round 2 wave 1 fixed a line claiming 15°; wave 3 then inverted
-     * the behaviour it had just been corrected to describe; `0aabc1f` fixed it
-     * again). `rows` is a frozen array and PLAN-09 may not write to this file, so
-     * the corrected row is seeded here: swap it in for 'סיבוב בגיזמו' and DROP the
-     * 'Shift בסיבוב' row when the snap comes out.
-     *
-     * @deprecated The seed-and-patch dance ends with `rows`. `help.keys.gizmoRotate`
-     * is the row now, and it is the value this one should have carried: Shift
-     * regains a snap this round, at 45°. X4 removes this together with `rows`.
-     */
-    rotationFreeRow: ['סיבוב בגיזמו', 'זווית חופשית — אין הצמדה'],
-    /**
-     * PLAN-09 items 16 and 24. `KeyR` and `Ctrl+A` both already exist and both are
-     * 2D-only, because the 3D branch of `useEditorShortcuts` returns early
-     * (`:47-83`) after handling Ctrl+Z/Y/D, Slash, Delete and Escape. When that
-     * branch is widened these two belong in the 3D list — which is likewise a
-     * frozen array PLAN-09 cannot append to.
-     *
-     * @deprecated with `rows` above — X4 removes it. Both entries are now
-     * `scope: 'both'` in `core/shortcuts.ts`, which is what "reaches 3D" means
-     * there, so there is nothing left to append.
-     */
-    rows3dExtra: [
-      ['R / Shift+R', 'סיבוב 90° עם/נגד כיוון השעון'],
-      ['Ctrl+A', 'בחירת הכול'],
-    ],
   },
   menu: {
     duplicate: 'שכפול',

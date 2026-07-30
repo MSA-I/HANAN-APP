@@ -12,22 +12,26 @@ import { ShortcutsHelp } from '../ui/ShortcutsHelp'
 import { SplitView } from '../ui/SplitView'
 import { StatusBar } from '../ui/StatusBar'
 import { Toolbar } from '../ui/Toolbar'
-import { strings } from '../ui/strings'
+import { Loading3D, useModuleLoadPhase } from '../viewer3d/Loading3D'
+import { warmVenueModel } from '../viewer3d/warmVenue'
 import { Dashboard } from './Dashboard'
 
 const Scene3D = lazy(() => import('../viewer3d/Scene3D'))
 
-function Loading3d() {
-  return (
-    <div className="flex h-full w-full items-center justify-center bg-canvas text-[13px] text-ink-soft">
-      <span className="animate-pulse">{strings.workspace.loading3d}</span>
-    </div>
-  )
+/**
+ * ⚠ `Loading3D` and `warmVenue` are imported STATICALLY on purpose, and both are
+ * deliberately free of three/drei/R3F. They live under `viewer3d/` by subject,
+ * not by bundle: `App.tsx` is in the main chunk, so anything it imports is
+ * downloaded on every visit. A card that pulled in drei would cause the very
+ * wait it exists to apologise for.
+ */
+function Loading3dPane() {
+  return <Loading3D {...useModuleLoadPhase()} />
 }
 
 function View3D() {
   return (
-    <Suspense fallback={<Loading3d />}>
+    <Suspense fallback={<Loading3dPane />}>
       <Scene3D />
     </Suspense>
   )
@@ -44,6 +48,12 @@ function Editor() {
 
   useEffect(() => startAutosave(indexedDbRepository), [])
 
+  // Warm the hall GLB (5.4 MB) on idle, so a switch to 3D is not the first time
+  // the network hears about it. `warmVenue` imports only `core/venuePacks`, and
+  // it returns its own cancel function.
+  const venuePackId = useEditorStore((s) => s.scene.venue.venuePackId)
+  useEffect(() => warmVenueModel(venuePackId), [venuePackId])
+
   return (
     <div className="flex h-full flex-col">
       <Toolbar />
@@ -54,7 +64,7 @@ function Editor() {
           <SplitView
             layout={mode === 'split' ? 'both' : mode === '2d' ? 'start-only' : 'end-only'}
             start={<Stage2D />}
-            end={ever3d ? <View3D /> : <Loading3d />}
+            end={ever3d ? <View3D /> : <Loading3dPane />}
           />
           {/* PLAN-07: over the panes rather than inside one of them. Design-edit
               mode is a mode of BOTH views (plan G3), and its Esc handler is the
