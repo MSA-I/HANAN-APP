@@ -111,6 +111,8 @@ interface CeilingPropOptions {
   bodyFraction?: number
   /** where in the hall this fixture may hang; absent = anywhere over the floor */
   siting?: Pick<CatalogEntry, 'allowedZones'>
+  /** MEASURED cord positions as fractions of the bounds — see CatalogEntry.cordAnchors */
+  cordAnchors?: CatalogEntry['cordAnchors']
 }
 
 function ceilingProp(
@@ -127,9 +129,11 @@ function ceilingProp(
     shape = 'round',
     bodyFraction = 0.35,
     siting,
+    cordAnchors,
   }: CeilingPropOptions = {},
 ): CatalogEntry {
   return {
+    ...(cordAnchors ? { cordAnchors } : {}),
     id,
     category: 'lighting',
     labelKey,
@@ -185,6 +189,13 @@ const P = (file: string) => `/props/${file}`
 export const hangingEntries: CatalogEntry[] = [
   // one slim lattice drum on a long cord — the cord is part of the drop, which
   // the file models at 50 cm and the catalogue reads as 312.5 (78.75 × 77.5 across)
+  //
+  // No `cordAnchors`, and that is a measurement rather than an omission: the file
+  // holds ONE drum on ONE cord standing 0.2 mm off the axis, and its cord reaches
+  // the very top of the bbox. Absent anchors mean exactly one cord on the axis, so
+  // declaring { x: 0, y: 0 } would say the same thing twice.
+  //   node tools/glb-prep/measure-cord-anchors.mjs \
+  //        public/props/decor-pendant-lamp.glb --expect 1
   ceilingProp('lamp.pendant', 'lampPendant', 'a slim lattice drum pendant lamp on a long cord', P('decor-pendant-lamp.glb'), { width: 12.6, depth: 12.4, height: 50 }, '#cfb995', { scale: PENDANT_SCALE }),
   // NOT one "geometric" pendant: the model is a CLUSTER OF FOUR of the same
   // lattice drums on staggered cords (verified by render, 2026-07-20) — which is
@@ -202,10 +213,44 @@ export const hangingEntries: CatalogEntry[] = [
   // lattice (:422). Give a ceiling entry a `zoneKind` and it stops snapping to
   // the beams, silently, and hangs in mid-air between them — there is no ceiling
   // entry with a `zoneKind` today, which is why nothing catches it.
+  //
+  // ⚠ THE FOUR NUMBERS BELOW ARE MEASURED, NOT LAID OUT. `inspect-parts.mjs`
+  // cannot see them — this file has ONE material for the whole cluster, so it
+  // reports 1 part and 35,728 tris and can say nothing about where the drums are.
+  // They come from the geometry, via a tool written for it:
+  //
+  //   node tools/glb-prep/measure-cord-anchors.mjs \
+  //        public/props/decor-pendant-geometric.glb --cord 33:38 --expect 4
+  //
+  // Four vertical columns in the band y 33-38, each under 0.7 cm across, with a
+  // drum 8.4-12.6 cm wide standing under it — the tool assigns every vertex below
+  // the band to its nearest column and the centroids agree to 1.15 cm at worst.
+  // That agreement is the check, and it is why these are numbers and not a guess.
+  // The bands are named on the command line rather than defaulted for a reason
+  // given in the tool's header and repeated here, because it also bounds what
+  // these anchors can fix:
+  //
+  // ⚠ THE FOUR CORDS ARE FOUR DIFFERENT LENGTHS. They reach 0.690, 1.000, 0.643
+  // and 0.665 of the model's height — the entry name says "staggered cords" and
+  // this is what that means. Only one of them touches the top of the bbox, which
+  // is the plane the procedural cord starts from, so three of the four drums hang
+  // from cords that stop about a third of the model below the truss. That is the
+  // FILE's doing and is visible today with no cords drawn at all.
+  // ponytail: one cord per drum, all starting at the top of the bbox. Fixing the
+  // three short ones needs a per-anchor start height (the fractions above are
+  // measured and would go straight in) and a `cordLength` that answers per anchor
+  // instead of once. Not done here because it changes the shape of `cordAnchors`
+  // and of `HangingCord` for a fault the model already ships.
   ceilingProp('lamp.pendant-cluster', 'lampPendantCluster', 'a cluster of four lattice drum pendant lamps on staggered cords', P('decor-pendant-geometric.glb'), { width: 18.1, depth: 42.6, height: 60 }, '#d4c5aa', {
     scale: PENDANT_SCALE,
     shape: 'rect',
     siting: { allowedZones: [{ kind: 'bar', within: 0 }] },
+    cordAnchors: [
+      { x: 0.1448, y: -0.3511 },
+      { x: 0.1174, y: -0.0581 },
+      { x: -0.3209, y: 0.0795 },
+      { x: 0.1283, y: 0.3547 },
+    ],
   }),
   // --- chandeliers (2026-07-20) ---
   // Beaded crystal rhombus on a bare cord. 42% of the drop is cord (measured),

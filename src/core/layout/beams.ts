@@ -20,7 +20,8 @@
  * standing at those *x* values. Reading it the other way round rotates the whole
  * grid 90°, which still looks plausible in the viewport — hence this note.
  */
-import type { Vec2 } from '../model/types'
+import type { CatalogEntry } from '../catalog/types'
+import type { Size3D, Vec2 } from '../model/types'
 import type { CeilingBeams, VenuePack } from '../venuePacks'
 
 /**
@@ -207,4 +208,34 @@ export function cordLength(
   elevation: number,
 ): number {
   return Math.max(0, (pack?.hangHeight ?? wallHeight) - (elevation + height))
+}
+
+/**
+ * Where this fixture's cords stand, in plan cm from its own centre.
+ *
+ * `HangingCord` drew ONE cylinder at local (0, 0) for every fixture. On a single
+ * drum that is right — `decor-pendant-lamp.glb`'s own cord is measurably on the
+ * axis, 0.2 mm off it. On the four-drum cluster it is a wire through the middle of
+ * the group with no drum under it and none of the model's four cords beside it.
+ *
+ * The entry states the anchors as fractions, so this is the multiplication and the
+ * absent case in one place rather than at the call site: a fixture with nothing
+ * declared gets the single axial cord it always had.
+ */
+export function cordAnchorPoints(
+  entry: Pick<CatalogEntry, 'cordAnchors'>,
+  size: Pick<Size3D, 'width' | 'depth'>,
+): Vec2[] {
+  if (!entry.cordAnchors?.length) return [{ x: 0, y: 0 }]
+  return entry.cordAnchors.map((a) => ({ x: a.x * size.width, y: a.y * size.depth }))
+}
+
+/**
+ * How thick to draw one of them. 3 cm read right on a 31 cm pendant and reads as
+ * rope on a 78 cm one, so the radius follows the fixture — 2% of its width, held
+ * between 1.5 and 4 cm. The ceiling matters: the candelabra is 229 cm across and
+ * 2% of that is a 4.6 cm hawser.
+ */
+export function cordRadiusCm(size: Pick<Size3D, 'width'>): number {
+  return Math.min(4, Math.max(1.5, size.width * 0.02))
 }
