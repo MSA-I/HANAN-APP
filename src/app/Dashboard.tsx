@@ -4,7 +4,7 @@
  * layout), and deletes with confirmation. All persistence goes through the
  * IndexedDB repository; opening hands a fully-formed Project up to the app.
  */
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
 import { CalendarDays, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
 import { createObject, createProject } from '../core/model/factory'
@@ -15,6 +15,7 @@ import { makeProjectFile } from '../persistence/autosave'
 import { indexedDbRepository } from '../persistence/indexedDbRepository'
 import { stringsPersist as S } from '../persistence/stringsPersist'
 import type { ProjectSummary } from '../persistence/types'
+import { ConfirmDialog, Dialog } from '../ui/Dialog'
 
 const repo = indexedDbRepository
 
@@ -269,40 +270,9 @@ function EmptyState({ onNew }: { onNew: () => void }) {
 
 // --- modals ----------------------------------------------------------------
 
-function ModalShell({
-  onClose,
-  labelledBy,
-  children,
-}: {
-  onClose: () => void
-  labelledBy: string
-  children: ReactNode
-}) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onMouseDown={onClose}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={labelledBy}
-        className="w-full max-w-md rounded-xl border border-line bg-panel p-5 shadow-2xl"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {children}
-      </div>
-    </div>
-  )
-}
+// `ModalShell` used to live here. It is now `ui/Dialog.tsx` — same markup, same
+// Escape and backdrop behaviour, plus a focus trap and focus restore — so that
+// the editor can stop calling `window.confirm`.
 
 function fieldLabel(text: string) {
   return <span className="mb-1.5 block text-[14px] font-medium text-ink-soft">{text}</span>
@@ -359,7 +329,7 @@ function NewProjectModal({
   }
 
   return (
-    <ModalShell onClose={onCancel} labelledBy="new-project-title">
+    <Dialog onClose={onCancel} labelledBy="new-project-title">
       <h2 id="new-project-title" className="mb-4 text-[18px] font-semibold text-ink">
         {S.newModal.title}
       </h2>
@@ -480,10 +450,15 @@ function NewProjectModal({
           </button>
         </div>
       </form>
-    </ModalShell>
+    </Dialog>
   )
 }
 
+/**
+ * `danger` puts the confirm in red and focus on Cancel — which is what this
+ * modal already did by hand, and is now the shared default for anything
+ * destructive.
+ */
 function DeleteConfirmModal({
   summary,
   onCancel,
@@ -493,34 +468,16 @@ function DeleteConfirmModal({
   onCancel: () => void
   onConfirm: () => void
 }) {
-  const cancelRef = useRef<HTMLButtonElement>(null)
-  useEffect(() => {
-    cancelRef.current?.focus()
-  }, [])
   return (
-    <ModalShell onClose={onCancel} labelledBy="delete-title">
-      <h2 id="delete-title" className="mb-2 text-[18px] font-semibold text-ink">
-        {S.deleteModal.title}
-      </h2>
-      <p className="text-[14px] text-ink-soft">{S.deleteModal.body(summary.name)}</p>
-      <div className="mt-5 flex justify-end gap-2">
-        <button
-          ref={cancelRef}
-          type="button"
-          onClick={onCancel}
-          className="min-h-10 rounded-md px-4 py-2 text-[14px] font-medium text-ink-soft hover:bg-canvas"
-        >
-          {S.deleteModal.cancel}
-        </button>
-        <button
-          type="button"
-          onClick={onConfirm}
-          className="min-h-10 rounded-md bg-danger px-4 py-2 text-[14px] font-medium text-white hover:brightness-95"
-        >
-          {S.deleteModal.confirm}
-        </button>
-      </div>
-    </ModalShell>
+    <ConfirmDialog
+      danger
+      title={S.deleteModal.title}
+      body={S.deleteModal.body(summary.name)}
+      cancelLabel={S.deleteModal.cancel}
+      confirmLabel={S.deleteModal.confirm}
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    />
   )
 }
 

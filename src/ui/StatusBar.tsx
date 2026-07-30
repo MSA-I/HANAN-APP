@@ -1,10 +1,8 @@
 import { Maximize, Minus, Plus, TriangleAlert } from 'lucide-react'
-import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Violation } from '../core/layout/collision'
 import { getVenuePack } from '../core/venuePacks'
 import { useSaveStatus } from '../persistence/autosave'
-import { clearNotice, NOTICE_MS, useNoticeStore } from '../state/notice'
 import { sceneCounts } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { useOverlayStore } from '../editor2d/overlayStore'
@@ -110,8 +108,6 @@ export function StatusBar() {
         </div>
       </div>
 
-      <Notice />
-
       {/* end (left in RTL): why the last action was refused, counts, save status */}
       <div className="flex items-center gap-3">
         <ViolationNotice />
@@ -128,24 +124,11 @@ export function StatusBar() {
   )
 }
 
-/** Why the last action did nothing — see state/notice.ts. Clears itself. */
-function Notice() {
-  const message = useNoticeStore((s) => s.message)
-  const seq = useNoticeStore((s) => s.seq)
-
-  useEffect(() => {
-    if (!message) return
-    const timer = setTimeout(clearNotice, NOTICE_MS)
-    return () => clearTimeout(timer)
-  }, [message, seq])
-
-  if (!message) return null
-  return (
-    <span role="status" className="truncate rounded-full bg-warning/15 px-3 py-0.5 font-semibold text-warning">
-      {message}
-    </span>
-  )
-}
+// The one-slot `Notice` used to render here. It moved to `ui/NoticeStack.tsx`,
+// mounted from `App` — a message with an undo button in it cannot live in a
+// 36px bar that already carries six things, and it must not be overwritten by
+// the next mouse move. `ViolationNotice` stays: it is positional feedback about
+// the thing under the cursor, not a transient event.
 
 function SaveIndicator() {
   const { status } = useSaveStatus()

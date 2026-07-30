@@ -7,6 +7,7 @@ import { useEditorStore } from '../state/store'
 import { DesignEditMode } from '../ui/DesignEditMode'
 import { InspectorPanel } from '../ui/InspectorPanel'
 import { LibraryPanel } from '../ui/LibraryPanel'
+import { NoticeStack } from '../ui/NoticeStack'
 import { ShortcutsHelp } from '../ui/ShortcutsHelp'
 import { SplitView } from '../ui/SplitView'
 import { StatusBar } from '../ui/StatusBar'
@@ -64,6 +65,10 @@ function Editor() {
         <InspectorPanel />
       </div>
       <StatusBar />
+      {/* A sibling of the status bar, not a child of either pane: a refusal
+          raised in 3D has to survive a switch to 2D, and the stack is fixed-
+          positioned anyway (see NoticeStack for why it clears the footer). */}
+      <NoticeStack />
       <ShortcutsHelp />
     </div>
   )

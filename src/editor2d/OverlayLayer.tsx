@@ -1,16 +1,32 @@
 import { Group, Layer, Line, Rect, Text } from 'react-konva'
 import { getCatalogEntry } from '../core/catalog/registry'
 import { slotColor } from '../core/catalog/types'
+import { degreesValue, metersValue } from '../core/format'
 import { useEditorStore } from '../state/store'
+import { strings } from '../ui/strings'
 import { FootprintPartShape } from './footprintShapes'
-import { useOverlayStore } from './overlayStore'
+import { useOverlayStore, type GestureReadout } from './overlayStore'
 import { useViewportStore } from './viewportStore'
 
 const ACCENT = '#3056d3'
 const GUIDE = '#d64545'
 
+/**
+ * The width the two centred readouts reserve, in screen px before `px` scales it.
+ * Wide enough for the longest one (`1.60 × 0.80 מ׳`) so `align="center"` centres
+ * the text rather than clipping it.
+ */
+const READOUT_BOX_PX = 200
+
 function formatMeters(cm: number): string {
-  return `${(cm / 100).toFixed(2)} מ'`
+  return `${metersValue(cm)} ${strings.units.meters}`
+}
+
+/** What a gesture prints. `snapped` is data for the store's readers, not decoration. */
+function gestureText(g: GestureReadout): string {
+  return g.kind === 'rotate'
+    ? `${degreesValue(g.deg)}${strings.units.degrees}`
+    : `${metersValue(g.width)} × ${metersValue(g.depth)} ${strings.units.meters}`
 }
 
 /** Translucent true-scale preview of the object being placed. */
@@ -37,9 +53,9 @@ function PlacingGhostShape() {
   )
 }
 
-/** Snap guides, marquee rectangle and wall-distance indicators. */
+/** Snap guides, marquee rectangle, wall-distance indicators and the gesture readout. */
 export function OverlayLayer() {
-  const { guides, dragBox, marquee } = useOverlayStore()
+  const { guides, dragBox, marquee, gesture } = useOverlayStore()
   const venue = useEditorStore((s) => s.scene.venue.size)
   const zoom = useViewportStore((s) => s.zoom)
   const px = 1 / zoom
@@ -137,6 +153,33 @@ export function OverlayLayer() {
           stroke={ACCENT}
           strokeWidth={1}
           strokeScaleEnabled={false}
+        />
+      )}
+      {/*
+        The live gesture readout — the same type, size and accent as the
+        wall-distance labels above, deliberately: it is the same kind of statement
+        about the same plan, and a second visual vocabulary for it would read as a
+        second kind of thing. A rotation prints ABOVE the box and a resize BELOW
+        it, so the number sits over the floor rather than over the furniture whose
+        size is the question.
+
+        ⚠ It lives in THIS layer. Stage2D's PNG export addresses layers by index
+        ([0]venue [1]grid [2]objects [3]overlay [4]transformer [5]beams) and a new
+        Layer here would silently shift every one of them.
+      */}
+      {gesture && (
+        <Text
+          x={gesture.at.x}
+          y={gesture.kind === 'rotate' ? gesture.at.y - 14 * px : gesture.at.y + 4 * px}
+          text={gestureText(gesture)}
+          fontSize={12 * px}
+          fontFamily="IBM Plex Mono, monospace"
+          fill={ACCENT}
+          width={READOUT_BOX_PX * px}
+          offsetX={(READOUT_BOX_PX / 2) * px}
+          align="center"
+          listening={false}
+          perfectDrawEnabled={false}
         />
       )}
       <PlacingGhostShape />

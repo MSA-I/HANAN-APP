@@ -133,6 +133,23 @@ export const SHORTCUTS: readonly Shortcut[] = [
   },
 
   // ---- edit -------------------------------------------------------------
+  /**
+   * Round 4's headline gesture: a library tile is now genuinely draggable onto
+   * the plan (`LibraryPanel.tsx` `dragstart` → `Stage2D.tsx` `drop`). Every tile
+   * tooltip has promised this for months while the code set `draggable={false}`.
+   *
+   * `'2d'` only — the drop handlers live on the Konva container. A pointer
+   * gesture, so `codes: []` and the chord is Hebrew prose; the derivation test
+   * skips it by construction.
+   */
+  {
+    id: 'dragFromLibrary',
+    scope: '2d',
+    group: 'edit',
+    codes: [],
+    chord: 'גרירה מהספרייה',
+    labelKey: 'help.keys.dragFromLibrary',
+  },
   {
     id: 'undoRedo',
     scope: 'both',

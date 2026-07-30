@@ -34,9 +34,26 @@ export function isTypingTarget(e: KeyboardEvent): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
 }
 
+/**
+ * Mirror Shift into `overlayStore.shiftHeld`, which both rotation gizmos read to
+ * decide whether the 45° snap is engaged (the 3D one has no DOM event to ask).
+ *
+ * Reads `e.shiftKey` rather than testing for the Shift key itself, so pressing or
+ * releasing ANY key re-answers the question and a missed event self-corrects. Runs
+ * before the typing-target guard: a modifier held down is a fact about the
+ * keyboard, not about which field has focus.
+ *
+ * Guarded against writing the same value — this runs on every keystroke, and a
+ * no-op `setState` would still notify every subscriber.
+ */
+function trackShift(e: KeyboardEvent): void {
+  if (useOverlayStore.getState().shiftHeld !== e.shiftKey) overlay.setShiftHeld(e.shiftKey)
+}
+
 export function useEditorShortcuts(zoom: ZoomApi): void {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      trackShift(e)
       // In full-3D mode the fly controls own the NAVIGATION keys (Stage2D is only
       // CSS-hidden, so this handler still fires) — W/A/S/D, Q/E, arrows, Shift and
       // Space belong to FlyControls and must fall through untouched. What this
@@ -224,14 +241,32 @@ export function useEditorShortcuts(zoom: ZoomApi): void {
     }
 
     const onKeyUp = (e: KeyboardEvent) => {
+      trackShift(e)
       if (e.code === 'Space') overlay.setSpacePan(false)
+    }
+
+    /**
+     * Alt-tab away while holding Space and the keyup lands in the other window —
+     * it never arrives here at all. The editor is then stuck in pan mode, wearing
+     * the hand cursor, with nothing on screen saying why and no way out except
+     * pressing and releasing Space again. Shift is the same story now that a held
+     * Shift quantises rotation: a stuck one would make free rotation impossible
+     * with no visible cause.
+     *
+     * `blur` is the only event that fires in that case, and it must clear BOTH.
+     */
+    const onBlur = () => {
+      overlay.setSpacePan(false)
+      overlay.setShiftHeld(false)
     }
 
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
     }
   }, [zoom])
 }

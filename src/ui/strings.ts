@@ -689,6 +689,14 @@ export const strings = {
       handTool: 'כלי יד',
       /** Alt on the click that commits a placement — the tool stays armed for the next one */
       placeRepeat: 'הצבה חוזרת — הפריט נשאר דרוך',
+      /**
+       * Round 4's headline gesture. Added by the lead: plan D2 built the drag and
+       * owns `core/shortcuts.ts`, but the catalog's test requires `help.keys.<id>`
+       * to resolve HERE, and D2 did not own this file — so the one gesture the
+       * round added would have been the one gesture the help table omitted, which
+       * is precisely the drift `core/shortcuts.ts` exists to prevent.
+       */
+      dragFromLibrary: 'גרירת פריט מהספרייה אל הלוח',
       undoRedo: 'ביטול / ביצוע חוזר',
       redoAlt: 'ביצוע חוזר (קיצור חלופי)',
       duplicate: 'שכפול',

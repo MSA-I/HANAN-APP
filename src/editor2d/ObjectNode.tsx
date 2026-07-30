@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Circle, Group, Image as KonvaImage, Rect, Text } from 'react-konva'
 import { useShallow } from 'zustand/react/shallow'
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
@@ -11,6 +11,7 @@ import {
   isCover,
   isDesignEditMuted,
   isEffectivelyLocked,
+  isHoverable,
   isObjectVisible,
 } from '../state/selectors'
 import { useEditorStore } from '../state/store'
@@ -29,13 +30,21 @@ import {
   onObjectMouseDown,
 } from './dragController'
 import { FootprintPartShape } from './footprintShapes'
-import { useOverlayStore } from './overlayStore'
+import { isHoverSuppressed, overlay, useOverlayStore } from './overlayStore'
 import { usePlanImage } from './planImage'
 
 const STROKE = '#57534e'
 const SELECTED_STROKE = '#3056d3'
 /** the refusal colour the rest of the app already uses (OverlayLayer's GUIDE) */
 const REFUSED_STROKE = '#d64545'
+/**
+ * How faint the hover ring is against the selection ring it previews.
+ *
+ * Same colour, same shape, same width — only opacity, and that is the whole point:
+ * hover reads as "clicking would select this" rather than as a fourth state with a
+ * vocabulary of its own. A new token here would be a new thing to learn.
+ */
+const HOVER_OPACITY = 0.45
 /**
  * How far back the plan falls while one table is being edited (source doc §52).
  * Low enough to read as "not this", high enough to keep the neighbours as
@@ -52,7 +61,15 @@ const HANGING_DASH = [6, 4]
  * Both answer to the `selection-visual` name because that is what the PNG
  * capture hides (Stage2D) — neither is part of the plan being exported.
  */
-function OutlineRing({ outline, stroke }: { outline: Outline; stroke: string }) {
+function OutlineRing({
+  outline,
+  stroke,
+  opacity = 1,
+}: {
+  outline: Outline
+  stroke: string
+  opacity?: number
+}) {
   const common = {
     name: 'selection-visual',
     stroke,
@@ -61,6 +78,7 @@ function OutlineRing({ outline, stroke }: { outline: Outline; stroke: string }) 
     listening: false,
     fillEnabled: false,
     perfectDrawEnabled: false,
+    opacity,
   }
   return outline.kind === 'circle' ? (
     <Circle {...common} radius={outline.r} />
@@ -113,6 +131,9 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
   const refused = useOverlayStore(
     (s) => s.violation?.kind === 'overlapsSibling' && s.violation.id === id,
   )
+  // Same shape as `refused`, and for the same reason: a boolean selector means the
+  // other 350 nodes do not re-render when the pointer crosses one of them.
+  const hovered = useOverlayStore((s) => s.hoveredId === id && !isHoverSuppressed(s))
 
   const entry = obj && hasCatalogEntry(obj.catalogId) ? getCatalogEntry(obj.catalogId) : null
   const footprint = useMemo(
@@ -127,6 +148,11 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
     ? (obj?.appearance[entry.editableColorSlot]?.color ?? null)
     : null
   const plan = usePlanImage(entry?.model, planColor)
+
+  // Deleting the object under the pointer unmounts this node without ever firing
+  // a mouseleave, and a `hoveredId` naming a gone object leaves the canvas wearing
+  // the `move` cursor over empty floor until the mouse happens to move.
+  useEffect(() => (isChild ? undefined : () => overlay.clearHovered(id)), [id, isChild])
 
   if (!obj || !entry || !footprint) return null
 
@@ -187,6 +213,23 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
         if (inEditSession && cover) notify(strings.editMode.placeSettingLocked)
         onChildMouseDown(id, childGrabbable, e)
       }}
+      // Hover is a TOP-LEVEL question. Konva's enter/leave do not fire again when
+      // the pointer crosses from a group onto its own child, so a chair or a
+      // centrepiece keeps its table lit — which is honest, because pressing either
+      // of them selects and drags the table, not the piece.
+      onMouseEnter={
+        isChild
+          ? undefined
+          : () => {
+              // asked of the shared selector, never of three conditions restated
+              // here: a hover ring the plan draws and 3D does not is exactly how
+              // one locked chandelier ends up grabbable in one view and inert in
+              // the other
+              const s = useEditorStore.getState()
+              if (isHoverable(s.scene, id, s.designEditTableId)) overlay.setHovered(id)
+            }
+      }
+      onMouseLeave={isChild ? undefined : () => overlay.clearHovered(id)}
       onClick={isChild ? undefined : (e) => onObjectClick(id, e)}
       onDblClick={(e) => (isChild ? onChildDblClick(id, e) : onObjectDblClick(id, e))}
       onDragStart={(e) => (isChild ? onChildDragStart(id, e) : onObjectDragStart(id, e))}
@@ -219,6 +262,17 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
         />
       )}
       {isSelected && <OutlineRing outline={footprint.outline} stroke={SELECTED_STROKE} />}
+      {/* A preview of the selection ring, drawn only when there is no real one to
+          preview. `effectiveLocked`/`muted` are re-asked here because the object
+          can be locked or the mode entered while the pointer sits still, and no
+          mouseleave would ever arrive to take the promise back. */}
+      {hovered && !isSelected && !effectiveLocked && !muted && (
+        <OutlineRing
+          outline={footprint.outline}
+          stroke={SELECTED_STROKE}
+          opacity={HOVER_OPACITY}
+        />
+      )}
       {/* Why the drag stopped, said on the canvas the user is looking at rather
           than only in the status bar: the piece that refused it goes red for as
           long as the refusal stands (cleared on drag end). */}

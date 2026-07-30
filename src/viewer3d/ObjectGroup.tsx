@@ -13,20 +13,9 @@
  * - A table's chairs render as one InstancedMesh per material slot, so 10 chairs
  *   cost 2 draw calls and follow the table for free (they live in its group).
  */
-import {
-  Component,
-  Suspense,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react'
+import { Component, Suspense, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import * as THREE from 'three'
 import { useThree, type ThreeEvent } from '@react-three/fiber'
-import { TransformControls } from '@react-three/drei'
 import { useShallow } from 'zustand/react/shallow'
 import { shallow } from 'zustand/shallow'
 import { getCatalogEntry } from '../core/catalog/registry'
@@ -36,16 +25,17 @@ import { snapValue } from '../core/layout/snapping'
 import { standingHeightAt } from '../core/layout/groundHeight'
 import { attachedChairs } from '../core/model/seatingReconciler'
 import type { Id, SceneState, Size3D } from '../core/model/types'
-import { cmToM, radToDeg, relativeTransform, threeToPlan } from '../core/space'
+import { cmToM, relativeTransform, threeToPlan } from '../core/space'
 import { getVenuePack } from '../core/venuePacks'
 import { useOverlayStore } from '../editor2d/overlayStore'
-import { beginGesture, endGesture, select, setPosition, setRotation, toggleSelect } from '../state/actions'
+import { beginGesture, endGesture, select, setPosition, toggleSelect } from '../state/actions'
 import { notify } from '../state/notice'
 import {
   designEditTable,
   isArrangeableDecor,
   isDesignEditMuted,
   isEffectivelyLocked,
+  isHoverable,
   isLayerHidden,
   isObjectVisible,
   isTable,
@@ -61,6 +51,7 @@ import {
 } from './meshCache'
 import { applyPlanTransform, planTransformMatrix } from './planTransform'
 import { commitPlacement3D, previewPlacement3D } from './Placement3D'
+import { RotateHandle } from './RotateHandle'
 import { useModelParts } from './propModel'
 import { slotTextureUrl, useSlotTexture } from './slotTextures'
 
@@ -134,37 +125,6 @@ type MoveDrag = {
   end: (event: PointerEvent) => void
 }
 
-type GizmoControls = React.ComponentRef<typeof TransformControls>
-/** `dragging` and `axis` are public on three's TransformControls but typed private by three-stdlib. */
-type GizmoState = { dragging: boolean; axis: string | null }
-const gizmoState = (c: GizmoControls | null): GizmoState | null => c as unknown as GizmoState | null
-
-/**
- * The one mounted rotation gizmo, or null.
- *
- * The gizmo's picker meshes are INVISIBLE but still raycastable (three only
- * tests layers, not `visible`), and they live inside the selected object's
- * group — so a click on the rotation ring also lands on the object and used to
- * start a move drag on top of the rotation. Every pointer-down therefore has to
- * be able to ask "did this hit the gizmo?", including surface children, whose
- * own gizmo sits inside their parent's group.
- *
- * `axis` is the reliable signal: TransformControls sets it during pointer HOVER,
- * so it is already non-null by the time our pointer-down handler runs, whereas
- * `dragging` is set from the controls' own pointerdown listener, which races
- * with R3F's.
- *
- * ponytail: a module-level singleton, because `canRotate` requires a single
- * selection so at most one handle can be mounted. If multi-select ever grows
- * per-object gizmos, make this a set keyed by object id.
- */
-let activeGizmo: GizmoControls | null = null
-
-function gizmoBusy(): boolean {
-  const g = gizmoState(activeGizmo)
-  return !!g && (g.dragging || g.axis !== null)
-}
-
 /**
  * Which table a double-click on `objId` should open for decor editing, or null
  * (source doc §52 — the gesture is the same in BOTH views).
@@ -193,63 +153,10 @@ export function designEditTargetOf(scene: SceneState, objId: Id): Id | null {
   return parent && !parent.parentId && isTable(parent) ? parent.id : null
 }
 
-/** A single-axis editor handle; every drag is one history entry. */
-function RotationHandle({ id, object }: { id: Id; object: THREE.Object3D }) {
-  const dragging = useRef(false)
-  const controlsRef = useRef<GizmoControls | null>(null)
-
-  const bindControls = useCallback((controls: GizmoControls | null) => {
-    controlsRef.current = controls
-    activeGizmo = controls
-  }, [])
-
-  useEffect(
-    () => () => {
-      if (dragging.current) endGesture()
-      if (activeGizmo === controlsRef.current) activeGizmo = null
-    },
-    [],
-  )
-
-  return (
-    <TransformControls
-      ref={bindControls}
-      object={object}
-      mode="rotate"
-      space="world"
-      size={0.82}
-      showX={false}
-      showY
-      showZ={false}
-      // No `rotationSnap`: the ring turns freely at EVERY angle, with or without
-      // Shift (PLAN-09/G1). Shift used to engage 5° detents; the user asked for the
-      // snap to go altogether, so the only quantised rotation left is the exact 90°
-      // of `R`. Must mirror SelectionTransformer.tsx or 2D and 3D behave differently.
-      onMouseDown={() => {
-        dragging.current = true
-        beginGesture()
-      }}
-      onObjectChange={() => {
-        setRotation(id, -radToDeg(object.rotation.y))
-      }}
-      onMouseUp={() => {
-        if (!dragging.current) return
-        dragging.current = false
-        endGesture()
-      }}
-    />
-  )
-}
-
 export function ObjectGroup({ id }: { id: Id }) {
   const groupRef = useRef<THREE.Group>(null)
   const dragRef = useRef<MoveDrag | null>(null)
   const suppressClick = useRef(false)
-  const [rotationTarget, setRotationTarget] = useState<THREE.Group | null>(null)
-  const bindGroup = useCallback((group: THREE.Group | null) => {
-    groupRef.current = group
-    setRotationTarget(group)
-  }, [])
   const invalidate = useThree((s) => s.invalidate)
   const camera = useThree((s) => s.camera)
   const gl = useThree((s) => s.gl)
@@ -385,7 +292,7 @@ export function ObjectGroup({ id }: { id: Id }) {
 
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
     suppressClick.current = false
-    if (placing || e.button !== 0 || e.nativeEvent.shiftKey || gizmoBusy()) return
+    if (placing || e.button !== 0 || e.nativeEvent.shiftKey) return
     const state = useEditorStore.getState()
     const obj = state.scene.objects[id]
     if (!obj || obj.parentId || isEffectivelyLocked(state.scene, obj)) return
@@ -471,6 +378,33 @@ export function ObjectGroup({ id }: { id: Id }) {
     }
   }
 
+  /**
+   * The `move` cursor over anything the pointer may actually pick up — the 3D
+   * half of the affordance the plan has had all along.
+   *
+   * It asks `isHoverable`, the SAME selector `editor2d` asks, rather than
+   * re-deriving "visible and unlocked and not muted" here: a hover promise the
+   * plan makes and the viewer does not is how the same locked chandelier ends up
+   * looking grabbable in one pane and inert in the other.
+   *
+   * Cursor only — no new geometry, no highlight material, nothing added to the
+   * 2,700-draw-call floor. The group already carries `onPointerMove`, so R3F is
+   * raycasting this object either way and the events are free.
+   */
+  const handlePointerOver = (e: ThreeEvent<PointerEvent>) => {
+    if (placing || dragRef.current) return
+    e.stopPropagation()
+    const state = useEditorStore.getState()
+    if (!isHoverable(state.scene, id, state.designEditTableId)) return
+    gl.domElement.style.cursor = 'move'
+  }
+
+  const handlePointerOut = () => {
+    // a drag owns the cursor ('grabbing') until it ends and restores it itself
+    if (dragRef.current) return
+    gl.domElement.style.cursor = ''
+  }
+
   const procedural = geometries.map(({ slot, geometry }) => {
     const color = slotColor(entry, appearance, slot)
     const material = isSelected ? selectedSlotMaterial(color) : slotMaterial(color)
@@ -490,7 +424,7 @@ export function ObjectGroup({ id }: { id: Id }) {
   return (
     <>
       <group
-        ref={bindGroup}
+        ref={groupRef}
         // Muted means OUT of the session, not merely faint: 2D takes `listening`
         // away from the same objects, so leaving these attached would let a user
         // in 3D select, drag and even open the mode on a table the plan will not
@@ -500,6 +434,8 @@ export function ObjectGroup({ id }: { id: Id }) {
         onDoubleClick={muted ? undefined : handleDoubleClick}
         onPointerDown={muted ? undefined : handlePointerDown}
         onPointerMove={muted ? undefined : handlePointerMove}
+        onPointerOver={muted ? undefined : handlePointerOver}
+        onPointerOut={muted ? undefined : handlePointerOut}
       >
         {entry.model ? (
           <ModelFallback fallback={procedural}>
@@ -519,10 +455,18 @@ export function ObjectGroup({ id }: { id: Id }) {
         {drop > 0 && <HangingCord from={size.height} length={drop} color={cordColor} muted={muted} />}
         {hasSeating && !seatingHidden && <ChairInstances tableId={id} muted={muted} />}
         <SurfaceChildren parentId={id} muted={muted} />
+        {/* INSIDE the group, unlike the gizmo it replaces. That is what lets the
+            band's own `stopPropagation()` block the floor-drag underneath it —
+            R3F bubbles up the object tree — and it means the band inherits the
+            table's heading for free instead of being re-placed every frame. */}
+        {canRotate && !muted && !placing && (
+          <RotateHandle
+            id={id}
+            outline={entry.footprint(size).outline}
+            heightCm={size.height}
+          />
+        )}
       </group>
-      {canRotate && !muted && !placing && rotationTarget && (
-        <RotationHandle id={id} object={rotationTarget} />
-      )}
     </>
   )
 }
@@ -564,11 +508,6 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
   const groupRef = useRef<THREE.Group>(null)
   const dragRef = useRef<MoveDrag | null>(null)
   const suppressClick = useRef(false)
-  const [rotationTarget, setRotationTarget] = useState<THREE.Group | null>(null)
-  const bindGroup = useCallback((group: THREE.Group | null) => {
-    groupRef.current = group
-    setRotationTarget(group)
-  }, [])
   const invalidate = useThree((s) => s.invalidate)
   const camera = useThree((s) => s.camera)
   const gl = useThree((s) => s.gl)
@@ -698,7 +637,7 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
    */
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
     suppressClick.current = false
-    if (placing || e.button !== 0 || e.nativeEvent.shiftKey || gizmoBusy()) return
+    if (placing || e.button !== 0 || e.nativeEvent.shiftKey) return
     if (!editable) {
       // Inside the session the only piece that gets here is the cover, and a
       // refusal nobody can see is indistinguishable from a broken drag. The event
@@ -808,7 +747,7 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
   return (
     <>
       <group
-        ref={bindGroup}
+        ref={groupRef}
         // `muted` is the TABLE's — the whole group stands down together, decor
         // included, or a ghosted table would still hand out its centrepieces.
         onClick={muted ? undefined : handleClick}
@@ -831,10 +770,18 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
           procedural
         )}
         {isSelected && !muted && <SelectionOutline outline={entry.footprint(size).outline} />}
+        {/* A decor item's band sits in ITS group, so it hugs the centrepiece
+            rather than the table under it. `baseElevationCm` is 0 because a
+            surface child's transform is already parent-local — the actions layer
+            sets its elevation to the table's height. */}
+        {canRotate && !muted && !placing && (
+          <RotateHandle
+            id={id}
+            outline={entry.footprint(size).outline}
+            heightCm={size.height}
+          />
+        )}
       </group>
-      {canRotate && !muted && !placing && rotationTarget && (
-        <RotationHandle id={id} object={rotationTarget} />
-      )}
     </>
   )
 }

@@ -211,7 +211,7 @@ function ProjectInspector() {
   )
 }
 
-function SeatingSection({ obj }: { obj: SceneObject }) {
+export function SeatingSection({ obj }: { obj: SceneObject }) {
   if (!obj.seating) return null
   const entry = getCatalogEntry(obj.catalogId)
   const cap = entry.seating
@@ -276,7 +276,7 @@ const seatItemEntries = () => listCatalog().filter((entry) => entry.placement ==
  * the only way to lay them was to drop the item from the library onto the table
  * and the only way to see how many were laid was to count them.
  */
-function PlaceSettingsSection({ obj }: { obj: SceneObject }) {
+export function PlaceSettingsSection({ obj }: { obj: SceneObject }) {
   // .length, not the array: seatItems() builds a new array every call, and a
   // selector whose snapshot changes identity on every render loops forever
   const laid = useEditorStore((s) => seatItems(s.scene, obj.id).length)
@@ -465,7 +465,7 @@ function ReplaceButton({ id }: { id: string }) {
  * truss line itself; the bottom is 4 m below it. The 3D view draws a cord across
  * whatever gap the drop opens up.
  */
-function HangingSection({ obj }: { obj: SceneObject }) {
+export function HangingSection({ obj }: { obj: SceneObject }) {
   const venue = useEditorStore((s) => s.scene.venue)
   const range = hangRange(getVenuePack(venue.venuePackId), venue.wallHeight, obj.size.height)
   return (
