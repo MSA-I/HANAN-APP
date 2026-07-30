@@ -54,8 +54,8 @@ export const strings3d = {
    * hand that is already moving can do next.
    */
   hint: {
-    idle: 'W·A·S·D / חצים · Q/E גובה · Shift מהיר · Space איטי · ימני — מבט · גלגלת — קדימה',
-    selection: 'גררו להזזה · טבעת הסיבוב מסובבת · ימני — מבט',
+    idle: 'גררו להסתכל סביב · W·A·S·D / חצים לתנועה · Q/E גובה · גלגלת — קדימה',
+    selection: 'גררו את הפריט להזזה · טבעת הסיבוב מסובבת · גררו על רקע ריק להסתכל סביב',
     dragMove: 'שחררו למיקום · Alt עוקף הצמדה · Ctrl+Z לביטול',
     dragRotate: 'שחררו לסיום · Shift מצמיד ל-45° · Ctrl+Z לביטול',
     orbit: 'סיבוב סביב המוקד — שחררו את O למבט חופשי',
@@ -64,17 +64,23 @@ export const strings3d = {
     help: 'כל הקיצורים',
   },
   /**
-   * The first-run navigation card. The Lumion scheme is not changing (the user
-   * was shown that Planner 5D, Home Designer and Chief Architect all default to
-   * left-drag orbit and chose to keep this and fix DISCOVERY instead), so this
-   * card is the fix: it says out loud what the three buttons do.
+   * The first-run navigation card.
+   *
+   * ⚠ History, so nobody "restores" the old wording: the user was first shown
+   * that Planner 5D, Home Designer and Chief Architect all default to left-drag
+   * turning the view, and chose to keep the Lumion scheme and fix DISCOVERY
+   * instead — so this card existed to say out loud what the three buttons did.
+   * He then reversed that and asked for looking on the left button, which is
+   * what those planners do. The card now leads with the left button, because it
+   * is the one a first-timer will try, and still names the right button, which
+   * kept working.
    */
   navCard: {
     title: 'ניווט בתלת־ממד',
-    rightButton: 'לחצן ימני — מבט',
+    rightButton: 'לחצן ימני — מבט (גם כן)',
     middleButton: 'לחצן אמצעי — הזזה',
     wheel: 'גלגלת — קדימה/אחורה',
-    leftButton: 'לחצן שמאלי — בחירה וגרירה',
+    leftButton: 'לחצן שמאלי — גרירה על רקע ריק מסתכלת סביב, על פריט מזיזה אותו',
     keys: 'W·A·S·D או חצים לתנועה · Q/E גובה · Shift מהיר · Space איטי',
     gotIt: 'הבנתי',
     never: 'אל תציגו שוב',
