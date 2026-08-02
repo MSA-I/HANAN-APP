@@ -1168,8 +1168,9 @@ function deleteWithStack(scene: SceneState, item: SceneObject): void {
  * An entry with `requiresHost` (the napkins) lays one copy per HOST instead of per
  * seat, pinned to it — so it inherits the settings' own layout for free, including
  * the serpentine's curve, and refuses outright when the table is bare (§27).
- * "Replace the previous set" is scoped to the same catalog id for the same reason:
- * dropping napkins must not sweep away the settings they stand on.
+ * "Replace the previous set" is scoped by the same field: a cover replaces the
+ * covers, a napkin replaces only napkins of its kind and never the settings they
+ * stand on. See `laySeatItems`.
  */
 export function addSeatItemsToTable(catalogId: string, tableId: Id): Id[] {
   const table0 = get().scene.objects[tableId]
@@ -1190,13 +1191,27 @@ function laySeatItems(scene: SceneState, catalogId: string, tableId: Id): Id[] {
   const table = scene.objects[tableId]
   if (!table?.seating || table.parentId || isEffectivelyLocked(scene, table)) return []
   const ids: Id[] = []
-  // scoped to the same catalog id: dropping napkins must not sweep away the
-  // place settings they are about to stand on (source doc §27)
+  const entry = getCatalogEntry(catalogId)
+  // WHAT THE NEW SET REPLACES, scoped by ROLE rather than by catalog id.
+  //
+  // `requiresHost` IS the role: an item that needs no host is a COVER, one that
+  // does is a napkin laid on a cover. So a cover sweeps away every other cover —
+  // the six of them occupy the same seat and two would stand one inside the other
+  // — while a napkin sweeps away only napkins of its own kind, and can never take
+  // down the setting it is about to be laid on (source doc §27).
+  //
+  // It was scoped to `stale.catalogId === catalogId` alone, which is the same
+  // thing while only ONE cover exists and quietly wrong the moment a second does:
+  // switching from `decor.place-setting` to a fold left both sets on the table.
+  // `deleteWithStack` carries the riders, so replacing a cover also clears the
+  // napkins that were standing on the covers now gone — which is right, they had
+  // nothing left to stand on. state/seatItems.test.ts holds both halves.
+  const isCover = !entry.requiresHost
   for (const stale of seatItems(scene, tableId)) {
-    if (stale.catalogId === catalogId) deleteWithStack(scene, stale)
+    const staleIsCover = !getCatalogEntry(stale.catalogId).requiresHost
+    if (isCover ? staleIsCover : stale.catalogId === catalogId) deleteWithStack(scene, stale)
   }
 
-  const entry = getCatalogEntry(catalogId)
   const lay = (t: Transform2D, host?: SceneObject) => {
     const obj = createObject(catalogId, { x: 0, y: 0 })
     obj.parentId = tableId
