@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { beamGrid, clampHang, cordLength, hangRange, MAX_DROP_FROM_CEILING, snapToBeam } from './beams'
+import {
+  beamGrid,
+  clampHang,
+  cordLength,
+  HANG_TIERS,
+  hangRange,
+  MAX_DROP_FROM_CEILING,
+  maxHangSpread,
+  rollHangTiers,
+  snapToBeam,
+  tierElevation,
+} from './beams'
+import { getCatalogEntry } from '../catalog/registry'
+import { HALL_DESIGNS } from '../presets'
 import { getVenuePack } from '../venuePacks'
 
 const resort = getVenuePack('resort')!
@@ -207,6 +220,175 @@ describe('hangRange', () => {
     expect(clampHang(resort, resort.wallHeight, chandelier, 9999)).toBe(805)
     expect(clampHang(resort, resort.wallHeight, chandelier, 0)).toBe(420)
     expect(clampHang(resort, resort.wallHeight, chandelier, 700)).toBe(700)
+  })
+})
+
+/**
+ * PLAN-06 §7.1. Heights come from the CATALOG, never written out here — the same
+ * rule that broke five `snapToBeam` assertions when the beams were re-extracted
+ * (AGENT-BRIEF §1.7). A design's fixture is 225 or 375 cm today and the band it
+ * gets is a function of that, so a literal would be testing the number and not
+ * the arithmetic.
+ */
+describe('maxHangSpread', () => {
+  const fixture = (design: (typeof HALL_DESIGNS)[number]) =>
+    getCatalogEntry(design.catalogId).defaultSize.height
+
+  it.each(HALL_DESIGNS)('$id — the band it allows really fits inside hangRange', (design) => {
+    const h = fixture(design)
+    const base = design.floorDistance!
+    const range = hangRange(resort, resort.wallHeight, h)
+    const s = maxHangSpread(resort, resort.wallHeight, h, base)
+
+    expect(s).toBeGreaterThan(0)
+    expect(base - s / 2).toBeGreaterThanOrEqual(range.min)
+    expect(base + s / 2).toBeLessThanOrEqual(range.max)
+  })
+
+  it.each(HALL_DESIGNS)('$id — and it is TIGHT: two more centimetres fall out', (design) => {
+    // the assertion that separates "correct" from "merely small": a value that is
+    // simply conservative would pass the containment test above and be useless
+    const h = fixture(design)
+    const base = design.floorDistance!
+    const range = hangRange(resort, resort.wallHeight, h)
+    const s = maxHangSpread(resort, resort.wallHeight, h, base) + 2
+    const outside = base - s / 2 < range.min || base + s / 2 > range.max
+    expect(outside).toBe(true)
+  })
+
+  it('is zero on either rail — no room to scatter symmetrically there', () => {
+    const { min, max } = hangRange(resort, resort.wallHeight, 90)
+    expect(maxHangSpread(resort, resort.wallHeight, 90, min)).toBe(0)
+    expect(maxHangSpread(resort, resort.wallHeight, 90, max)).toBe(0)
+    // and off the rails entirely: the base is clamped first, so it never inverts
+    expect(maxHangSpread(resort, resort.wallHeight, 90, -5000)).toBe(0)
+    expect(maxHangSpread(resort, resort.wallHeight, 90, 5000)).toBe(0)
+  })
+
+  it('is widest in the middle of the band', () => {
+    const { min, max } = hangRange(resort, resort.wallHeight, 90)
+    const mid = (min + max) / 2
+    expect(maxHangSpread(resort, resort.wallHeight, 90, mid)).toBe(max - min)
+  })
+})
+
+describe('tierElevation', () => {
+  const H = 225 // lamp.chandelier-diamond today; the sweep below re-reads the band
+  const base = 480
+  const call = (spread: number, tier: (typeof HANG_TIERS)[number]) =>
+    tierElevation(resort, resort.wallHeight, H, base, spread, tier)
+
+  it('puts every tier on the base when the spread is zero — the pre-feature scene', () => {
+    for (const t of HANG_TIERS) expect(call(0, t)).toBe(base)
+  })
+
+  it('leaves tier 0 on the base at any spread', () => {
+    for (const spread of [0, 50, 300, 900, 99999]) expect(call(spread, 0)).toBe(base)
+  })
+
+  it('is monotone in the tier', () => {
+    for (const spread of [50, 300, 900]) {
+      expect(call(spread, 1)).toBeGreaterThanOrEqual(call(spread, 0))
+      expect(call(spread, 0)).toBeGreaterThanOrEqual(call(spread, -1))
+    }
+  })
+
+  it('never leaves hangRange, however far the spread is pushed', () => {
+    const range = hangRange(resort, resort.wallHeight, H)
+    const smax = maxHangSpread(resort, resort.wallHeight, H, base)
+    for (let spread = 0; spread <= 4 * smax; spread += 10) {
+      for (const t of HANG_TIERS) {
+        const e = call(spread, t)
+        expect(e).toBeGreaterThanOrEqual(range.min)
+        expect(e).toBeLessThanOrEqual(range.max)
+      }
+    }
+  })
+
+  /**
+   * The one that tells shrinking apart from clipping. At twice the legal spread a
+   * per-fixture clip would pin the top tier to the rail and leave the bottom one
+   * where it was, breaking the symmetry; shrinking keeps all three distinct and
+   * evenly stepped.
+   */
+  it('shrinks the band instead of clipping the fixtures', () => {
+    const smax = maxHangSpread(resort, resort.wallHeight, H, base)
+    const [lo, mid, hi] = [call(2 * smax, -1), call(2 * smax, 0), call(2 * smax, 1)]
+    expect(lo).toBeLessThan(mid)
+    expect(mid).toBeLessThan(hi)
+    expect(hi - mid).toBe(mid - lo)
+  })
+
+  it('treats any spread past the maximum as the maximum', () => {
+    const smax = maxHangSpread(resort, resort.wallHeight, H, base)
+    for (const t of HANG_TIERS) {
+      expect(call(smax + 1, t)).toBe(call(smax, t))
+      expect(call(10 * smax, t)).toBe(call(smax, t))
+    }
+  })
+})
+
+describe('rollHangTiers', () => {
+  /** the real resort ceiling grid: 11 tube positions × 3 cross-runs */
+  const grid = XS.flatMap((x) => YS.map((y) => ({ x, y })))
+  /** a fixed sequence, so "same input, same output" is a real claim */
+  const seq = (values: number[]) => {
+    let i = 0
+    return () => values[i++ % values.length]
+  }
+
+  it('gives the same tiers for the same random sequence — twice', () => {
+    const values = [0.1, 0.9, 0.4, 0.75, 0.05, 0.6, 0.33, 0.88]
+    expect(rollHangTiers(grid, seq(values))).toEqual(rollHangTiers(grid, seq(values)))
+  })
+
+  it('emits only the three declared tiers, one per point', () => {
+    const tiers = rollHangTiers(grid)
+    expect(tiers).toHaveLength(grid.length)
+    for (const t of tiers) expect(HANG_TIERS).toContain(t)
+  })
+
+  /**
+   * The anti-correlation rule, on the real 11 × 3 grid. It is checked against the
+   * EUCLIDEAN nearest predecessor and not against `i - 1`, because row-major order
+   * makes those two different points as soon as the grid has more than one row —
+   * which is the whole reason the rule is written the way it is.
+   */
+  it('never repeats the nearest already-placed neighbour s tier', () => {
+    for (let run = 0; run < 40; run++) {
+      const tiers = rollHangTiers(grid)
+      for (let i = 1; i < grid.length; i++) {
+        let nearest = 0
+        let best = Infinity
+        for (let j = 0; j < i; j++) {
+          const d = (grid[j].x - grid[i].x) ** 2 + (grid[j].y - grid[i].y) ** 2
+          if (d < best) {
+            best = d
+            nearest = j
+          }
+        }
+        expect(tiers[i]).not.toBe(tiers[nearest])
+      }
+    }
+  })
+
+  it('uses all three tiers over a grid this size', () => {
+    // not a distribution claim — just that the pool is not collapsing to two
+    expect(new Set(rollHangTiers(grid)).size).toBe(3)
+  })
+
+  it('stays in bounds when random() returns exactly 1', () => {
+    const tiers = rollHangTiers(grid, () => 1)
+    expect(tiers).toHaveLength(grid.length)
+    for (const t of tiers) expect(HANG_TIERS).toContain(t)
+    expect(tiers.includes(undefined as never)).toBe(false)
+  })
+
+  it('handles the empty and single-point cases', () => {
+    expect(rollHangTiers([])).toEqual([])
+    const one = rollHangTiers([{ x: 0, y: 0 }])
+    expect(one).toHaveLength(1)
+    expect(HANG_TIERS).toContain(one[0])
   })
 })
 

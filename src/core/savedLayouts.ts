@@ -273,6 +273,12 @@ export function instantiateSavedLayout(scene: SceneState, saved: SavedLayout): I
     delete root.meta.layoutTables
     delete root.meta.layoutLighting
     delete root.meta.design
+    // the scatter bookkeeping goes with the tag it belongs to: without
+    // `meta.design` these three are unreachable, and a dead key in `meta` is what
+    // sends the next reader looking for the code that maintains it
+    delete root.meta.hangTier
+    delete root.meta.hangBase
+    delete root.meta.hangSpread
     root.meta[tag] = saved.id
     if (root.seating) root.meta.number = nextNumber++
     scene.objects[root.id] = root
