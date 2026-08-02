@@ -1,5 +1,6 @@
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import type { Category } from '../core/catalog/types'
+import { editableSlotsOf, isFloorTable, slotColor, slotTextureId } from '../core/catalog/types'
 import { aabbUnion, outlineAABB, type AABB } from '../core/layout/bounds'
 import { maxGapForSeats, maxSeatsForEntry } from '../core/layout/seatLayout'
 import { attachedChairs } from '../core/model/seatingReconciler'
@@ -574,4 +575,190 @@ function emptyCapabilities(kind: MenuTargetKind): MenuCapabilities {
     canDelete: false,
     anyLocked: false,
   }
+}
+
+// --- what a MULTI-selection may be edited with (round 5) ---------------------
+
+/** One restyleable slot across a selection, and exactly who wears it. */
+export interface SelectionSlot {
+  slot: string
+  /** key into `strings.catalog.slots`; absent when the entry names no label */
+  labelKey?: string
+  /** any member offers the fabric picker beside the palette */
+  texture: boolean
+  /** any member opens the free colour picker (the three napkins) */
+  allowCustomColor: boolean
+  /** ⚠ THE IDS THE WRITE WILL TOUCH — editable members only, so the count cannot lie */
+  ids: Id[]
+  /** the colour they all wear, or null when they disagree */
+  sharedColor: string | null
+  /** the texture they all wear; `null` is also the legitimate value "no texture" */
+  sharedTextureId: string | null
+  /** ⚠ the flag that tells the two `null`s apart — see the note on the interface */
+  mixedTexture: boolean
+}
+
+/**
+ * Everything the multi-selection inspector needs, in ONE pure pass over the scene.
+ *
+ * ⚠ THE ASYMMETRY BETWEEN `sharedColor` AND `mixedTexture` IS LOAD-BEARING.
+ * `slotColor` always returns a string (the override, else the catalogue default),
+ * so a `null` there is unambiguous: "they disagree". `slotTextureId` returns
+ * `null` as a VALUE — "no texture", which the user can choose and which is not the
+ * same as "not chosen" (see the three-state note on `AppearanceOverrides`). One
+ * flag for both would report a whole selection of bare cloths as a conflict, and a
+ * genuine conflict as "no texture". Hence the extra boolean.
+ *
+ * ⚠ HOW TO CONSUME IT — not negotiable:
+ *
+ *     const scene = useEditorStore((s) => s.scene)
+ *     const selection = useEditorStore((s) => s.selection)
+ *     const edit = useMemo(() => selectionEditing(scene, selection), [scene, selection])
+ *
+ * NEVER `useEditorStore((s) => selectionEditing(s.scene, s.selection))`. This
+ * builds fresh arrays on every call; zustand v5 reads through
+ * `useSyncExternalStore`, which compares snapshots with `Object.is`, so such a
+ * selector never settles — React re-renders, re-selects, and bails out with a
+ * WHITE SCREEN whose message names nothing in this file. That already shipped once
+ * here, on the `⋯` menu (`viewer3d/SelectionBar3D.tsx`). `scene` and `selection`
+ * are Immer-stable, so the memo recomputes only when one genuinely changes.
+ *
+ * It is a SIBLING of `menuCapabilities`, deliberately not an extension of it: that
+ * one is keyed on a right-click `targetId` and answers menu-verb questions
+ * (copy/cut/reorder), while this one has no target at all and answers FIELD
+ * questions (what is the shared angle, which slots do these share). The primitives
+ * are shared — `canRotateObject`, `isEffectivelyLocked`, `isFrozen` — so the two
+ * can differ in scope but never in the rules.
+ */
+export interface SelectionEditing {
+  /** the selection minus ids whose object is already gone (a delete outlives it a render) */
+  ids: Id[]
+  /** not frozen, not locked, not on a locked layer — what every write filters to anyway */
+  editableIds: Id[]
+  /** how many of `ids` a write will silently skip */
+  lockedCount: number
+  /** those a per-object unlock button can actually open (frozen cannot be opened) */
+  unlockableIds: Id[]
+  /** top-level floor tables in the selection — the scope of every dressing control */
+  tableIds: Id[]
+  /** …of which these are not locked: the ones an apply really lands on */
+  editableTableIds: Id[]
+  /** the angle they all stand at (whole degrees), or null when they disagree */
+  sharedRotation: number | null
+  /** the chair model every selected table wears, or null when they disagree */
+  sharedChairCatalogId: string | null
+  slots: SelectionSlot[]
+  canRotate: boolean
+  canMirror: boolean
+  canDuplicate: boolean
+  canLock: boolean
+  canDelete: boolean
+  anyLocked: boolean
+}
+
+/** The one value they all share, or null. An empty list shares nothing. */
+function shared<T>(values: T[]): T | null {
+  if (!values.length) return null
+  const first = values[0]
+  return values.every((v) => v === first) ? first : null
+}
+
+export function selectionEditing(scene: SceneState, selection: Id[]): SelectionEditing {
+  const ids = selection.filter((id) => !!scene.objects[id])
+  const objects = ids.map((id) => scene.objects[id])
+  const editable = objects.filter((o) => !isEffectivelyLocked(scene, o))
+  const editableIds = editable.map((o) => o.id)
+  const topLevel = objects.filter((o) => !o.parentId)
+  const tableIds = topLevel
+    .filter(
+      (o) => !!o.seating && hasCatalogEntry(o.catalogId) && isFloorTable(getCatalogEntry(o.catalogId)),
+    )
+    .map((o) => o.id)
+
+  // Over the ROTATABLE members only, not the whole selection: a locked table at 0°
+  // must not turn two free ones at 45° into a "conflict" for a field that was never
+  // going to touch it. Whole degrees, because a dragged angle is a float and
+  // 44.9999 vs 45.0001 is not a disagreement anyone means.
+  const rotatable = ids.filter((id) => canRotateObject(scene, id))
+  const sharedRotation = shared(rotatable.map((id) => Math.round(scene.objects[id].transform.rotation)))
+
+  return {
+    ids,
+    editableIds,
+    lockedCount: ids.length - editableIds.length,
+    unlockableIds: objects.filter((o) => o.flags.locked && !isFrozen(o)).map((o) => o.id),
+    tableIds,
+    editableTableIds: tableIds.filter((id) => !isEffectivelyLocked(scene, scene.objects[id])),
+    sharedRotation,
+    sharedChairCatalogId: shared(
+      tableIds.map((id) => scene.objects[id].seating?.chairCatalogId ?? ''),
+    ),
+    slots: selectionSlots(editable),
+    canRotate: rotatable.length > 0,
+    // `mirrorObjects` filters to editable TOP-LEVEL — a mirrored place setting on
+    // an unmirrored table is not a thing the user can mean
+    canMirror: editable.some((o) => !o.parentId),
+    // `duplicateObjects`' own rule, lock test included — i.e. absent. A locked
+    // source is copyable; the copy is a new, unlocked object.
+    canDuplicate: topLevel.length > 0,
+    canLock: objects.some((o) => !isFrozen(o)),
+    canDelete: editableIds.length > 0,
+    anyLocked: objects.some((o) => o.flags.locked),
+  }
+}
+
+/**
+ * The UNION of the restyleable slots, in first-seen catalogue order, each carrying
+ * the subset that has it.
+ *
+ * Union and not intersection, and that is the whole point: on 6 tables + 3 chairs
+ * + a plant the intersection is empty, which IS the complaint this round answers.
+ * Each row states its own count instead, so "מפת שולחן (6)" says in the label
+ * exactly what the click will do — and `setAppearance` re-checks `isEditableSlot`
+ * per object anyway, so a row can never write somewhere it does not belong.
+ */
+function selectionSlots(objects: SceneObject[]): SelectionSlot[] {
+  const rows: SelectionSlot[] = []
+  const byName = new Map<string, { row: SelectionSlot; colors: string[]; textures: (string | null)[] }>()
+  for (const obj of objects) {
+    if (!hasCatalogEntry(obj.catalogId)) continue
+    const entry = getCatalogEntry(obj.catalogId)
+    for (const editable of editableSlotsOf(entry)) {
+      const def = entry.materialSlots.find((s) => s.name === editable.slot)
+      let cell = byName.get(editable.slot)
+      if (!cell) {
+        const row: SelectionSlot = {
+          slot: editable.slot,
+          labelKey: def?.labelKey,
+          texture: false,
+          allowCustomColor: false,
+          ids: [],
+          sharedColor: null,
+          sharedTextureId: null,
+          mixedTexture: false,
+        }
+        rows.push(row)
+        cell = { row, colors: [], textures: [] }
+        byName.set(editable.slot, cell)
+      }
+      // ANY member offering the control is enough to show it: the write is guarded
+      // per object, and hiding the picker because one chair in the selection has no
+      // weave would take it away from the six tables that do
+      if (editable.texture) cell.row.texture = true
+      if (def?.allowCustomColor) cell.row.allowCustomColor = true
+      cell.row.ids.push(obj.id)
+      cell.colors.push(slotColor(entry, obj.appearance, editable.slot))
+      cell.textures.push(slotTextureId(entry, obj.appearance, editable.slot))
+    }
+  }
+  for (const { row, colors, textures } of byName.values()) {
+    row.sharedColor = shared(colors)
+    // ⚠ NOT `shared(textures)`: that returns null both for "they all chose none"
+    // and for "they disagree", which are the two states this row exists to tell
+    // apart. Agreement is asked directly, and the answer may itself be null.
+    const agreed = textures.every((t) => t === textures[0])
+    row.mixedTexture = !agreed
+    row.sharedTextureId = agreed ? textures[0] : null
+  }
+  return rows
 }
