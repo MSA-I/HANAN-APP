@@ -1124,6 +1124,65 @@ describe('v11 → v12 the rolled napkin shrinks onto the plate', () => {
   })
 })
 
+/**
+ * The five covers with a napkin baked in were added to the CATALOG and nothing
+ * else (R5 PLAN-01 §3.6). `SCHEMA_VERSION` deliberately did not move, and this
+ * says why that is safe rather than merely asserting the number: a v13 file
+ * holding the loose `decor.napkin-folded` on a `decor.place-setting` still loads
+ * byte-for-byte, because no stored id, size or meaning changed.
+ *
+ * Adding entries to a catalog is normally not a migration question at all. It is
+ * one here only because the obvious alternative — retiring the three loose
+ * napkins now that a cover carries its own — WOULD have been: `catalogId` is a
+ * storage key, and a v1 → v2 remap exists at the top of this file precisely
+ * because ids that vanish take saved projects with them.
+ */
+describe('v13 stays v13 — the covers are new ids, not a change to stored ones', () => {
+  const NAPKIN = 'decor.napkin-folded'
+  const SETTING = 'decor.place-setting'
+
+  const savedV13Project = () => {
+    const file = validFile()
+    const cover = {
+      ...storedObject('c1', SETTING, { ...getCatalogEntry(SETTING).defaultSize }, 0, -60),
+      parentId: 't1',
+      attachment: { kind: 'surface' },
+    }
+    const napkin = {
+      ...storedObject('n1', NAPKIN, { ...getCatalogEntry(NAPKIN).defaultSize }, 0, -60),
+      parentId: 't1',
+      attachment: { kind: 'surface', stackedOn: 'c1' },
+    }
+    const table = storedObject('t1', 'table.round', { ...getCatalogEntry('table.round').defaultSize }, 800, 800)
+    file.project.scene.objects = { t1: table, c1: cover, n1: napkin } as never
+    file.project.scene.objectOrder = ['t1']
+    return JSON.parse(JSON.stringify(file))
+  }
+
+  it('loads a stored napkin-on-cover unchanged, at the same version', () => {
+    const before = savedV13Project()
+    const revived = migrateAndValidate(before)
+    expect(revived.schemaVersion).toBe(13)
+    expect(revived.project.schemaVersion).toBe(13)
+    expect(revived).toEqual(before)
+  })
+
+  it('leaves both catalog ids exactly where they were stored', () => {
+    const objects = migrateAndValidate(savedV13Project()).project.scene.objects
+    expect(objects.n1.catalogId).toBe(NAPKIN)
+    expect(objects.c1.catalogId).toBe(SETTING)
+    // and the sizes too — a re-catalogued entry would have rewritten them
+    expect(objects.n1.size).toEqual(getCatalogEntry(NAPKIN).defaultSize)
+    expect(objects.c1.size).toEqual(getCatalogEntry(SETTING).defaultSize)
+  })
+
+  it('is the current version, so no new migration step is owed', () => {
+    // the guard on the guard: if SCHEMA_VERSION is ever bumped this file must be
+    // revisited rather than silently testing an old version's behaviour
+    expect(SCHEMA_VERSION).toBe(13)
+  })
+})
+
 describe('migrateAndValidate', () => {
   it('accepts a current-version ProjectFile round-trip', () => {
     const file = validFile()

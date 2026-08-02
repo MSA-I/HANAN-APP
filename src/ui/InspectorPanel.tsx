@@ -355,8 +355,23 @@ export function SeatingSection({ obj }: { obj: SceneObject }) {
   )
 }
 
-/** Catalog items laid one-per-seat — today only the resort's place setting. */
-const seatItemEntries = () => listCatalog().filter((entry) => entry.placement === 'seat')
+/**
+ * The kinds of COVER the `סוג הערכה` dropdown may offer: the six place settings —
+ * the original and the five that carry a napkin of their own.
+ *
+ * `!requiresHost` is what keeps the three loose napkins out. They are 'seat' items
+ * too, so the filter used to be `placement === 'seat'` alone and the dropdown
+ * listed eleven options of which six could never work: a napkin needs a cover
+ * under it, and the button beside it answered `missingHost` every time it was
+ * picked (R5 PLAN-01 §2.6/§5.8). A napkin is dressing FOR a cover, not a kind of
+ * one, and it is still dropped from the library the way it always was.
+ *
+ * The same predicate decides replacement in `laySeatItems` — laying a cover
+ * sweeps the other covers away, laying a napkin sweeps only napkins — so the two
+ * places that ask "is this a cover?" ask it the same way.
+ */
+const seatItemEntries = () =>
+  listCatalog().filter((entry) => entry.placement === 'seat' && !entry.requiresHost)
 
 /**
  * Whether there is anything to lay and anywhere to lay it. Shared by the

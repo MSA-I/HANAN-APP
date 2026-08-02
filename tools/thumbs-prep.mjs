@@ -242,6 +242,23 @@ const MAPPING = [
   // at the `bar.resort-left` row above.
   { id: 'buffet.table', src: 'בופה ריזורט.png' },
   { id: 'divider.screen', src: 'מחיצה.png' },
+
+  // ── round 5: the five covers with a napkin baked in ────────────────────────
+  // MODEL rows, the `figure.woman` form, and for the same reason: these five
+  // arrived as GLBs and there is no product shot of any of them — the folds are
+  // the user's own models, not catalogue photography. Pointing five rows at the
+  // one existing place-setting photo would put the SAME picture on five tiles
+  // that differ only in the fold, which is worse than no picture at all.
+  //
+  // `top`, not `front`. The fold is what tells these five apart and it is read
+  // from ABOVE — a napkin standing in a glass aside, every fold lies on the plate.
+  // From the front a cover is a charger edge-on with two glasses behind it, and
+  // all five tiles would be the same image.
+  { id: 'decor.place-setting-diagonal', glb: 'decor-place-setting-diagonal.glb', view: 'top' },
+  { id: 'decor.place-setting-horizontal', glb: 'decor-place-setting-horizontal.glb', view: 'top' },
+  { id: 'decor.place-setting-vertical', glb: 'decor-place-setting-vertical.glb', view: 'top' },
+  { id: 'decor.place-setting-folded', glb: 'decor-place-setting-folded.glb', view: 'top' },
+  { id: 'decor.place-setting-tied', glb: 'decor-place-setting-tied.glb', view: 'top' },
 ]
 
 const outName = (id) => `${id.replaceAll('.', '-')}.webp`
