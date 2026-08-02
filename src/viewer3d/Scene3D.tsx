@@ -24,6 +24,8 @@ import { useEditorStore } from '../state/store'
 import { LIGHTING_MODES } from './lightingModes'
 import { applyCameraPreset, applySealedCamera, type CameraPreset } from './cameraPresets'
 import { capture3d, registerCapture3d } from './captureBus3d'
+import { measureCoverage3d, registerMeasureCoverage3d } from './coverageBus3d'
+import { measureCoverage } from './visibilityOracle'
 import { CameraRig } from './CameraRig'
 import { FlyControls } from './FlyControls'
 import { FlyHint } from './FlyHint'
@@ -175,6 +177,39 @@ function CaptureRegistrar() {
       }
     })
     return () => registerCapture3d(null)
+  }, [gl, scene, camera])
+  return null
+}
+
+/**
+ * PLAN-05 C3's other half of the same idea: registers the visibility measurement
+ * while mounted, so the export can ask "what is actually in this frame" without
+ * reaching into the renderer itself.
+ *
+ * Separate from `CaptureRegistrar` because the two answer to different callers
+ * and have different failure modes — a failed capture loses the frame, a failed
+ * measurement just falls back to the frustum — but it takes the same three
+ * objects and the same aspect ratio, and MUST keep doing so: measuring a frame
+ * shaped differently from the one being sent is a silent wrong answer.
+ */
+function CoverageRegistrar() {
+  const gl = useThree((s) => s.gl)
+  const scene = useThree((s) => s.scene)
+  const camera = useThree((s) => s.camera)
+  useEffect(() => {
+    registerMeasureCoverage3d(() => {
+      const cam = camera as PerspectiveCamera
+      const origAspect = cam.aspect
+      try {
+        cam.aspect = CAPTURE_SIZE.width / CAPTURE_SIZE.height
+        cam.updateProjectionMatrix()
+        return measureCoverage(gl, scene, camera)
+      } finally {
+        cam.aspect = origAspect
+        cam.updateProjectionMatrix()
+      }
+    })
+    return () => registerMeasureCoverage3d(null)
   }, [gl, scene, camera])
   return null
 }
@@ -370,6 +405,10 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
     // the chips fly with an animated transition — capturing mid-flight would
     // export a frame from somewhere between two angles
     if (angle) await settleAt(angle.position)
+    // PLAN-05 C3 — measured from the settled camera, after clearSelection above
+    // (a selection outline would be counted as part of whatever it wraps) and
+    // before grabFrame, so the frame measured is the frame sent.
+    const coverage = measureCoverage3d()
     const url = await grabFrame()
     if (!url) return
     const { scene, projectName } = useEditorStore.getState()
@@ -391,7 +430,7 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
       }
       return
     }
-    report([await exportPromptPackage(composeExport(scene, active), url, projectName)])
+    report([await exportPromptPackage(composeExport(scene, active, coverage), url, projectName)])
   }
 
   /**
@@ -418,11 +457,18 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
         applySealedCamera(controls, cam, false)
         setActive(cam.id)
         await settleAt(cam.position)
+        // measured per angle, never once for the batch: what is visible is the
+        // whole question and it is different from every one of the seven
+        const coverage = measureCoverage3d()
         const url = await grabFrame()
         if (!url) continue
         const state = useEditorStore.getState()
         outcomes.push(
-          await exportPromptPackage(composeExport(state.scene, cam.id), url, state.projectName),
+          await exportPromptPackage(
+            composeExport(state.scene, cam.id, coverage),
+            url,
+            state.projectName,
+          ),
         )
       }
       report(outcomes)
@@ -536,6 +582,7 @@ export default function Scene3D() {
           <CameraRig controlsRef={controlsRef} />
           <FlyControls controlsRef={controlsRef} />
           <CaptureRegistrar />
+          <CoverageRegistrar />
           <TableLabel3D />
           {import.meta.env.DEV && <DevProbe controlsRef={controlsRef} />}
         </Canvas>

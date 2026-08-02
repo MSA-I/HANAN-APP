@@ -18,6 +18,7 @@ import { outlineAABB } from '../layout/bounds'
 import type { Id, SceneObject, SceneState, Transform2D } from '../model/types'
 import { cmToM, composeTransform } from '../space'
 import type { SealedCamera } from '../venuePacks'
+import { isVisibleEnough } from './coverage'
 import { colorPhrase, designRefBudget, MAX_FIXED_REFS } from './fragments'
 
 /** The frame the capture is taken at (Scene3D `doCapture`), so the frustum matches it. */
@@ -249,6 +250,12 @@ export interface DesignGroup {
    * baked fixture and a hand-placed copy of the same bar are one picture.
    */
   fixed: boolean
+  /**
+   * PLAN-05 C3: the share of the frame this product's members occupy between
+   * them, summed. `undefined` when nothing was measured, which is a different
+   * statement from 0 ("measured, and invisible") — `byPriority` reads it.
+   */
+  coverage?: number
 }
 
 /** World transform of any object; attached children compose with their parent. */
@@ -308,20 +315,47 @@ export function frustumOf(camera: SealedCamera, aspect = CAPTURE_SIZE.width / CA
 }
 
 /**
+ * PLAN-05 C3 — what share of the rendered frame each object actually occupies,
+ * 0..1, keyed by object id.
+ *
+ * Produced in `viewer3d/visibilityOracle.ts` (it needs a renderer) and passed
+ * INWARDS as a plain parameter. Deliberately not a field on the scene and not a
+ * module singleton: coverage is the measurement of one frame from one angle, and
+ * storing it on the model would pollute a saved project with a number that is
+ * true of a single picture.
+ *
+ * ABSENT means "nobody measured", and then the frustum is the whole answer —
+ * which is what keeps every test written before C3 passing untouched.
+ */
+export type Coverage = Record<Id, number>
+
+/**
  * Visible objects whose box intersects the frustum (gate 3: a thing that is not
- * in the picture does not need a reference).
+ * in the picture does not need a reference) AND that the measurement, if there
+ * is one, found something of in the frame.
  *
  * Intersection, not containment: a table half out of frame is still half in it.
  * The test is on the axis-aligned box, so it is generous at the edges — which is
  * the right way to be wrong here, since the cost of one extra reference is one
  * slot and the cost of a missing one is an item the model renders blank.
+ *
+ * The frustum stays FIRST and stays the fallback. It is cheap, it is pure maths,
+ * and it is the only answer available under vitest; the coverage test is a
+ * second gate behind it, never a replacement. An object the frustum rejects is
+ * never measured in the first place.
  */
-export function objectsInFrame(scene: SceneState, camera: SealedCamera | null): SceneObject[] {
+export function objectsInFrame(
+  scene: SceneState,
+  camera: SealedCamera | null,
+  coverage?: Coverage,
+): SceneObject[] {
   const frustum = camera ? frustumOf(camera) : null
   return Object.values(scene.objects).filter((obj) => {
     if (!hasCatalogEntry(obj.catalogId) || !isVisible(scene, obj.id)) return false
     if (!frustum) return true // no sealed camera → nothing to cull against, gate 3's fallback
-    return frustum.intersectsBox(boxOf(scene, obj, getCatalogEntry(obj.catalogId)))
+    if (!frustum.intersectsBox(boxOf(scene, obj, getCatalogEntry(obj.catalogId)))) return false
+    if (!coverage) return true // nobody measured → the frustum IS the answer
+    return isVisibleEnough(coverage[obj.id])
   })
 }
 
@@ -329,16 +363,45 @@ export function objectsInFrame(scene: SceneState, camera: SealedCamera | null): 
  * One group per product-and-colour: the same table in ivory and in gold are two
  * references, because they are two different things to look at.
  */
-export function groupForRefs(scene: SceneState, camera: SealedCamera | null): DesignGroup[] {
-  const groups = new Map<string, DesignGroup>()
-  for (const obj of objectsInFrame(scene, camera)) {
+/**
+ * ⚠ THE VISIBILITY CUT IS MADE PER GROUP, NOT PER OBJECT, and that is the whole
+ * of the difference between this working and this being a menace.
+ *
+ * The oracle hides ONE object and measures what changed, so a table standing
+ * directly behind another table of the same kind measures ~0 — not because it is
+ * out of the picture but because its twin is drawn over it. Cutting per object
+ * would turn "forty round tables" into "three round tables" in the prose of a
+ * frame that plainly shows forty, which is a worse lie than the one C3 exists to
+ * remove.
+ *
+ * So: a group SURVIVES if any one of its members is visible, and its `count`
+ * stays what the room holds. The reference picture is per product, and one
+ * visible member is all it takes for that picture to be worth sending.
+ */
+export function groupForRefs(
+  scene: SceneState,
+  camera: SealedCamera | null,
+  coverage?: Coverage,
+): DesignGroup[] {
+  const inFrame = objectsInFrame(scene, camera)
+  const visible = coverage
+    ? new Set(objectsInFrame(scene, camera, coverage).map((o) => o.id))
+    : null
+
+  const groups = new Map<string, DesignGroup & { seen?: boolean }>()
+  for (const obj of inFrame) {
     const entry = getCatalogEntry(obj.catalogId)
     const color = colorPhrase(entry, obj.appearance)
     const key = `${obj.catalogId}${color ?? ''}`
+    const share = coverage?.[obj.id] ?? 0
     const existing = groups.get(key)
     if (existing) {
       existing.count += 1
       existing.fixed ||= isFixedElement(obj, entry)
+      if (coverage) {
+        existing.coverage = (existing.coverage ?? 0) + share
+        existing.seen ||= visible!.has(obj.id)
+      }
       continue
     }
     groups.set(key, {
@@ -348,14 +411,35 @@ export function groupForRefs(scene: SceneState, camera: SealedCamera | null): De
       color,
       caption: `${entry.promptFragment ?? entry.id}${color ?? ''}`,
       fixed: isFixedElement(obj, entry),
+      coverage: coverage ? share : undefined,
+      seen: coverage ? visible!.has(obj.id) : undefined,
     })
   }
-  return [...groups.values()].sort(byPriority)
+
+  return [...groups.values()]
+    .filter((g) => !coverage || g.seen)
+    .map(({ seen: _seen, ...group }) => group)
+    .sort(byPriority)
 }
 
+/**
+ * Tier first, always. Inside a tier the tie-break is how much of the FRAME the
+ * product occupies when that has been measured, and how many of it there are
+ * when it has not.
+ *
+ * Forty chairs tucked under tables behind the bar are one small smudge; one
+ * chuppah is a third of the picture. "How much of the frame" answers "is this
+ * worth one of sixteen slots" better than "how many are there" does — but only
+ * when somebody actually looked, so the count remains the answer under vitest
+ * and on any angle that was not measured.
+ */
 function byPriority(a: DesignGroup, b: DesignGroup): number {
-  const tier = CATEGORY_PRIORITY.indexOf(a.entry.category) - CATEGORY_PRIORITY.indexOf(b.entry.category)
+  const tier =
+    CATEGORY_PRIORITY.indexOf(a.entry.category) - CATEGORY_PRIORITY.indexOf(b.entry.category)
   if (tier !== 0) return tier
+  if (a.coverage !== undefined && b.coverage !== undefined && a.coverage !== b.coverage) {
+    return b.coverage - a.coverage
+  }
   if (a.count !== b.count) return b.count - a.count
   return a.catalogId.localeCompare(b.catalogId)
 }
@@ -365,6 +449,44 @@ export interface RefSelection {
   /** every group in frame, in priority order — the prose lists all of them */
   groups: DesignGroup[]
   warnings: string[]
+}
+
+/**
+ * PLAN-05 C3's MANDATORY safety floor.
+ *
+ * The oracle renders the scene N+1 times and counts pixels. Anything that can go
+ * wrong with that — a lost context, a readback of a cleared buffer, a scene
+ * whose objects were never tagged, a measurement taken at the wrong moment —
+ * shows up as "every product covers zero", and the honest reading of that is
+ * "the hall is empty". It is not, and a dressed hall exporting with three
+ * references and no TABLES line is a far worse failure than one surplus picture:
+ * the surplus costs a slot, this costs the whole package silently.
+ *
+ * So: if the measurement empties a list the frustum had filled, the measurement
+ * is what gets thrown away, and the warning says so out loud. Only that shape is
+ * treated as a fault. A measurement that thins the list is the feature working,
+ * and a frustum list that was empty to begin with is simply an empty room.
+ */
+function measuredGroups(
+  scene: SceneState,
+  camera: SealedCamera | null,
+  coverage: Coverage | undefined,
+): { groups: DesignGroup[]; warnings: string[] } {
+  if (!coverage) return { groups: groupForRefs(scene, camera), warnings: [] }
+
+  const measured = groupForRefs(scene, camera, coverage)
+  if (measured.length) return { groups: measured, warnings: [] }
+
+  const unmeasured = groupForRefs(scene, camera)
+  if (!unmeasured.length) return { groups: unmeasured, warnings: [] } // the room really is empty
+  return {
+    groups: unmeasured,
+    warnings: [
+      `Visibility measurement found none of the ${unmeasured.length} products the frame contains, ` +
+        'so it was discarded and every item in frame is described. The references may include ' +
+        'things the camera cannot actually see.',
+    ],
+  }
 }
 
 /**
@@ -410,11 +532,15 @@ function productRef(group: DesignGroup, role: 'fixed' | 'design'): ExportRef {
  * `groups` is returned uncut on purpose — an item that lost its picture is still
  * in the room and still belongs in the written description.
  */
-export function selectRefs(scene: SceneState, camera: SealedCamera | null): RefSelection {
-  const groups = groupForRefs(scene, camera)
+export function selectRefs(
+  scene: SceneState,
+  camera: SealedCamera | null,
+  coverage?: Coverage,
+): RefSelection {
+  const { groups, warnings: measurementWarnings } = measuredGroups(scene, camera, coverage)
   const fixedGroups = groups.filter((g) => g.fixed)
   const designGroups = groups.filter((g) => !g.fixed)
-  const warnings: string[] = []
+  const warnings: string[] = [...measurementWarnings]
 
   const keptFixed = fixedGroups.slice(0, MAX_FIXED_REFS)
   const cutFixed = fixedGroups.slice(MAX_FIXED_REFS)

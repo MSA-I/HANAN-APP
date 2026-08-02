@@ -10,7 +10,7 @@ import type { Category } from '../catalog/types'
 import type { SceneState } from '../model/types'
 import { getVenuePack, type SealedCamera } from '../venuePacks'
 import { pluralize } from './fragments'
-import { selectRefs, type DesignGroup, type ExportRef, type RefRole } from './refs'
+import { selectRefs, type Coverage, type DesignGroup, type ExportRef, type RefRole } from './refs'
 import {
   CAPTURE_SHADOWS_OFF,
   SHARED_BACKGROUND,
@@ -117,7 +117,11 @@ function refPhrase(refs: ExportRef[], role: RefRole): string | null {
  * with no venue pack and an empty room all produce a usable prompt, because the
  * caller is a capture button and a thrown error there loses the frame.
  */
-export function composeExport(scene: SceneState, angleId: string): ExportPackage {
+export function composeExport(
+  scene: SceneState,
+  angleId: string,
+  coverage?: Coverage,
+): ExportPackage {
   const warnings: string[] = []
   const pack = getVenuePack(scene.venue.venuePackId)
   const camera = pack?.cameras?.find((c) => c.id === angleId)
@@ -138,7 +142,14 @@ export function composeExport(scene: SceneState, angleId: string): ExportPackage
         'considered, not only the ones in frame.',
     )
   }
-  const selection = selectRefs(scene, camera ?? null)
+  /**
+   * PLAN-05 C3. `coverage` reaches the prose and the picture list through this
+   * one call, which is the point: `sectionLines` below reads the SAME `groups`,
+   * so an item the camera cannot see loses its reference slot and its sentence
+   * together. Culling one without the other would leave the prompt describing a
+   * table the model was never shown, or showing one it was told nothing about.
+   */
+  const selection = selectRefs(scene, camera ?? null, coverage)
 
   const lines = sectionLines(selection.groups)
   if (!lines.length) {
