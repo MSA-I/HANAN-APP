@@ -6,6 +6,7 @@ import { useEffect } from 'react'
 import {
   clearSelection,
   duplicateObjects,
+  mirrorCopyObjects,
   mirrorObjects,
   moveObjectsBy,
   redo,
@@ -110,7 +111,9 @@ export function useEditorShortcuts(zoom: ZoomApi): void {
           // no preventDefault, matching the 2D branch below
           if (s3.selection.length) rotateObjectsBy(s3.selection, e.shiftKey ? -90 : 90)
         } else if (e.code === 'KeyM') {
-          if (s3.selection.length) mirrorObjects(s3.selection)
+          // Alt FIRST: both branches reached `KeyM` without looking at modifiers,
+          // so Alt+M performed a plain mirror until this line existed.
+          if (s3.selection.length) (e.altKey ? mirrorCopyObjects : mirrorObjects)(s3.selection)
         } else if (e.code === 'Delete' || e.code === 'Backspace') {
           if (s3.selection.length) removeObjects(s3.selection)
           e.preventDefault()
@@ -226,7 +229,7 @@ export function useEditorShortcuts(zoom: ZoomApi): void {
           if (sel.length) rotateObjectsBy(sel, e.shiftKey ? -90 : 90)
           return
         case 'KeyM':
-          if (sel.length) mirrorObjects(sel)
+          if (sel.length) (e.altKey ? mirrorCopyObjects : mirrorObjects)(sel)
           return
         case 'KeyG':
           if (e.shiftKey) updateSettings({ snapEnabled: !state.scene.settings.snapEnabled })

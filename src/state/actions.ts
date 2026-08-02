@@ -6,7 +6,7 @@ import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import { isEditableSlot, isFloorTable, type CatalogEntry, type Category } from '../core/catalog/types'
 import { isTextureId } from '../core/catalog/textures'
 import { createObject, createProject, newId, type NewProjectOptions } from '../core/model/factory'
-import { attachedChairs, reconcileSeats } from '../core/model/seatingReconciler'
+import { reconcileSeats } from '../core/model/seatingReconciler'
 import type {
   Id,
   LightingSettings,
@@ -20,10 +20,11 @@ import type {
   Vec2,
 } from '../core/model/types'
 import { normalizeDeg, relativeTransform, rotateVec } from '../core/space'
-import { aabbUnion, holeRadius, outlineAABB, type AABB } from '../core/layout/bounds'
+import { holeRadius, outlineAABB, type AABB } from '../core/layout/bounds'
 import {
   allowedOnDeck,
   checkPlacement,
+  clearanceOf,
   slideToLegal,
   type PlacementCandidate,
   type Violation,
@@ -69,6 +70,7 @@ import {
   isObjectVisible,
   lightingOf,
   objectAABB as objectAABBOf,
+  subtreeAABB,
   surfaceChildren,
 } from './selectors'
 import { notify } from './notice'
@@ -124,18 +126,6 @@ function editable(scene: SceneState, ids: Id[]): SceneObject[] {
   return ids
     .map((id) => scene.objects[id])
     .filter((o): o is SceneObject => !!o && !isEffectivelyLocked(scene, o))
-}
-
-/** Footprint of a top-level object including its attached chairs (world/plan). */
-function subtreeAABB(scene: SceneState, id: Id): AABB | null {
-  const boxes: AABB[] = []
-  const self = objectAABBOf(scene, id)
-  if (self) boxes.push(self)
-  for (const chair of attachedChairs(scene, id)) {
-    const b = objectAABBOf(scene, chair.id)
-    if (b) boxes.push(b)
-  }
-  return boxes.length ? aabbUnion(boxes) : null
 }
 
 // ---------------------------------------------------------------------------
@@ -194,9 +184,13 @@ function candidateFor(
  *    turned and resized, including apart. Refusing is the one answer that could
  *    never undo the overlap.
  */
-function ruled(scene: SceneState, obj: SceneObject): boolean {
+function ruled(scene: SceneState, obj: SceneObject, ignoreIds?: Id[]): boolean {
   if (getCatalogEntry(obj.catalogId).zoneKind) return false
-  return checkPlacement(scene, candidateFor(obj)).length === 0
+  // `ignoreIds` is what keeps Alt+drag from disarming its own gate: the copy it
+  // parks in exact overlap with the original would otherwise make this `false` on
+  // every frame of the drag, and enforcement would be off for the whole gesture.
+  const group = ignoreIds?.length ? [obj.id, ...ignoreIds] : undefined
+  return checkPlacement(scene, candidateFor(obj, undefined, group)).length === 0
 }
 
 function shiftedBy(t: Transform2D, delta: Vec2, factor = 1): Transform2D {
@@ -209,10 +203,17 @@ function shiftedBy(t: Transform2D, delta: Vec2, factor = 1): Transform2D {
  * point is what makes a blocked drag read as sliding into place rather than
  * freezing at the start of the gesture.
  */
-function allowedDelta(scene: SceneState, objs: SceneObject[], delta: Vec2): Vec2 {
-  const gated = objs.filter((o) => ruled(scene, o))
+function allowedDelta(
+  scene: SceneState,
+  objs: SceneObject[],
+  delta: Vec2,
+  ignoreIds?: Id[],
+): Vec2 {
+  const gated = objs.filter((o) => ruled(scene, o, ignoreIds))
   if (!gated.length || (!delta.x && !delta.y)) return delta
-  const ids = gated.map((o) => o.id)
+  // the Alt+drag copies join the exclusion set the selection already forms: they
+  // are the gesture's own output, not an obstacle it has to steer around
+  const ids = [...gated.map((o) => o.id), ...(ignoreIds ?? [])]
   // Each object is probed in the frame its own transform lives in. `delta` is the
   // world vector the pointer asked for, and a child's position is parent-local, so
   // for a child it has to be turned into the parent's frame first — the same
@@ -240,6 +241,84 @@ function allowedDelta(scene: SceneState, objs: SceneObject[], delta: Vec2): Vec2
   // one scalar for the whole selection, and the answer stays in WORLD units: the
   // caller converts per object exactly as it applies the move
   return { x: delta.x * lo, y: delta.y * lo }
+}
+
+/**
+ * The first whole multiple of `dir` at which EVERY candidate is legal, or `null`.
+ *
+ * ⚠ ONE SCALAR FOR THE WHOLE SET, exactly as `allowedDelta` above uses one: a copy
+ * operation on a selection has to land the copies in the arrangement they were
+ * copied in. Solving per object would pull a paired set apart the moment one of
+ * them found floor a step sooner. A rigid translation preserves every gap inside
+ * the set, so if the originals were mutually legal the copies are too, at any k.
+ *
+ * Deliberately PERMISSIVE: the callers must land even when this returns `null`
+ * (§4.3), because a duplicate that silently fails is worse than one that lands
+ * tight. What the search prevents is not "a copy in a poor spot" but "an overlap
+ * that switches `ruled()` off for BOTH pieces" — see the note on `ruled`.
+ */
+function firstLegalStep(
+  scene: SceneState,
+  moves: Array<{ candidate: PlacementCandidate; from: Vec2 }>,
+  dir: Vec2,
+  steps = 8,
+): number | null {
+  if (!moves.length || (!dir.x && !dir.y)) return null
+  for (let k = 1; k <= steps; k++) {
+    const clear = moves.every(
+      ({ candidate, from }) =>
+        !checkPlacement(scene, {
+          ...candidate,
+          transform: {
+            ...candidate.transform,
+            position: { x: from.x + dir.x * k, y: from.y + dir.y * k },
+          },
+        }).length,
+    )
+    if (clear) return k
+  }
+  return null
+}
+
+/**
+ * How many multiples of `offset` a copy may walk before it gives up.
+ *
+ * NOT a constant, and this was measured rather than guessed. The walk has to be
+ * able to clear the object itself, and the catalog spans a 45 cm chair and a
+ * 477 × 502 cm serpentine. Eight steps of the default +50/+50 is 566 cm of travel,
+ * while the serpentine's own 692 cm box diagonal plus its 170 cm aisle needs 862 —
+ * so a fixed eight left Ctrl+D on the very table this plan is about still landing
+ * inside itself, with the gate still switched off for both pieces. It needs 13.
+ *
+ * The floor of 8 keeps small items walking a sensible minimum, and the ceiling
+ * bounds the work: this runs once per copy gesture, never on a drag frame.
+ */
+function stepsToClear(scene: SceneState, srcs: SceneObject[], offset: Vec2): number {
+  const len = Math.hypot(offset.x, offset.y)
+  if (!len) return 0
+  let reach = 0
+  for (const src of srcs) {
+    const box = subtreeAABB(scene, src.id)
+    const entry = getCatalogEntry(src.catalogId)
+    const aisle = isFloorTable(entry)
+      ? clearanceOf(entry, entry.footprint(src.size).outline)
+      : 0
+    const diagonal = box ? Math.hypot(box.maxX - box.minX, box.maxY - box.minY) : 0
+    reach = Math.max(reach, diagonal + aisle)
+  }
+  return Math.min(60, Math.max(8, Math.ceil(reach / len)))
+}
+
+/** The first legal point along `dir` starting from `from`. `null` = none found. */
+function firstLegalAlong(
+  scene: SceneState,
+  candidate: PlacementCandidate,
+  from: Vec2,
+  dir: Vec2,
+  steps = 8,
+): Vec2 | null {
+  const k = firstLegalStep(scene, [{ candidate, from }], dir, steps)
+  return k === null ? null : { x: from.x + dir.x * k, y: from.y + dir.y * k }
 }
 
 /** Refuse a pose change (rotation, resize) outright — there is nothing to slide along. */
@@ -1756,36 +1835,107 @@ export function clearAllObjects(): void {
   overlay.setGhost(null)
 }
 
+/**
+ * Deep-copy one TOP-LEVEL object and its children into `scene` at `position`.
+ *
+ * Extracted from `duplicateObjects` so that mirror-with-copy is the same clone
+ * (§5.1): the fixture flag cleared, the table renumbered, every child re-parented.
+ * Three separate copies of that list is how one of them comes to forget the
+ * renumbering.
+ *
+ * ⚠ Runs INSIDE the producer and takes the draft. It reads `scene.objects` for the
+ * next table number, so the caller must not batch several clones and expect them
+ * to share one — they must not.
+ */
+function cloneRoot(scene: SceneState, src: SceneObject, position: Vec2): Id {
+  const copy: SceneObject = JSON.parse(JSON.stringify(src))
+  copy.id = newId()
+  // a copy of a fixture is ordinary furniture: the venue has one bar, not two
+  copy.flags = { locked: false, visible: copy.flags.visible }
+  copy.transform = { ...copy.transform, position: { x: position.x, y: position.y } }
+  if (copy.seating) {
+    const numbers = Object.values(scene.objects)
+      .filter((o) => o.seating)
+      .map((o) => (typeof o.meta.number === 'number' ? o.meta.number : 0))
+    copy.meta.number = Math.max(0, ...numbers) + 1
+  }
+  scene.objects[copy.id] = copy
+  scene.objectOrder.push(copy.id)
+  unhideCategoryOf(scene, copy.catalogId)
+  for (const child of childrenOf(scene, src.id)) {
+    const childCopy: SceneObject = JSON.parse(JSON.stringify(child))
+    childCopy.id = newId()
+    childCopy.parentId = copy.id
+    scene.objects[childCopy.id] = childCopy
+  }
+  return copy.id
+}
+
+/**
+ * A one-per-scene item cannot be copied — and until now Ctrl+D on the chuppah
+ * made a second one in silence, while `addObject` and `canReplaceObject` both
+ * refused it (source doc §62/§43). Shared by duplicate, paste and mirror-copy so
+ * the three cannot drift into three different answers.
+ *
+ * Returns the ids it will accept, and tells the user about the ones it dropped.
+ */
+function withoutUniqueDupes(scene: SceneState, srcs: SceneObject[]): SceneObject[] {
+  const kept: SceneObject[] = []
+  let refused = 0
+  for (const src of srcs) {
+    if (uniqueBlocker(scene, src.catalogId)) refused++
+    else kept.push(src)
+  }
+  if (refused) notify(strings.status.uniqueNotCopied(refused))
+  return kept
+}
+
+/**
+ * `offset` is a DIRECTION as much as a distance. The copy lands on the first free
+ * multiple of it, up to eight — because a copy dropped ON its original is not a
+ * cosmetic problem: two overlapping pieces are both "already illegal", `ruled()`
+ * switches enforcement off for BOTH, and from that moment either of them can be
+ * dragged through a wall (§3.2, measured).
+ *
+ * It still NEVER refuses. When nothing along the ray is free the copy lands at
+ * `offset` exactly as it always did — losing a copy is worse than landing tight,
+ * and `clampToVenue(…, 'legacy')` keeps its side of the old contract untouched.
+ */
 export function duplicateObjects(ids: Id[], offset: Vec2 = { x: 50, y: 50 }): Id[] {
+  const before = get().scene
+  const sources = withoutUniqueDupes(
+    before,
+    // attached chairs are not duplicated alone
+    ids.map((id) => before.objects[id]).filter((o): o is SceneObject => !!o && !o.parentId),
+  )
+  if (!sources.length) return []
+  const step =
+    firstLegalStep(
+      before,
+      sources.map((src) => ({
+        candidate: {
+          catalogId: src.catalogId,
+          transform: src.transform,
+          size: src.size,
+          // the copy carries the original's chairs, so they are part of what must fit
+          subtreeOf: src.id,
+        },
+        from: src.transform.position,
+      })),
+      offset,
+      stepsToClear(before, sources, offset),
+    ) ?? 1
   const newIds: Id[] = []
   mutateScene((scene) => {
-    for (const id of ids) {
-      const src = scene.objects[id]
-      if (!src || src.parentId) continue // attached chairs are not duplicated alone
-      const copy: SceneObject = JSON.parse(JSON.stringify(src))
-      copy.id = newId()
-      // a copy of a fixture is ordinary furniture: the venue has one bar, not two
-      copy.flags = { locked: false, visible: copy.flags.visible }
-      copy.transform = {
-        ...copy.transform,
-        position: { x: copy.transform.position.x + offset.x, y: copy.transform.position.y + offset.y },
-      }
-      if (copy.seating) {
-        const numbers = Object.values(scene.objects)
-          .filter((o) => o.seating)
-          .map((o) => (typeof o.meta.number === 'number' ? o.meta.number : 0))
-        copy.meta.number = Math.max(0, ...numbers) + 1
-      }
-      scene.objects[copy.id] = copy
-      scene.objectOrder.push(copy.id)
-      unhideCategoryOf(scene, copy.catalogId)
-      for (const child of childrenOf(scene, id)) {
-        const childCopy: SceneObject = JSON.parse(JSON.stringify(child))
-        childCopy.id = newId()
-        childCopy.parentId = copy.id
-        scene.objects[childCopy.id] = childCopy
-      }
-      newIds.push(copy.id)
+    for (const src of sources) {
+      const live = scene.objects[src.id]
+      if (!live) continue
+      newIds.push(
+        cloneRoot(scene, live, {
+          x: live.transform.position.x + offset.x * step,
+          y: live.transform.position.y + offset.y * step,
+        }),
+      )
     }
     clampToVenue(scene, newIds, 'legacy')
   })
@@ -1936,15 +2086,46 @@ export interface Subtree {
   children: SceneObject[]
 }
 
-/** Insert cloned subtrees (paste). Positions move by centroid→target or +50cm. */
+/**
+ * Insert cloned subtrees (paste). Positions move by centroid→target or +50cm.
+ *
+ * Same two rules as `duplicateObjects` and for the same reasons: a `unique` root
+ * is dropped rather than pasted as a second one, and a plain +50/+50 paste walks
+ * along its own offset until it finds floor instead of landing inside what it was
+ * copied from. A paste AT A TARGET does not walk — the user named the spot, and
+ * sliding away from an aimed drop would be the app moving furniture behind his
+ * back, which is the whole complaint source doc §57 records.
+ */
 export function pasteSubtrees(subtrees: Subtree[], target?: Vec2): Id[] {
   if (!subtrees.length) return []
-  const cx = subtrees.reduce((a, s) => a + s.root.transform.position.x, 0) / subtrees.length
-  const cy = subtrees.reduce((a, s) => a + s.root.transform.position.y, 0) / subtrees.length
-  const delta = target ? { x: target.x - cx, y: target.y - cy } : { x: 50, y: 50 }
+  const before = get().scene
+  const roots = withoutUniqueDupes(before, subtrees.map((s) => s.root))
+  const kept = subtrees.filter((s) => roots.includes(s.root))
+  if (!kept.length) return []
+  const cx = kept.reduce((a, s) => a + s.root.transform.position.x, 0) / kept.length
+  const cy = kept.reduce((a, s) => a + s.root.transform.position.y, 0) / kept.length
+  const offset = target ? { x: target.x - cx, y: target.y - cy } : { x: 50, y: 50 }
+  const step = target
+    ? 1
+    : (firstLegalStep(
+        before,
+        kept.map((s) => ({
+          candidate: {
+            catalogId: s.root.catalogId,
+            transform: s.root.transform,
+            size: s.root.size,
+          },
+          from: s.root.transform.position,
+        })),
+        offset,
+        // the pasted roots are not in the scene, so the reach is measured off the
+        // originals still standing there — the same objects, byte for byte
+        stepsToClear(before, kept.map((s) => s.root).filter((r) => !!before.objects[r.id]), offset),
+      ) ?? 1)
+  const delta = { x: offset.x * step, y: offset.y * step }
   const newIds: Id[] = []
   mutateScene((scene) => {
-    for (const st of subtrees) {
+    for (const st of kept) {
       const root: SceneObject = JSON.parse(JSON.stringify(st.root))
       root.id = newId()
       root.parentId = null
@@ -1979,12 +2160,24 @@ export function pasteSubtrees(subtrees: Subtree[], target?: Vec2): Id[] {
 // transforms
 // ---------------------------------------------------------------------------
 
-export function moveObjectsBy(ids: Id[], delta: Vec2): void {
+/**
+ * `ignoreIds` — objects that must NOT count as obstacles for this move.
+ *
+ * One caller passes it: the 2D Alt+drag, which duplicates in place and then drags
+ * the ORIGINALS (`editor2d/dragController.ts`). Without it the original stands
+ * inside its own fresh copy, `ruled()` reads `false` on every frame, and the whole
+ * gate is off — measured, that let a serpentine be dragged to x = −4300 in a hall
+ * that runs 0…6051. It is a full, 100%-reliable gate bypass in one gesture, and it
+ * is a documented feature of the app.
+ *
+ * Optional third parameter, so the other twenty-odd callers are untouched.
+ */
+export function moveObjectsBy(ids: Id[], delta: Vec2, ignoreIds?: Id[]): void {
   // The gate runs on the COMMITTED scene, before the producer opens: inside it
   // every read of the 350-odd objects would go through an immer proxy, which
   // measured as the dominant cost of a drag frame — see `indexOf` in collision.ts.
   const before = get().scene
-  const step = allowedDelta(before, editable(before, ids), delta)
+  const step = allowedDelta(before, editable(before, ids), delta, ignoreIds)
   mutateScene((scene) => {
     const objs = editable(scene, ids)
     for (const obj of objs) {
@@ -2173,6 +2366,105 @@ export function mirrorObjects(ids: Id[]): void {
     clampToVenue(scene, turning)
     clampSurfaceChildrenIn(scene, turning)
   })
+}
+
+/**
+ * Reflect a copy and leave the original standing — the user's own words, "COPY
+ * MIRROR". Returns the new ids.
+ *
+ * ## Why this is not `duplicateObjects()` + `mirrorObjects()`
+ *
+ * Three reasons, and the second is the one that would have shipped a bug:
+ *
+ *  1. two mutations are two undo entries, so the pair would need a
+ *     `beginGesture`/`endGesture` wrapper; one `mutateScene` gets one entry free;
+ *  2. `mirrorObjects` runs `poseAllowed` and CAN refuse. The copy would already
+ *     exist, unmirrored — half a gesture the user has to undo by hand;
+ *  3. the gate belongs on the FINAL pose (copied AND reflected), once, not on two
+ *     intermediate ones.
+ *
+ * ## Where the copy lands, and why it is not +50/+50
+ *
+ * Reflected about the original's own right-hand edge, in the original's frame:
+ *
+ *     d  = outline width + aisle          aisle = the table clearance, or 0
+ *     at = position + rotateVec({x: d, y: 0}, rotation)
+ *
+ * That is what "mirror with copy" means in every CAD tool — the natural axis is
+ * the object's own edge — and it is what makes the result a symmetric PAIR, which
+ * is the thing people build when they ask for this. `duplicateObjects`' +50/+50
+ * on a 477 cm table would put the reflection INSIDE the original, which is exactly
+ * the overlap that switches the gate off for both pieces (§3.2). The aisle rather
+ * than 0 because two tables touching on the mirror line refuse every later move of
+ * either one on `spacing`.
+ *
+ * ⚠ On the serpentine the outline is 422 wide while the band neither fills it nor
+ * sits centred in it, so a mirrored pair shows a wider visual gap than the rule
+ * needs. That is consistent and predictable, and the user can drag the copy in —
+ * the gate stops it exactly on the legal aisle. Do NOT "tighten" it off the band:
+ * that would make the offset per-entry and unpredictable for the whole catalog.
+ *
+ * ## Gating
+ *
+ * No `poseAllowed`. This is a COPY operation and §4.3(1) governs it: it never
+ * refuses, it walks its own axis looking for floor, and if it finds none the copy
+ * lands anyway. `unique` is blocked, because Ctrl+D on the chuppah and
+ * mirror-copy of the chuppah have to answer the same way.
+ *
+ * A LOCKED source is copied — `duplicateObjects`' rule, not `mirrorObjects`': the
+ * copy is a new, unlocked object and nothing about the original changes. A child
+ * in the selection is skipped rather than refused, which is `mirrorObjects`' rule,
+ * because after a drill-in the selection routinely holds both.
+ */
+export function mirrorCopyObjects(ids: Id[]): Id[] {
+  const before = get().scene
+  const sources = withoutUniqueDupes(
+    before,
+    ids.map((id) => before.objects[id]).filter((o): o is SceneObject => !!o && !o.parentId),
+  )
+  if (!sources.length) return []
+
+  // Solved per object, unlike `duplicateObjects`' single shared step: each source
+  // reflects about ITS OWN edge along ITS OWN heading, so there is no one vector a
+  // group could share.
+  const landings = sources.map((src) => {
+    const entry = getCatalogEntry(src.catalogId)
+    const outline = entry.footprint(src.size).outline
+    const width = outline.kind === 'circle' ? outline.r * 2 : outline.w
+    const aisle = isFloorTable(entry) ? clearanceOf(entry, outline) : 0
+    const dir = rotateVec({ x: width + aisle, y: 0 }, src.transform.rotation)
+    const from = src.transform.position
+    const candidate: PlacementCandidate = {
+      catalogId: src.catalogId,
+      transform: { ...src.transform, mirrored: !src.transform.mirrored },
+      size: src.size,
+      // the copy brings the original's chairs — reflected, since `composeTransform`
+      // reads the flag — so they are part of what has to fit
+      subtreeOf: src.id,
+    }
+    return {
+      id: src.id,
+      at: firstLegalAlong(before, candidate, from, dir) ?? { x: from.x + dir.x, y: from.y + dir.y },
+    }
+  })
+
+  const newIds: Id[] = []
+  mutateScene((scene) => {
+    for (const { id, at } of landings) {
+      const live = scene.objects[id]
+      if (!live) continue
+      const copyId = cloneRoot(scene, live, at)
+      const copy = scene.objects[copyId]
+      // deleted rather than set to false — an unmirrored object must serialise
+      // exactly as it did before the flag existed (see Transform2D.mirrored)
+      if (live.transform.mirrored) delete copy.transform.mirrored
+      else copy.transform.mirrored = true
+      newIds.push(copyId)
+    }
+    clampToVenue(scene, newIds, 'legacy')
+  })
+  if (newIds.length) select(newIds)
+  return newIds
 }
 
 export function setSize(id: Id, size: Partial<Size3D>): void {

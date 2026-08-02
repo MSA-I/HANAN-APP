@@ -258,6 +258,31 @@ export const SHORTCUTS: readonly Shortcut[] = [
     labelKey: 'help.keys.mirror',
   },
   /**
+   * Alt is ALREADY this app's "make a copy" modifier — Alt+drag duplicates, and
+   * the user picked that binding himself when he was asked
+   * (`editor2d/dragController.ts`). "Alt = copy" plus "M = mirror" reads straight
+   * out of two idioms that are already here.
+   *
+   * Rejected — Shift+M: Shift means "same action, other variant" throughout
+   * (Shift+R the other way, Shift+arrow the bigger step, Shift+G the second
+   * toggle), and mirror-with-copy is not "the other mirror".
+   * Rejected — Ctrl+M: the 3D branch returns early inside its `if (ctrl)` block,
+   * and Firefox binds Ctrl+M to mute-tab.
+   *
+   * ⚠ First keyboard row in this file to carry `alt`; every other `alt` here is a
+   * mouse gesture with `codes: []`. Nothing new is needed — `chordFromCodes`
+   * already renders it, and `shortcuts.test.ts` checks this row against it.
+   */
+  {
+    id: 'mirrorCopy',
+    scope: 'both',
+    group: 'edit',
+    codes: ['KeyM'],
+    alt: true,
+    chord: 'Alt+M',
+    labelKey: 'help.keys.mirrorCopy',
+  },
+  /**
    * The 3D branch returns before it reaches the arrows, and they belong to
    * FlyControls' KEYMAP there — so nudging is 2D-only. Shift and Alt only
    * resize the step (`useEditorShortcuts.ts:216`), so they stay in the label

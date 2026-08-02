@@ -15,17 +15,18 @@
  * copied — the ⌀180 and the 170cm aisle have both moved once already.
  */
 import { beforeEach, describe, expect, it } from 'vitest'
-import { getCatalogEntry } from '../catalog/registry'
+import { getCatalogEntry, listCatalog } from '../catalog/registry'
 import { getVenuePack } from '../venuePacks'
 import type { SceneState, Vec2 } from '../model/types'
 import { composeTransform } from '../space'
 import { beamGrid, snapToBeam } from './beams'
 import { holeRadius } from './bounds'
-import { serpentineBandDepth } from './serpentine'
+import { serpentineBandDepth, serpentineBandTiles } from './serpentine'
 import {
   addObject,
   addObjectToSurface,
   addSeatItemsToTable,
+  mirrorObjects,
   moveObjectsBy,
   newProject,
   removeObjects,
@@ -37,7 +38,7 @@ import { useNoticeStore } from '../../state/notice'
 import { objectAABB } from '../../state/selectors'
 import { useEditorStore } from '../../state/store'
 import { strings } from '../../ui/strings'
-import { allowedOnDeck, checkPlacement, slideToLegal, TABLE_CLEARANCE, type Violation } from './collision'
+import { allowedOnDeck, checkPlacement, clearanceOf, slideToLegal, TABLE_CLEARANCE, type Violation } from './collision'
 
 const scene = (): SceneState => useEditorStore.getState().scene
 const pack = getVenuePack('resort')!
@@ -496,6 +497,356 @@ describe('the serpentine is judged by its band (§15b)', () => {
       expect(kinds(checkPlacement(scene(), ghost('table.round', world.position))))
         .toContain('collision')
     }
+  })
+})
+
+/**
+ * PLAN-07 §4.2 — the rules read `mirrored`, which until now only the renderers and
+ * `composeTransform` did.
+ *
+ * The serpentine is the only entry this can be seen on, and the only one it could
+ * ever have been seen on: every other outline is symmetric about its own origin,
+ * so reflecting it is a no-op. Its band is not, and the numbers the diagnostic of
+ * §2 measured on the real hall are what these tests pin —
+ *
+ *   25 of its 30 band tiles were judged more than 40 cm from where they are drawn,
+ *   the furthest 287.4 cm away; and the first legal centre of a mirrored serpentine
+ *   against the hall's west wall moved by −39…+76 cm depending on where along the
+ *   wall it stood, in ARBITRARY directions.
+ *
+ * That is the whole of "it will not let me put a table beside it" — the engine was
+ * answering about a drape two and a half metres from the one on screen.
+ */
+describe('mirroring (E1/§4.2)', () => {
+  const ORIGIN = { x: 1600, y: 1500 }
+  const SERP = 'table.serpentine'
+
+  /** The same probe on both sides of the table's own local y-axis. */
+  const OFFSETS = [
+    [150, -150],
+    [210, -212],
+    [106, -106],
+    [260, 40],
+    [0, 260],
+    [-180, 120],
+  ] as const
+
+  it('judges a mirrored table as the exact mirror image of the plain one', () => {
+    const id = addObject(SERP, ORIGIN)
+    const plain = OFFSETS.map(([dx, dy]) =>
+      checkPlacement(scene(), ghost('table.round', { x: ORIGIN.x + dx, y: ORIGIN.y + dy })),
+    )
+    mirrorObjects([id])
+    expect(scene().objects[id].transform.mirrored).toBe(true)
+    // the reflected probe: local x negated, y kept — composeTransform's own rule
+    const mirrored = OFFSETS.map(([dx, dy]) =>
+      checkPlacement(scene(), ghost('table.round', { x: ORIGIN.x - dx, y: ORIGIN.y + dy })),
+    )
+    for (let i = 0; i < OFFSETS.length; i++) {
+      expect(kinds(mirrored[i])).toEqual(kinds(plain[i]))
+      for (let j = 0; j < plain[i].length; j++) {
+        const a = plain[i][j]
+        const b = mirrored[i][j]
+        if (a.kind !== 'spacing' || b.kind !== 'spacing') continue
+        expect(b.required).toBe(a.required)
+        // the same aisle to the same drape, to the last bit the geometry carries
+        expect(Math.abs(b.actual - a.actual)).toBeLessThan(1e-9)
+      }
+    }
+  })
+
+  /**
+   * The assertion the fix exists for: the band is judged WHERE IT IS DRAWN.
+   *
+   * Chairs stripped, so nothing but the drape can be what refuses — with them in
+   * the set a table dropped on the band collides with a seat as often as with the
+   * cloth, and the test would pass on the broken engine too. Run against the code
+   * before this change, 25 of the 30 rows are legal.
+   */
+  it('puts every one of the 30 band tiles where the mirror draws it', () => {
+    const id = bareTable(SERP, ORIGIN)
+    mirrorObjects([id])
+    const tiles = serpentineBandTiles()
+    expect(tiles.length).toBe(30)
+    for (const t of tiles) {
+      // drawn = the local tile reflected in x, exactly as <Group scaleX={-1}> draws it
+      const at = { x: ORIGIN.x - t.cx, y: ORIGIN.y + t.cy }
+      expect(kinds(checkPlacement(scene(), ghost('table.round', at)))).toContain('collision')
+    }
+    // …and the UNreflected image, which is what the engine used to test, is now
+    // free floor wherever the band does not happen to fold back onto itself
+    const freed = tiles.filter(
+      (t) =>
+        !kinds(
+          checkPlacement(scene(), ghost('table.round', { x: ORIGIN.x + t.cx, y: ORIGIN.y + t.cy })),
+        ).includes('collision'),
+    )
+    expect(freed.length).toBeGreaterThan(10)
+  })
+
+  it('leaves the round and the square tables byte-identical, mirrored or not', () => {
+    // the proof that the change reached exactly one entry: their outlines are
+    // symmetric about the origin, so reflecting them cannot move anything
+    for (const catalogId of ['table.round', 'table.square', 'table.knights-480']) {
+      newProject({ name: 'collision', venueWidth: 4000, venueDepth: 3000 })
+      const id = addObject(catalogId, ORIGIN)
+      const probes = [
+        [300, 0],
+        [0, 300],
+        [-260, 140],
+        [420, -420],
+      ] as const
+      const plain = probes.map(([dx, dy]) =>
+        checkPlacement(scene(), ghost('table.round', { x: ORIGIN.x + dx, y: ORIGIN.y + dy })),
+      )
+      mirrorObjects([id])
+      expect(scene().objects[id].transform.mirrored).toBe(true)
+      const after = probes.map(([dx, dy]) =>
+        checkPlacement(scene(), ghost('table.round', { x: ORIGIN.x + dx, y: ORIGIN.y + dy })),
+      )
+      expect(after).toEqual(plain)
+    }
+  })
+
+  it('carries the reflection through a ROTATED table too', () => {
+    // reflect-then-turn, not turn-then-reflect: at 37° the two differ by 74°, so a
+    // test that only ever looked at rotation 0 would pass on either
+    const id = addObject(SERP, ORIGIN)
+    rotateObjectsBy([id], 37)
+    const rotated = scene().objects[id].transform.rotation
+    expect(rotated).toBeCloseTo(37, 6)
+    const local = { x: 220, y: -140 }
+    const plainWorld = composeTransform(scene().objects[id].transform, {
+      position: local,
+      rotation: 0,
+      elevation: 0,
+    })
+    const plain = checkPlacement(scene(), ghost('table.round', plainWorld.position))
+    mirrorObjects([id])
+    const mirroredWorld = composeTransform(scene().objects[id].transform, {
+      position: local,
+      rotation: 0,
+      elevation: 0,
+    })
+    const after = checkPlacement(scene(), ghost('table.round', mirroredWorld.position))
+    expect(kinds(after)).toEqual(kinds(plain))
+  })
+})
+
+/**
+ * PLAN-07 §2 — the diagnostic, kept as assertions once it had printed.
+ *
+ * Run in the REAL hall on purpose: the procedural room this file builds everywhere
+ * else has no zones and no baked fixtures, and both turned out to matter. These
+ * are the numbers the clearance decision was put to the user with, so they are
+ * pinned — a silent drift in any of them would invalidate the choice he makes.
+ */
+describe('the serpentine in the real hall (E1/§2)', () => {
+  const SERP = 'table.serpentine'
+  const ORIGIN = { x: 700, y: 700 }
+
+  beforeEach(() => {
+    newProject({ name: 'E1', venuePackId: 'resort' })
+  })
+
+  const judgedBox = (id: string) => {
+    const s = scene()
+    const boxes = [objectAABB(s, id)!]
+    for (const o of Object.values(s.objects)) {
+      if (o.parentId === id && o.attachment?.kind === 'seat') boxes.push(objectAABB(s, o.id)!)
+    }
+    return boxes.reduce((a, b) => ({
+      minX: Math.min(a.minX, b.minX),
+      minY: Math.min(a.minY, b.minY),
+      maxX: Math.max(a.maxX, b.maxX),
+      maxY: Math.max(a.maxY, b.maxY),
+    }))
+  }
+
+  const probe = (id: string, position: Vec2) => {
+    const o = scene().objects[id]
+    return checkPlacement(scene(), {
+      catalogId: o.catalogId,
+      transform: { ...o.transform, position },
+      size: o.size,
+      excludeId: id,
+      subtreeOf: id,
+    })
+  }
+
+  /**
+   * §3.6a's four numbers. The gate measures the box on the RIGHT of each pair and
+   * the snap lines used to offer the one on the left — which is the whole of "the
+   * line is on the wall and the table stops 38 cm short of it".
+   */
+  it('is judged by a 477.4 × 502.2 box that is not centred on its own origin', () => {
+    const id = addObject(SERP, ORIGIN)
+    const judged = judgedBox(id)
+    const outline = objectAABB(scene(), id)!
+    expect(judged.maxX - judged.minX).toBeCloseTo(477.4, 1)
+    expect(judged.maxY - judged.minY).toBeCloseTo(502.2, 1)
+    expect(ORIGIN.x - judged.minX).toBeCloseTo(226.9, 1)
+    expect(judged.maxX - ORIGIN.x).toBeCloseTo(250.5, 1)
+    expect(ORIGIN.y - judged.minY).toBeCloseTo(251.0, 1)
+    expect(judged.maxY - ORIGIN.y).toBeCloseTo(251.2, 1)
+    // the outline box the snap lines used to use, and the gap that made
+    expect(outline.maxX - ORIGIN.x).toBeCloseTo(211.0, 1)
+    expect(judged.maxX - outline.maxX).toBeCloseTo(39.5, 1)
+  })
+
+  /**
+   * §3.5's rejected hypothesis, pinned so nobody re-opens it: the serpentine goes
+   * FLUSH against the wall — the refusal one millimetre closer is `outOfBounds`,
+   * which is its chairs touching the wall and is the correct answer.
+   */
+  it('stands flush against the north wall, refused only by its own chairs', () => {
+    const id = addObject(SERP, ORIGIN)
+    const reach = ORIGIN.y - judgedBox(id).minY
+    expect(probe(id, { x: 700, y: reach })).toEqual([])
+    expect(kinds(probe(id, { x: 700, y: reach - 1 }))).toEqual(['outOfBounds'])
+  })
+
+  /**
+   * ⚠ THE FINDING §2.2's decision table has no row for, and the real answer to "it
+   * will not let me put it against the wall".
+   *
+   * The resort's west and north walls are lined with BAKED potted plants, roughly
+   * every 3–4 m, standing 4–86 cm out from the wall. The serpentine's judged
+   * footprint is wider than every gap between them, so along most of the wall what
+   * refuses it is a `collision` with a venue fixture — not a rule, and nothing in
+   * this plan changes it. The one clear x is the assertion above.
+   */
+  it('is stopped along the rest of the wall by baked planters, not by a rule', () => {
+    const id = addObject(SERP, ORIGIN)
+    const reach = ORIGIN.y - judgedBox(id).minY
+    // every gap between two neighbouring north-wall planters is narrower than the
+    // table's own judged width, so it cannot slot between them
+    // the west floor area only (venuePacks floorAreas[0], x 0…1790) — the one the
+    // table above is standing in, and the one the user was trying to fill
+    const planters = Object.values(scene().objects)
+      .filter((o) => !o.parentId && o.catalogId === 'plant.potted-2')
+      .map((o) => objectAABB(scene(), o.id)!)
+      .filter((b) => b.minY < 200 && b.maxX < 1790)
+      .sort((a, b) => a.minX - b.minX)
+    expect(planters.length).toBeGreaterThanOrEqual(3)
+    const width = 477.4
+    for (let i = 1; i < planters.length; i++) {
+      expect(planters[i].minX - planters[i - 1].maxX).toBeLessThan(width)
+    }
+    // …and that is what the refusal names, at an x between two of them
+    const between = (planters[0].maxX + planters[1].minX) / 2
+    const v = probe(id, { x: between, y: reach })
+    expect(v.some((x) => x.kind === 'collision')).toBe(true)
+  })
+
+  /**
+   * The measurement the clearance decision is made from (§2.2), in one assertion.
+   *
+   * The band-to-band aisle the rule measures and the aisle a guest can actually
+   * walk down are NOT the same number, because the serpentine's chairs stand
+   * 250.5 cm from its centre while its drape reaches only ~211. At today's 170 the
+   * real chair-back-to-chair-back walkway beside a ⌀180 is 31.5 cm — against the
+   * 18.0 cm the app already considers normal between two ⌀180 round tables.
+   */
+  it('records the aisle the clearance rule buys, and the one it does not', () => {
+    const serp = addObject(SERP, ORIGIN)
+    const judged = judgedBox(serp)
+    const other = addObject('table.round', { x: 3000, y: 400 })
+    const otherBox = judgedBox(other)
+    const half = (otherBox.maxX - otherBox.minX) / 2
+
+    let firstLegal = Infinity
+    for (let dx = 150; dx <= 900; dx += 1) {
+      if (!checkPlacement(scene(), ghost('table.round', { x: ORIGIN.x + dx, y: ORIGIN.y })).length) {
+        firstLegal = dx
+        break
+      }
+    }
+    expect(firstLegal).toBe(423)
+    expect(firstLegal - (judged.maxX - ORIGIN.x) - half).toBeCloseTo(31.5, 1)
+
+    // the house norm the number above has to be judged against
+    let roundToRound = Infinity
+    for (let dx = 150; dx <= 900; dx += 1) {
+      if (!checkPlacement(scene(), ghost('table.round', { x: 3000 + dx, y: 400 })).length) {
+        roundToRound = dx
+        break
+      }
+    }
+    expect(roundToRound).toBe(300)
+    expect(roundToRound - 2 * half).toBeCloseTo(18.0, 1)
+  })
+
+  /**
+   * The floor under the whole clearance question: chair-to-chair COLLISION already
+   * refuses a real ⌀180 until the centres are 325.4 cm apart, where the band gap is
+   * 86.7. Any clearance at or below that changes nothing at all.
+   */
+  it('shows that a clearance below ~87 could not change anything', () => {
+    addObject(SERP, ORIGIN)
+    const round = addObject('table.round', { x: 3000, y: 400 })
+    let clear = Infinity
+    for (let dx = 150; dx <= 900; dx += 0.1) {
+      const o = scene().objects[round]
+      const v = checkPlacement(scene(), {
+        catalogId: o.catalogId,
+        transform: { ...o.transform, position: { x: ORIGIN.x + dx, y: ORIGIN.y } },
+        size: o.size,
+        excludeId: round,
+        subtreeOf: round,
+      })
+      if (!v.some((x) => x.kind === 'collision')) {
+        clear = dx
+        break
+      }
+    }
+    expect(clear).toBeCloseTo(325.4, 0)
+  })
+})
+
+/**
+ * PLAN-07 §4.1 — an entry may state its own service aisle.
+ *
+ * Nothing in the catalog sets `clearance` today (the number for the serpentine is
+ * the user's to choose from the §2 measurement), so the fallback is the only branch
+ * a scene can reach and this is the only thing that exercises the other one.
+ */
+describe('clearanceOf (E1/§4.1)', () => {
+  const entryFor = (catalogId: string) => getCatalogEntry(catalogId)
+  const outlineFor = (catalogId: string) => {
+    const e = entryFor(catalogId)
+    return e.footprint(e.defaultSize).outline
+  }
+
+  it('falls back to the outline shape when the entry says nothing', () => {
+    expect(clearanceOf(entryFor('table.square'), outlineFor('table.square')))
+      .toBe(TABLE_CLEARANCE.rect)
+    expect(clearanceOf(entryFor('table.round'), outlineFor('table.round')))
+      .toBe(TABLE_CLEARANCE.circle)
+    // the serpentine declares a rect outline and therefore still inherits 170 —
+    // deliberately unchanged until the number is chosen
+    expect(outlineFor('table.serpentine').kind).toBe('rect')
+    expect(clearanceOf(entryFor('table.serpentine'), outlineFor('table.serpentine')))
+      .toBe(TABLE_CLEARANCE.rect)
+    expect(entryFor('table.serpentine').clearance).toBeUndefined()
+  })
+
+  it('honours an explicit number over EITHER outline shape', () => {
+    for (const catalogId of ['table.square', 'table.round']) {
+      const entry = { ...entryFor(catalogId), clearance: 143 }
+      expect(clearanceOf(entry, outlineFor(catalogId))).toBe(143)
+    }
+  })
+
+  it('treats 0 as a real answer, not as "unset"', () => {
+    // `??` and not `||` — a table that wants no aisle at all must be able to say so
+    const entry = { ...entryFor('table.square'), clearance: 0 }
+    expect(clearanceOf(entry, outlineFor('table.square'))).toBe(0)
+  })
+
+  it('leaves nothing in the catalog carrying the field yet', () => {
+    // the guard on §4.1's ⛔: the mechanism landed, the number did not
+    for (const entry of listCatalog()) expect(entry.clearance).toBeUndefined()
   })
 })
 

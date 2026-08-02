@@ -2,6 +2,7 @@
 import { getCatalogEntry, listByCategory, listCatalog } from '../core/catalog/registry'
 import { HALL_LAYOUTS } from '../core/hallLayouts'
 import { hangRange, MAX_DROP_FROM_CEILING } from '../core/layout/beams'
+import { TABLE_CLEARANCE } from '../core/layout/collision'
 import { attachedChairs } from '../core/model/seatingReconciler'
 import { getHallDesign, getTableDesign, getTablePreset, TABLE_DESIGNS } from '../core/presets'
 import { getVenuePack, type RestrictedZone } from '../core/venuePacks'
@@ -83,11 +84,28 @@ describe('object lifecycle + undo', () => {
     expect(Object.keys(scene().objects)).toHaveLength(1 + SEATS)
   })
 
-  it('duplicate deep-copies the table with its chairs and offsets it', () => {
+  /**
+   * The offset is a DIRECTION now, not a fixed distance (PLAN-07 §4.3(1)): the
+   * copy takes the first free multiple of it. At +50/+50 a ⌀180 round table would
+   * land inside itself, and two overlapping pieces are both "already illegal", so
+   * `ruled()` switches the placement gate OFF for both of them until they are
+   * pulled apart — measured, that let a table be dragged clean through a wall.
+   *
+   * Five steps, and the number is derived rather than chosen: two ⌀180 tables need
+   * their centres 180 + `TABLE_CLEARANCE.circle` apart, and 50√2 per step first
+   * clears that at k = 5.
+   */
+  it('duplicate deep-copies the table with its chairs and offsets it clear of itself', () => {
     const id = addObject('table.round', { x: 500, y: 500 })
     const [copyId] = duplicateObjects([id])
     expect(copyId).toBeDefined()
-    expect(scene().objects[copyId].transform.position).toEqual({ x: 550, y: 550 })
+    const needed = getCatalogEntry('table.round').defaultSize.width + TABLE_CLEARANCE.circle
+    const steps = Math.ceil(needed / Math.hypot(50, 50))
+    expect(steps).toBe(5)
+    expect(scene().objects[copyId].transform.position).toEqual({
+      x: 500 + 50 * steps,
+      y: 500 + 50 * steps,
+    })
     expect(attachedChairs(scene(), copyId)).toHaveLength(SEATS)
     expect(scene().objects[copyId].meta.number).toBe(2)
   })
