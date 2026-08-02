@@ -209,6 +209,35 @@ const COVER_KEYWORDS = ['סכו״ם', 'סכום', 'צלחת', 'ערכה', 'מז�
  * file, and hand-written part indices are exactly what that tool exists to avoid
  * (§3.5), so this one cover renders both glasses opaque. A visual regression on
  * one item, not a broken one.
+ *
+ * ── `napkinColor`: THE COLOUR PICKER THE BAKED FOLD COST, GIVEN BACK (§3.7) ────
+ * Baking the napkin into the cover took away the free colour picker `napkin()`
+ * gives the three loose ones, and the user asked for it back. It works because
+ * `tools/glb-prep/mark-napkin.mjs` renamed the napkin's GLB materials `napkin-00…`,
+ * so `match: 'napkin'` — a material-name PREFIX, the same handle `mark-glass.mjs`
+ * and `mark-fabric.mjs` already use — reaches the linen and nothing else.
+ *
+ * `napkinColor` is NOT a taste choice: it is the mean baked texel that tool measured
+ * over the napkin parts in the run that wrote the file, and the same measurement is
+ * in the GLB as the material's `baseColorFactor`. So an untouched napkin looks like
+ * it did before the marking, in 3D and in the 2D footprint alike. The tool prints
+ * the value; the four below were pasted from its output.
+ *
+ * Passing it is what MAKES the slot: `undefined` (the horizontal cover) leaves the
+ * entry with no `editableSlots` at all, which is the honest state for a file whose
+ * napkin cannot be addressed.
+ *
+ * ⚠ ONE editable slot, and it HAS a `match`. `overrideForPart` is first-match-wins
+ * (viewer3d/appearance.ts:63-68), so a slot without one would own every part of the
+ * cover — the charger, the cutlery, both glasses. A second slot added here must come
+ * AFTER this one; catalog/covers.test.ts fails if it does not, the same guard
+ * catalog/candles.test.ts puts on the wax.
+ *
+ * ⚠ NO `defaultTexture`, unlike `napkin()` — the absence is the decision this type
+ * documents (catalog/types.ts). With no default and no pick, nothing builds an
+ * override and the cover renders its own baked linen, which is what it looks like
+ * today. Naming a weave here would put a fabric over every napkin the moment this
+ * shipped. `texture: true` still offers the whole set, so the user can choose one.
  */
 function cover(
   id: string,
@@ -217,13 +246,27 @@ function cover(
   file: string,
   defaultSize: Size3D,
   modelSize: Size3D,
+  /** the mean napkin texel `mark-napkin.mjs` measured; omitted = that file has no addressable napkin */
+  napkinColor?: string,
 ): CatalogEntry {
+  const base = surfaceProp(id, labelKey, promptFragment, P(file), defaultSize, '#d9d4cb', 'rect', COVER_KEYWORDS)
   return {
-    ...surfaceProp(id, labelKey, promptFragment, P(file), defaultSize, '#d9d4cb', 'rect', COVER_KEYWORDS),
+    ...base,
     category: 'tableware',
     placement: 'seat',
     surfaceAnchor: 'free', // one per cover — never the centre
     modelSize,
+    ...(napkinColor
+      ? {
+          materialSlots: [
+            ...base.materialSlots,
+            // `allowCustomColor` for the reason it rides on `napkin()`: linen is
+            // matched to the day, not picked from the house palette
+            { name: 'napkin', labelKey: 'napkin', defaultColor: napkinColor, allowCustomColor: true },
+          ],
+          editableSlots: [{ slot: 'napkin', match: 'napkin', texture: true }],
+        }
+      : {}),
   }
 }
 
@@ -414,9 +457,27 @@ export const tableDecorEntries: CatalogEntry[] = [
   // The English half of each id is the FOLD, not the Hebrew filename: the id is a
   // stable key that also names public/props/<id>.glb and public/thumbs/<id>.webp
   // (tools/thumbs-prep.mjs), so it cannot be Hebrew and cannot be re-spelt later.
-  cover('decor.place-setting-diagonal', 'decorPlaceSettingDiagonal', 'a full place setting with a diagonally folded napkin: charger, plate, cutlery and two glasses', 'decor-place-setting-diagonal.glb', { width: 36, depth: 32.32, height: 15.92 }, { width: 45, depth: 40.4, height: 19.9 }),
+  //
+  // The last argument is the napkin colour picker, and FOUR OF THE FIVE HAVE ONE.
+  // Each value is what `mark-napkin.mjs` measured on that file, and its absence on
+  // `-horizontal` is measured too — see that line.
+  cover('decor.place-setting-diagonal', 'decorPlaceSettingDiagonal', 'a full place setting with a diagonally folded napkin: charger, plate, cutlery and two glasses', 'decor-place-setting-diagonal.glb', { width: 36, depth: 32.32, height: 15.92 }, { width: 45, depth: 40.4, height: 19.9 }, '#c6c2c3'),
+  // ⚠ NO NAPKIN SLOT, AND THAT IS A MEASUREMENT. Tripo welded this cover's napkin
+  // and its charger into ONE 46,162-triangle primitive — the other four exports put
+  // the napkin in a primitive of its own — so there is no material to rename and
+  // `mark-napkin.mjs` refuses the file with exit 1. Its connected components ARE
+  // bimodal by colour (a white family at saturation 0.012 against the woven charger
+  // at 0.146) but sixteen of them read 0.077…0.137 in between, and PLAN-01 §3.7
+  // forbids writing `match:'napkin'` on a reading that thin. Four covers that
+  // recolour beat five where one repaints the plate. The way to fix it is to
+  // re-export this cover with the napkin segmented, then re-run the tool — NOT to
+  // hand-write a part index here.
   cover('decor.place-setting-horizontal', 'decorPlaceSettingHorizontal', 'a full place setting with a napkin folded across the plate: charger, plate, cutlery and two glasses', 'decor-place-setting-horizontal.glb', { width: 36, depth: 33.76, height: 15.68 }, { width: 45, depth: 42.2, height: 19.6 }),
-  cover('decor.place-setting-vertical', 'decorPlaceSettingVertical', 'a full place setting with a napkin folded lengthways down the plate: charger, plate, cutlery and two glasses', 'decor-place-setting-vertical.glb', { width: 36, depth: 31.52, height: 15.04 }, { width: 45, depth: 39.4, height: 18.8 }),
-  cover('decor.place-setting-folded', 'decorPlaceSettingFolded', 'a full place setting with a squarely folded napkin: charger, plate, cutlery and two glasses', 'decor-place-setting-folded.glb', { width: 36, depth: 33.76, height: 14.08 }, { width: 45, depth: 42.2, height: 17.6 }),
-  cover('decor.place-setting-tied', 'decorPlaceSettingTied', 'a full place setting with a napkin gathered in a tie: charger, plate, cutlery and two glasses', 'decor-place-setting-tied.glb', { width: 36, depth: 32.64, height: 14.88 }, { width: 45, depth: 40.8, height: 18.6 }),
+  cover('decor.place-setting-vertical', 'decorPlaceSettingVertical', 'a full place setting with a napkin folded lengthways down the plate: charger, plate, cutlery and two glasses', 'decor-place-setting-vertical.glb', { width: 36, depth: 31.52, height: 15.04 }, { width: 45, depth: 39.4, height: 18.8 }, '#b9b5b2'),
+  // olive linen, and the one value here that is obviously not a white: the file
+  // bakes rgb(121,125,108), which is why measuring it beats defaulting it
+  cover('decor.place-setting-folded', 'decorPlaceSettingFolded', 'a full place setting with a squarely folded napkin: charger, plate, cutlery and two glasses', 'decor-place-setting-folded.glb', { width: 36, depth: 33.76, height: 14.08 }, { width: 45, depth: 42.2, height: 17.6 }, '#797d6c'),
+  // copper linen, and NINE marked parts rather than one — body, knot and seven
+  // fragments of the tie, every one of them 0.41…0.80 away from the charger's grey
+  cover('decor.place-setting-tied', 'decorPlaceSettingTied', 'a full place setting with a napkin gathered in a tie: charger, plate, cutlery and two glasses', 'decor-place-setting-tied.glb', { width: 36, depth: 32.64, height: 14.88 }, { width: 45, depth: 40.8, height: 18.6 }, '#7d5d49'),
 ]

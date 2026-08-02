@@ -21,7 +21,10 @@ import {
   seatItems,
 } from '../../state/actions'
 import { useEditorStore } from '../../state/store'
+import { strings } from '../../ui/strings'
+import { overrideForPart, slotAppearances } from '../../viewer3d/appearance'
 import { getCatalogEntry, listCatalog } from './registry'
+import { editableSlotsOf, isEditableSlot } from './types'
 
 /** the five new folds; the sixth cover, the napkin-less original, is `ORIGINAL` */
 const FOLDS = [
@@ -155,6 +158,155 @@ describe('swapping one cover for another', () => {
     const obj = laidCover(FOLDS[0])
     expect(obj.parentId).toBeTruthy()
     expect(obj.attachment?.kind).toBe('surface')
+  })
+})
+
+/**
+ * The napkin colour picker (PLAN-01 §3.7), and — just as deliberately — the one
+ * cover that does not offer it.
+ *
+ * The slot only works because `tools/glb-prep/mark-napkin.mjs` renamed the napkin's
+ * GLB materials `napkin-00…`. That marking is a MEASUREMENT, not a decision: the
+ * tool refuses, loudly and with exit code 1, on a file where the napkin cannot be
+ * told from the charger. `decor.place-setting-horizontal` is refused because Tripo
+ * welded its napkin INTO the charger's primitive, and this file records the refusal
+ * so that wiring it up later has to break a test rather than ship a cover that
+ * repaints its own plate.
+ *
+ * The out-of-scope entry is therefore an ASSERTION ABOUT THE ASSET, and the way to
+ * change it is to re-export that cover with the napkin segmented and re-run the
+ * marker — not to add the colour here.
+ */
+describe('the napkin colour picker', () => {
+  /** the four the marker separated, with the mean napkin texel it measured */
+  const MARKED: ReadonlyArray<readonly [string, string]> = [
+    ['decor.place-setting-diagonal', '#c6c2c3'],
+    ['decor.place-setting-vertical', '#b9b5b2'],
+    ['decor.place-setting-folded', '#797d6c'],
+    ['decor.place-setting-tied', '#7d5d49'],
+  ]
+  const REFUSED = 'decor.place-setting-horizontal'
+
+  it.each(MARKED)('%s offers exactly one editable slot, matching the `napkin` material', (id) => {
+    const entry = getCatalogEntry(id)
+    const slots = editableSlotsOf(entry)
+    // ⚠ ONE. `overrideForPart` is first-match-wins, so a second slot without a
+    // `match` would own the charger, the cutlery and both glasses — and it would
+    // have to be listed AFTER this one even with a match.
+    expect(slots).toHaveLength(1)
+    expect(slots[0].slot).toBe('napkin')
+    expect(slots[0].match).toBe('napkin')
+    // the fabric set, which is what makes this a linen picker and not just a tint
+    expect(slots[0].texture).toBe(true)
+    // ABSENT ON PURPOSE (catalog/types.ts): a default weave would dress every
+    // napkin the moment this shipped, instead of leaving the baked one alone
+    expect(slots[0].defaultTexture).toBeUndefined()
+    expect(isEditableSlot(entry, 'napkin')).toBe(true)
+    // the charger's own slot is NOT editable — that is what keeps the plate baked
+    expect(isEditableSlot(entry, 'body')).toBe(false)
+  })
+
+  it.each(MARKED)('%s declares the measured napkin colour on a free-picker slot', (id, colour) => {
+    const slot = getCatalogEntry(id).materialSlots.find((s) => s.name === 'napkin')
+    expect(slot).toBeDefined()
+    expect(slot?.labelKey).toBe('napkin')
+    // free picker, not the house palette: linen is matched to the day
+    expect(slot?.allowCustomColor).toBe(true)
+    // the tool's own measurement, so an untouched napkin looks like it did before
+    expect(slot?.defaultColor).toBe(colour)
+    // and the label resolves to Hebrew rather than falling back to the slot name
+    expect(strings.catalog.slots.napkin).toBe('מפית')
+  })
+
+  it.each(MARKED)('%s lists `napkin` AFTER `body`, never instead of it', (id) => {
+    // `body` is what the 2D footprint paints (surfaceProp's `footprint`), so losing
+    // it would blank the plan shape while 3D went on looking right
+    const names = getCatalogEntry(id).materialSlots.map((s) => s.name)
+    expect(names[0]).toBe('body')
+    expect(names).toContain('napkin')
+  })
+
+  it.each(MARKED)('%s sends the override to the napkin and to nothing else', (id) => {
+    const slots = slotAppearances(getCatalogEntry(id), { napkin: { color: '#c62828' } })
+    expect(slots).toEqual([{ match: 'napkin', color: '#c62828', textureId: null }])
+    // every material name the marker writes
+    expect(overrideForPart('napkin-00', slots)?.color).toBe('#c62828')
+    expect(overrideForPart('napkin-08', slots)?.color).toBe('#c62828')
+    // and everything the cover is made of besides the linen keeps its baked
+    // material — undefined is the sentinel ObjectGroup turns back into the shared
+    // cached one, so the plate stays woven and the cutlery stays steel
+    expect(overrideForPart('Material_tripo_part_3', slots)).toBeUndefined()
+    expect(overrideForPart('glass-tall', slots)).toBeUndefined()
+    expect(overrideForPart('glass-short', slots)).toBeUndefined()
+    expect(overrideForPart('', slots)).toBeUndefined()
+  })
+
+  it.each(MARKED)('%s asks for nothing until the user picks (the plate must not darken)', (id) => {
+    // ⚠ NOT the slot's `defaultColor`. That number is the napkin's own measured
+    // mean and it is ALREADY in the GLB as the material's baseColorFactor; writing
+    // it onto a clone as well would multiply the file by itself.
+    expect(slotAppearances(getCatalogEntry(id), {})).toEqual([
+      { match: 'napkin', color: undefined, textureId: null },
+    ])
+  })
+
+  it(`${REFUSED} offers no napkin slot, because its napkin is welded into the charger`, () => {
+    const entry = getCatalogEntry(REFUSED)
+    expect(editableSlotsOf(entry)).toHaveLength(0)
+    expect(entry.materialSlots.map((s) => s.name)).toEqual(['body'])
+    // and an override aimed at it reaches nothing rather than reaching everything
+    expect(slotAppearances(entry, { napkin: { color: '#c62828' } })).toEqual([])
+    expect(overrideForPart('Material_tripo_part_1', [])).toBeUndefined()
+  })
+
+  /**
+   * ⭐ THE TEST THAT CATCHES A RE-PREP. `glb-prep` rewrites every material and
+   * ERASES these names (tools/glb-prep/README.md), so a cover re-exported at a new
+   * size would silently lose its picker: the catalog would still offer the control,
+   * `match: 'napkin'` would find no part, and the colour would land nowhere. Nothing
+   * else in the suite reads the shipped asset, so nothing else would notice.
+   *
+   * The GLB's material names live in its JSON chunk, which is plain text ahead of
+   * any Draco payload — so this needs no glTF library, just the container header.
+   */
+  describe('the shipped GLB still carries the marking', () => {
+    const materialNames = (id: string) => {
+      const buf = readFileSync(
+        fileURLToPath(new URL(`../../../public/props/${id.replaceAll('.', '-')}.glb`, import.meta.url)),
+      )
+      expect(buf.toString('utf8', 0, 4)).toBe('glTF')
+      // 12-byte container header, then chunks of [length u32, type u32, data]
+      const chunkLength = buf.readUInt32LE(12)
+      expect(buf.readUInt32LE(16)).toBe(0x4e4f534a) // 'JSON'
+      const json = JSON.parse(buf.toString('utf8', 20, 20 + chunkLength)) as {
+        materials?: { name?: string }[]
+      }
+      return (json.materials ?? []).map((m) => m.name ?? '')
+    }
+
+    it.each(MARKED)('%s has at least one material named `napkin…`', (id) => {
+      const names = materialNames(id)
+      const marked = names.filter((n) => n.startsWith('napkin'))
+      expect(marked.length).toBeGreaterThan(0)
+      // UNIQUE names, shared prefix — propModel merges primitives that share a
+      // material name and keeps only the FIRST material, which would dress the tied
+      // cover's nine napkin parts in part 0's maps over eight other UV layouts
+      expect(new Set(marked).size).toBe(marked.length)
+      // and the catalogue's `match` is a prefix of every one of them
+      const slot = editableSlotsOf(getCatalogEntry(id))[0]
+      for (const name of marked) expect(name.startsWith(slot.match!)).toBe(true)
+    })
+
+    it(`${REFUSED} carries no marking, matching its empty slot list`, () => {
+      expect(materialNames(REFUSED).filter((n) => n.startsWith('napkin'))).toEqual([])
+    })
+
+    it('the tied cover carries all nine parts of its napkin, knot included', () => {
+      // the one file where the linen is more than one primitive; nine is what the
+      // marker measured, and eight was the count before its lift threshold was
+      // lowered to reach the 353-triangle knot fragment
+      expect(materialNames('decor.place-setting-tied').filter((n) => n.startsWith('napkin'))).toHaveLength(9)
+    })
   })
 })
 

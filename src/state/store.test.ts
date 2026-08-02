@@ -376,6 +376,9 @@ describe('appearance permissions', () => {
     // five candle holders joined in round 5, once split-candles.mjs could separate
     // their wax from their metal. The other five candle props are NOT here, and
     // that is measured rather than forgotten — catalog/candles.test.ts records why.
+    // FOUR of the five covers joined them later in round 5, once mark-napkin.mjs
+    // could name their linen; `decor.place-setting-horizontal` is missing for the
+    // same kind of measured reason — catalog/covers.test.ts records that one.
     const freePicker = listCatalog()
       .filter((e) => e.materialSlots.some((s) => s.allowCustomColor))
       .map((e) => e.id)
@@ -389,6 +392,10 @@ describe('appearance permissions', () => {
       'decor.fabric-folded',
       'decor.napkin-folded',
       'decor.napkin-white',
+      'decor.place-setting-diagonal',
+      'decor.place-setting-folded',
+      'decor.place-setting-tied',
+      'decor.place-setting-vertical',
     ])
 
     const napkins = ['decor.fabric-folded', 'decor.napkin-folded', 'decor.napkin-white']
@@ -412,6 +419,20 @@ describe('appearance permissions', () => {
     const goldId = addObjectToSurface('decor.candlestick-gold', tableId, { x: 500, y: 500 })!
     setAppearance([goldId], 'candle', '#c62828')
     expect(scene().objects[goldId].appearance).toEqual({})
+
+    // A marked cover takes `napkin` and refuses `body`, which is what keeps the
+    // charger woven and the cutlery steel while the linen changes…
+    const coverTable = addObject('table.round', { x: 1400, y: 500 })
+    const coverId = addObjectToSurface('decor.place-setting-tied', coverTable, { x: 1400, y: 500 })!
+    setAppearance([coverId], 'napkin', '#1a237e')
+    setAppearance([coverId], 'body', '#000000')
+    expect(scene().objects[coverId].appearance).toEqual({ napkin: { color: '#1a237e' } })
+    // …and the cover whose napkin the marker could not name takes neither, so the
+    // one thing that cannot happen is a picker that repaints the plate
+    const weldedId = addObjectToSurface('decor.place-setting-horizontal', coverTable, { x: 1400, y: 500 })!
+    setAppearance([weldedId], 'napkin', '#1a237e')
+    setAppearance([weldedId], 'body', '#000000')
+    expect(scene().objects[weldedId].appearance).toEqual({})
 
     const chairId = attachedChairs(scene(), tableId)[0].id
     const plantId = addObject('plant.potted', { x: 900, y: 500 })
