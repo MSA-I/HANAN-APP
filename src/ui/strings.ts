@@ -314,12 +314,16 @@ export const strings = {
       ringFloral: 'עיצוב פרחים מרכזי',
       // chuppahDecor — floor decoration set beside the chuppah (source doc §31/§35)
       chuppahDecor1: 'קישוט חופה 1',
+      // chuppahChair — PLAN-04. The user's own name for it; the material is in the
+      // model, not in the label, so it is not "כסא אקריל"
+      chairChuppahGuest: 'כסא אורחים חופה',
     },
     // one key per Category (core/catalog/types.ts), in CATEGORY_ORDER
     categories: {
       tables: 'שולחנות',
       seating: 'ישיבה',
       bridalChair: 'כסא כלה',
+      chuppahChair: 'כסא אורחים חופה',
       bars: 'בר ומזנון',
       tableware: 'סכו״ם ומפיות',
       tableDecor: 'קישוטי שולחן',

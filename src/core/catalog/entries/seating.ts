@@ -21,7 +21,8 @@ import type { CatalogEntry, MeshPart } from '../types'
 /** Real measured size of every chair in the inventory (spec §2). */
 const CHAIR_SIZE = { width: 45, depth: 45, height: 92 }
 
-function chairMesh(s: { width: number; depth: number; height: number }, legRadius: number): MeshPart[] {
+/** Procedural stand-in while the GLB loads. Exported for the same reason as `chairFootprint`. */
+export function chairMesh(s: { width: number; depth: number; height: number }, legRadius: number): MeshPart[] {
   const seatH = 45
   const seatThickness = 5
   const backThickness = 4
@@ -50,7 +51,12 @@ function chairMesh(s: { width: number; depth: number; height: number }, legRadiu
   ]
 }
 
-function chairFootprint(s: { width: number; depth: number; height: number }) {
+/**
+ * Shared with `entries/chuppahChair.ts` — EXPORTED rather than copied. A chair is
+ * a rectangle with a strip along its back edge whatever family it belongs to, and
+ * two copies of that would be two places to fix the day the strip changes.
+ */
+export function chairFootprint(s: { width: number; depth: number; height: number }) {
   return {
     parts: [
       { kind: 'rect' as const, w: s.width, h: s.depth, cornerRadius: 6, slot: 'upholstery' },

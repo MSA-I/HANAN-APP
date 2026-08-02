@@ -645,6 +645,14 @@ export function allowedOnDeck(entry: CatalogEntry, chuppahOnDeck: boolean): bool
     entry.ignoresZones === true ||
     (entry.zoneKind === 'chuppah' && chuppahOnDeck) ||
     entry.category === 'seating' ||
+    // PLAN-04. The acrylic guest chair names `kabalatPanim` in its own
+    // `allowedZones`, which makes `check` stop refusing it up here — and that is
+    // only half the rule. Without this line `clampToVenue` would decline to clamp
+    // it INTO the deck, so a chair dropped on the deck's edge would hang over it
+    // and `standingHeightAt` would flip it between 0 and 470 as its centre crossed
+    // the boundary. It is `chuppahChair` and not `seating` precisely so it stays
+    // out of the table-chair dropdowns, so the line above does not cover it.
+    entry.category === 'chuppahChair' ||
     // Guest tables belong up there with the chairs. Round-2 corrections §27, in the
     // user's words: "when I try to place tables or a chuppah in the reception area,
     // even when it is switched on, it will not let me."

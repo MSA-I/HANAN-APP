@@ -32,6 +32,10 @@ export type Category =
   | 'tables'
   | 'seating'
   | 'bridalChair'
+  // the acrylic guest chair of the ceremony. Its own value so it never appears in
+  // the three "chair model" dropdowns `listByCategory('seating')` fills — see the
+  // header of entries/chuppahChair.ts
+  | 'chuppahChair'
   | 'bars'
   | 'tableware'
   | 'tableDecor'

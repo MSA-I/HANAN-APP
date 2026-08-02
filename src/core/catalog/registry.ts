@@ -1,6 +1,7 @@
 import type { CatalogEntry, Category } from './types'
 import { tableEntries } from './entries/tables'
 import { bridalChairEntries, seatingEntries } from './entries/seating'
+import { chuppahChairEntries } from './entries/chuppahChair'
 import { barEntries } from './entries/bars'
 import { tableDecorEntries } from './entries/tableDecor'
 import { tableDesignEntries } from './entries/tableDesigns'
@@ -14,6 +15,7 @@ const all: CatalogEntry[] = [
   ...tableEntries,
   ...seatingEntries,
   ...bridalChairEntries,
+  ...chuppahChairEntries,
   ...barEntries,
   ...tableDecorEntries,
   ...tableDesignEntries,
@@ -49,6 +51,8 @@ export const CATEGORY_ORDER: Category[] = [
   'tables',
   'seating',
   'bridalChair',
+  // the three seats OF THE EVENT run together, ahead of the service furniture
+  'chuppahChair',
   'bars',
   'tableware',
   'tableDecor',

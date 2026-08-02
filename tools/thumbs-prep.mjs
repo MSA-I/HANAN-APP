@@ -51,6 +51,10 @@ const MAPPING = [
   // channel-tufted back cushions inset from the ends, same kidney-shaped seat with
   // its double welt, same splayed tapered metal legs
   { id: 'chair.bridal', src: 'ChatGPT Image Jul 15, 2026, 06_33_50 PM.png' },
+  // The user's own product shot, already sitting in this folder under the same
+  // naming convention as מחיצה.png and בופה ריזורט.png. A clear "ghost" chair:
+  // oval medallion back, dished seat, four square tapering legs.
+  { id: 'chair.chuppah-guest', src: 'כסא אורחים חופה.png' },
   // draped (tablecloth) versions match the cloth-baked table GLBs.
   // bare alt: "ChatGPT Image Jul 15, 2026, 05_43_20 PM.png"
   { id: 'table.round', src: 'hf_20260716_114455_f8458859-55ce-41e3-bbdf-715d4735e95a.png' },

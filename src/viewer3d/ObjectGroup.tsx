@@ -928,8 +928,6 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
  * `transmission` costs a second render pass per frame, which is why this is
  * built only for the parts that need it and never as a default.
  */
-const isGlassPart = (material: THREE.Material) => material.name.startsWith('glass')
-
 /**
  * ONE material for every glass on every table — glass carries no per-object state
  * (no tint, no texture, no size), so a second instance would be a second shader
@@ -947,6 +945,84 @@ const glassMaterial = () =>
     ior: 1.5,
     transparent: true,
   }))
+
+/**
+ * Cast acrylic (PMMA), rebuilt. Not a copy of the glass above — every number that
+ * differs has a source:
+ *
+ *  · `ior` 1.49 is PMMA's refractive index. Glass is 1.50-1.52, and 1.5 would be
+ *    wrong here even though the difference is small.
+ *  · `specularIntensity`/`specularColor` are exactly the `KHR_materials_specular`
+ *    the prep drops (specularFactor 1, specularColorFactor [0.8,0.8,0.8], linear).
+ *    That is a 1:1 restoration of what was deleted, not an invention.
+ *  · `roughness` is above the glass's: the chair is a casting, not polished
+ *    tableware, and the product shot shows broad soft highlights down the legs
+ *    rather than a razor specular.
+ *
+ * `thickness` is measured in SCENE units and this app renders in metres
+ * (core/space.ts), so the glass's 0.5 is half a metre on a 15 cm wine glass — it
+ * was never a physical measurement, it is an appearance dial.
+ *
+ * ⛔ 3.0 IS A MEASURED CHOICE AND IT IS THE OPPOSITE OF THE ONE PLANNED. The four
+ * values 0.1 / 0.3 / 1.0 / 3.0 were rendered from one camera against the product
+ * shot (.tmp/shots/04-05-thickness-*.png, 2026-08-02). The plan expected a LOW
+ * value — "the chair reads clear and open, not thick glass" — and the pictures say
+ * the reverse: at 0.1, 0.3 and 1.0 the chair is a barely-there smear with no edges,
+ * while the product shot is a chair you can plainly SEE, with bright legible edges
+ * and the seat refracting the floor. 3.0 is the only one of the four that reads
+ * like it. It is also the top of the range tested, so a follow-up may find more
+ * above it; nothing below it is a candidate.
+ *
+ * `attenuationColor`/`attenuationDistance` are deliberately absent: without a
+ * finite attenuation distance `thickness` barely tints, and adding both means
+ * turning two dials at once. The product shot's faint cool edge is a follow-up.
+ */
+let sharedAcrylic: THREE.MeshPhysicalMaterial | null = null
+const acrylicMaterial = () =>
+  (sharedAcrylic ??= new THREE.MeshPhysicalMaterial({
+    color: '#ffffff',
+    metalness: 0,
+    roughness: 0.08,
+    transmission: 0.92,
+    thickness: 3,
+    ior: 1.49,
+    specularIntensity: 1,
+    specularColor: new THREE.Color().setRGB(0.8, 0.8, 0.8, THREE.LinearSRGBColorSpace),
+    transparent: true,
+    // ⛔ `side` LEFT AT THE DEFAULT (FrontSide), and that too is a measurement
+    // rather than the expected answer. The plan reasoned that a thin transmissive
+    // shell needs its back faces to refract; rendered at thickness 3 from the same
+    // camera, `FrontSide` and `DoubleSide` are indistinguishable
+    // (.tmp/shots/04-07-t3-side-*.png) — this GLB's shell is closed, so the back
+    // faces are hidden anyway. DoubleSide would double the drawn triangles of a
+    // 102k-triangle mesh for a picture nobody can tell apart.
+  }))
+
+/**
+ * The parts that are NOT what their baked PBR says they are, by material-name
+ * prefix. The prefix is written into the GLB by `tools/glb-prep/mark-material.mjs`
+ * (or `mark-glass.mjs`, which finds the vessels geometrically first) — a marking
+ * that survives re-prepping the same source, which an index list would not.
+ *
+ * A table rather than the boolean `isGlassPart` it replaces, because the second
+ * case arrived: `acrylic`. The alternative was a `CatalogEntry` flag, and it
+ * cannot describe a MIXED model — `chuppah.decor-1` is acrylic rods AND a
+ * hydrangea ball — which is exactly where this bug already lives twice.
+ *
+ * ⚠ `transmission` costs an extra render pass per material. The table exists so
+ * that pass is built only for what needs it, and never by default.
+ */
+const BUILT_MATERIALS: Array<[string, () => THREE.MeshPhysicalMaterial]> = [
+  ['glass', glassMaterial],
+  ['acrylic', acrylicMaterial],
+]
+
+const builtMaterialFor = (material: THREE.Material) =>
+  BUILT_MATERIALS.find(([prefix]) => material.name.startsWith(prefix))?.[1]
+
+/** Every singleton the table can hand out — the cleanup below must never dispose one. */
+const isSharedBuilt = (material: THREE.Material) =>
+  material === sharedGlass || material === sharedAcrylic
 
 /**
  * The real GLB of a catalog entry. An editable appearance override gets private
@@ -980,7 +1056,7 @@ function ModelParts({
   const maps = useSlotTextures(
     useMemo(() => slots.map((s) => (s.textureId ? textureUrl(s.textureId) : undefined)), [slots]),
   )
-  const hasGlass = useMemo(() => parts.some((p) => isGlassPart(p.material)), [parts])
+  const hasBuilt = useMemo(() => parts.some((p) => builtMaterialFor(p.material)), [parts])
   // ⚠ The dim is folded in HERE rather than through `dimmedMaterial`, because the
   // materials in this array are this component's OWN clones: the cache up top may
   // only be keyed on long-lived shared materials, and feeding it a per-instance
@@ -999,7 +1075,7 @@ function ModelParts({
   // taking ownership of it.
   const overriddenMaterials = useMemo(() => {
     const styled = slots.some((s, i) => s.color || maps[i])
-    if (!styled && !hasGlass && !muted) return null
+    if (!styled && !hasBuilt && !muted) return null
     return parts.map(({ material }) => {
       // A drinking vessel is not a tint of the mesh it was cut from — it is a
       // different material class. The baked one is `metalness 1, roughness 1,
@@ -1010,8 +1086,9 @@ function ModelParts({
       //
       // Muted, it has to be a COPY of that one: `sharedGlass` is every glass on
       // every table, so ghosting it in place would ghost the whole hall.
-      if (isGlassPart(material)) {
-        return muted ? dimInPlace(glassMaterial().clone()) : glassMaterial()
+      const build = builtMaterialFor(material)
+      if (build) {
+        return muted ? dimInPlace(build().clone()) : build()
       }
       const own = overrideForPart(material.name, slots)
       const color = own?.color
@@ -1031,7 +1108,7 @@ function ModelParts({
       if (muted) dimInPlace(clone)
       return clone
     })
-  }, [slots, maps, hasGlass, muted, parts])
+  }, [slots, maps, hasBuilt, muted, parts])
   // frameloop is "demand": a texture that arrives after the object was drawn has
   // to ask for the frame that shows it
   useEffect(() => invalidate(), [overriddenMaterials, invalidate])
@@ -1039,12 +1116,13 @@ function ModelParts({
     () => () => {
       // Everything disposed here is ours and nothing else is. Three exclusions, and
       // each names a different owner: `null` is a part still wearing the SHARED
-      // cached material from `propModel.partCache`; `sharedGlass` is the one glass
-      // material every table's glasses point at, which is never disposed at all; and
+      // cached material from `propModel.partCache`; a `BUILT_MATERIALS` singleton
+      // (`sharedGlass`, `sharedAcrylic`) is shared by every object that wears it and
+      // is never disposed at all — hence `isSharedBuilt` and not one comparison; and
       // what is left can only be a `.clone()` made a few lines above. The texture is
       // shared per URL and outlives all of them.
       overriddenMaterials?.forEach((material) => {
-        if (material && material !== sharedGlass) material.dispose()
+        if (material && !isSharedBuilt(material)) material.dispose()
       })
     },
     [overriddenMaterials],

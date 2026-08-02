@@ -110,10 +110,18 @@ function chuppahDecorProp(
 }
 
 export const chuppahDecorEntries: CatalogEntry[] = [
-  // ⚠ The rods are CLEAR ACRYLIC, not chrome. They render grey in a rasterised
-  // preview because glb-prep drops KHR_materials_volume and the transmission
-  // never survives the prep (A1, handoff/02-a1-measurements.md §6) — the product
-  // shot settles it, same material family as `chuppah.acrylic`.
+  // ⚠ The rods are CLEAR ACRYLIC, not chrome, and they still render grey: glb-prep
+  // drops KHR_materials_volume, so no transmission survives the prep (A1,
+  // handoff/02-a1-measurements.md §6). The product shot settles what they are —
+  // same material family as `chuppah.acrylic`.
+  //
+  // ⭐ The FIX now exists and this model has not had it yet. PLAN-04 rebuilt the
+  // material in the renderer instead: `BUILT_MATERIALS` in viewer3d/ObjectGroup.tsx
+  // maps a material-NAME prefix to a real material, and `acrylic` is one of its two
+  // rows. What is missing here is only the marking — this model is MIXED (rods plus
+  // a hydrangea ball), so `mark-material.mjs --all` is the wrong tool for it and it
+  // needs a geometric rule of its own, the way `mark-glass.mjs` finds the vessels.
+  // Its own item; the mechanism is no longer the obstacle.
   //
   // The 140 cm height is CHOSEN, not measured: Tripo normalises to a unit box, so
   // the source carries proportion only and no scale. 140 puts the hydrangea ball
