@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createDefaultScene, createObject } from './model/factory'
 import type { SceneObject, SceneState } from './model/types'
 import {
+  createHallTablesLayout,
   createLightingLayout,
   createSavedLayout,
   createTableDesignLayout,
@@ -124,6 +125,24 @@ describe('layout kinds (schema v8)', () => {
     expect(destination.objects[tableId].meta.layoutLighting).toBeUndefined()
     expect(destination.objects[lampId].meta.layoutLighting).toBe(lighting.id)
     expect(destination.objects[lampId].meta.layoutTables).toBeUndefined()
+  })
+
+  it('a hall layout takes every table in the hall but no baked fixture', () => {
+    const { scene, table } = fixture()
+    const second = createObject('table.round', { x: 900, y: 900 })
+    const baked = createObject('table.round', { x: 1200, y: 1200 })
+    baked.flags.frozen = true
+    const lamp = createObject('lamp.pendant', { x: 800, y: 800 })
+    for (const object of [second, baked, lamp]) {
+      scene.objects[object.id] = object
+      scene.objectOrder.push(object.id)
+    }
+
+    const hall = createHallTablesLayout('כל האולם', scene, 'layout')!
+    expect(hall.kind).toBe('tables')
+    expect(hall.subtrees.map((s) => s.root.id)).toEqual([table.id, second.id])
+
+    expect(createHallTablesLayout('ריק', createDefaultScene(2400, 1600), 'layout')).toBeNull()
   })
 
   it('a lighting layout needs lighting in the scene', () => {

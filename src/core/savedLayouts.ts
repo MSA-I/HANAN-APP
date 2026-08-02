@@ -200,6 +200,31 @@ export function createLightingLayout(
 }
 
 /**
+ * Every table standing in the hall, saved as one arrangement — the table
+ * counterpart of `createLightingLayout`, and what "שמירת פריסת האולם" means.
+ *
+ * Selection-free for the same reason lighting is: a hall layout is how the hall
+ * is laid out, not whichever tables happen to be ticked. `createSavedLayout` is
+ * still the selection-scoped one; this is the whole floor.
+ *
+ * Baked venue fixtures are skipped — frozen means "part of the building" (see
+ * selectors.isFrozen), and instantiating one as an editable copy would put a
+ * second pool in the hall.
+ */
+export function createHallTablesLayout(
+  name: string,
+  scene: SceneState,
+  mode: SavedLayoutMode,
+  now = new Date().toISOString(),
+): SavedLayout | null {
+  const rootIds = scene.objectOrder.filter((id) => {
+    const object = scene.objects[id]
+    return !!object && !!object.seating && object.flags.frozen !== true
+  })
+  return makeLayout(name, 'tables', mode, scene, snapshotRoots(scene, rootIds, mode), now)
+}
+
+/**
  * Source doc §23 — the answer to "we never defined what a table design looks
  * like": arrange the decor on one table by hand, then save that arrangement.
  * Only the table's SURFACE children are captured (chairs belong to the table's

@@ -37,6 +37,7 @@ import type { Id, SceneObject, SceneState } from '../core/model/types'
 import { HALL_DESIGNS, TABLE_DESIGNS, TABLE_PRESETS, getHallDesign } from '../core/presets'
 import { getVenuePack } from '../core/venuePacks'
 import {
+  createHallTablesLayout,
   createLightingLayout,
   createSavedLayout,
   missingCatalogIds,
@@ -433,6 +434,43 @@ function NameDialog({
         </div>
       </form>
     </Dialog>
+  )
+}
+
+/**
+ * "Positions only" vs "positions + how it looks", inside a `NameDialog`. Shared
+ * by the two table-layout save buttons so the choice cannot drift between the
+ * selection one and the hall one.
+ */
+function ModeChoice({
+  mode,
+  onChange,
+}: {
+  mode: SavedLayoutMode
+  onChange: (mode: SavedLayoutMode) => void
+}) {
+  const choices: { id: SavedLayoutMode; label: string; hint: string }[] = [
+    { id: 'layout-design', label: T.layoutWithDesign, hint: T.layoutWithDesignHint },
+    { id: 'layout', label: T.layoutOnly, hint: T.layoutOnlyHint },
+  ]
+  return (
+    <div className="mt-4 grid gap-2">
+      {choices.map((choice) => (
+        <button
+          key={choice.id}
+          type="button"
+          aria-pressed={mode === choice.id}
+          onClick={() => onChange(choice.id)}
+          className={
+            'rounded-lg border px-3 py-2.5 text-start transition-colors ' +
+            (mode === choice.id ? 'border-accent bg-accent-tint' : 'border-line hover:border-accent/60')
+          }
+        >
+          <span className="block text-[15px] font-semibold text-ink">{choice.label}</span>
+          <span className="mt-0.5 block text-[13px] leading-relaxed text-ink-soft">{choice.hint}</span>
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -862,6 +900,49 @@ function HallLayoutOptions({ layout, onBack }: { layout: HallLayout; onBack: () 
 }
 
 /**
+ * "Save the hall exactly as it stands now."
+ *
+ * The counterpart `SaveSelectionSection` was not: it needs tables ticked first
+ * and renders at the BOTTOM of the inspector, so with nothing selected — the
+ * state you are in when you have just finished arranging the hall — there was no
+ * way to save a layout at all, only to apply one. Same NameDialog, same
+ * overwrite-by-name rule, same two modes; the snapshot is just the whole floor.
+ */
+function SaveHallLayoutButton({ existing }: { existing: SavedLayout[] }) {
+  const [open, setOpen] = useState(false)
+  const [mode, setMode] = useState<SavedLayoutMode>('layout-design')
+  const confirm = useConfirm()
+
+  return (
+    <>
+      <button className={buttonClass} onClick={() => setOpen(true)}>
+        {T.saveHall}
+      </button>
+      {open && (
+        <NameDialog
+          title={T.saveHallTitle}
+          fieldLabel={T.layoutName}
+          placeholder={T.layoutNamePlaceholder}
+          escapeDisabled={confirm.open}
+          onClose={() => setOpen(false)}
+          onSubmit={async (name) => {
+            const layout = createHallTablesLayout(name, useEditorStore.getState().scene, mode)
+            if (!layout) {
+              notify(T.noTables, { tone: 'warn' })
+              return
+            }
+            await saveOrOverwrite(layout, existing, confirm.ask)
+          }}
+        >
+          <ModeChoice mode={mode} onChange={setMode} />
+        </NameDialog>
+      )}
+      {confirm.dialog}
+    </>
+  )
+}
+
+/**
  * Named layout picker: a visual grid of top-view schematics, one card per
  * authored layout for the current venue. A card OPENS ITS OPTIONS (see the file
  * header); the ⚡ in its corner applies it straight away, which is what the card
@@ -923,21 +1004,22 @@ export function HallLayoutsSection() {
           })}
         </div>
       )}
+      {/* heading and save button render even with nothing saved yet: an empty
+          list is exactly when someone is looking for how to save the first one */}
+      <SubHeading>{T.savedLayouts}</SubHeading>
       {saved.length > 0 && (
-        <>
-          <SubHeading>{T.savedLayouts}</SubHeading>
-          <div className="grid grid-cols-2 gap-1.5">
-            {saved.map((layout) => (
-              <SavedLayoutCard
-                key={layout.id}
-                layout={layout}
-                active={applied === layout.id}
-                onApply={() => applySavedLayout(layout)}
-              />
-            ))}
-          </div>
-        </>
+        <div className="grid grid-cols-2 gap-1.5">
+          {saved.map((layout) => (
+            <SavedLayoutCard
+              key={layout.id}
+              layout={layout}
+              active={applied === layout.id}
+              onApply={() => applySavedLayout(layout)}
+            />
+          ))}
+        </div>
       )}
+      <SaveHallLayoutButton existing={saved} />
       {error && (
         <p role="alert" className="text-[13px] text-danger">
           {error}
@@ -1059,11 +1141,6 @@ export function SaveSelectionSection() {
   const { layouts: existing } = useVenueLayouts(venuePackId, venueWidth, venueDepth)
   if (!selectionCount) return null
 
-  const choices: { id: SavedLayoutMode; label: string; hint: string }[] = [
-    { id: 'layout-design', label: T.layoutWithDesign, hint: T.layoutWithDesignHint },
-    { id: 'layout', label: T.layoutOnly, hint: T.layoutOnlyHint },
-  ]
-
   return (
     <Section title={T.savedLayouts}>
       <button
@@ -1088,25 +1165,12 @@ export function SaveSelectionSection() {
             await saveOrOverwrite(layout, existing, confirm.ask)
           }}
         >
-          <div className="mt-4 grid gap-2">
-            {choices.map((choice) => (
-              <button
-                key={choice.id}
-                type="button"
-                aria-pressed={mode === choice.id}
-                onClick={() => setMode(choice.id)}
-                className={
-                  'rounded-lg border px-3 py-2.5 text-start transition-colors ' +
-                  (mode === choice.id ? 'border-accent bg-accent-tint' : 'border-line hover:border-accent/60')
-                }
-              >
-                <span className="block text-[15px] font-semibold text-ink">{choice.label}</span>
-                <span className="mt-0.5 block text-[13px] leading-relaxed text-ink-soft">{choice.hint}</span>
-              </button>
-            ))}
-          </div>
+          <ModeChoice mode={mode} onChange={setMode} />
         </NameDialog>
       )}
+      {/* without this the overwrite confirm never mounts, so `ask`'s promise
+          never resolves and the name dialog sticks on "saving" forever */}
+      {confirm.dialog}
     </Section>
   )
 }
