@@ -634,6 +634,177 @@ describe('mirroring (E1/§4.2)', () => {
 })
 
 /**
+ * PLAN-07 §2 — the diagnostic, kept as assertions once it had printed.
+ *
+ * Run in the REAL hall on purpose: the procedural room this file builds everywhere
+ * else has no zones and no baked fixtures, and both turned out to matter. These
+ * are the numbers the clearance decision was put to the user with, so they are
+ * pinned — a silent drift in any of them would invalidate the choice he makes.
+ */
+describe('the serpentine in the real hall (E1/§2)', () => {
+  const SERP = 'table.serpentine'
+  const ORIGIN = { x: 700, y: 700 }
+
+  beforeEach(() => {
+    newProject({ name: 'E1', venuePackId: 'resort' })
+  })
+
+  const judgedBox = (id: string) => {
+    const s = scene()
+    const boxes = [objectAABB(s, id)!]
+    for (const o of Object.values(s.objects)) {
+      if (o.parentId === id && o.attachment?.kind === 'seat') boxes.push(objectAABB(s, o.id)!)
+    }
+    return boxes.reduce((a, b) => ({
+      minX: Math.min(a.minX, b.minX),
+      minY: Math.min(a.minY, b.minY),
+      maxX: Math.max(a.maxX, b.maxX),
+      maxY: Math.max(a.maxY, b.maxY),
+    }))
+  }
+
+  const probe = (id: string, position: Vec2) => {
+    const o = scene().objects[id]
+    return checkPlacement(scene(), {
+      catalogId: o.catalogId,
+      transform: { ...o.transform, position },
+      size: o.size,
+      excludeId: id,
+      subtreeOf: id,
+    })
+  }
+
+  /**
+   * §3.6a's four numbers. The gate measures the box on the RIGHT of each pair and
+   * the snap lines used to offer the one on the left — which is the whole of "the
+   * line is on the wall and the table stops 38 cm short of it".
+   */
+  it('is judged by a 477.4 × 502.2 box that is not centred on its own origin', () => {
+    const id = addObject(SERP, ORIGIN)
+    const judged = judgedBox(id)
+    const outline = objectAABB(scene(), id)!
+    expect(judged.maxX - judged.minX).toBeCloseTo(477.4, 1)
+    expect(judged.maxY - judged.minY).toBeCloseTo(502.2, 1)
+    expect(ORIGIN.x - judged.minX).toBeCloseTo(226.9, 1)
+    expect(judged.maxX - ORIGIN.x).toBeCloseTo(250.5, 1)
+    expect(ORIGIN.y - judged.minY).toBeCloseTo(251.0, 1)
+    expect(judged.maxY - ORIGIN.y).toBeCloseTo(251.2, 1)
+    // the outline box the snap lines used to use, and the gap that made
+    expect(outline.maxX - ORIGIN.x).toBeCloseTo(211.0, 1)
+    expect(judged.maxX - outline.maxX).toBeCloseTo(39.5, 1)
+  })
+
+  /**
+   * §3.5's rejected hypothesis, pinned so nobody re-opens it: the serpentine goes
+   * FLUSH against the wall — the refusal one millimetre closer is `outOfBounds`,
+   * which is its chairs touching the wall and is the correct answer.
+   */
+  it('stands flush against the north wall, refused only by its own chairs', () => {
+    const id = addObject(SERP, ORIGIN)
+    const reach = ORIGIN.y - judgedBox(id).minY
+    expect(probe(id, { x: 700, y: reach })).toEqual([])
+    expect(kinds(probe(id, { x: 700, y: reach - 1 }))).toEqual(['outOfBounds'])
+  })
+
+  /**
+   * ⚠ THE FINDING §2.2's decision table has no row for, and the real answer to "it
+   * will not let me put it against the wall".
+   *
+   * The resort's west and north walls are lined with BAKED potted plants, roughly
+   * every 3–4 m, standing 4–86 cm out from the wall. The serpentine's judged
+   * footprint is wider than every gap between them, so along most of the wall what
+   * refuses it is a `collision` with a venue fixture — not a rule, and nothing in
+   * this plan changes it. The one clear x is the assertion above.
+   */
+  it('is stopped along the rest of the wall by baked planters, not by a rule', () => {
+    const id = addObject(SERP, ORIGIN)
+    const reach = ORIGIN.y - judgedBox(id).minY
+    // every gap between two neighbouring north-wall planters is narrower than the
+    // table's own judged width, so it cannot slot between them
+    // the west floor area only (venuePacks floorAreas[0], x 0…1790) — the one the
+    // table above is standing in, and the one the user was trying to fill
+    const planters = Object.values(scene().objects)
+      .filter((o) => !o.parentId && o.catalogId === 'plant.potted-2')
+      .map((o) => objectAABB(scene(), o.id)!)
+      .filter((b) => b.minY < 200 && b.maxX < 1790)
+      .sort((a, b) => a.minX - b.minX)
+    expect(planters.length).toBeGreaterThanOrEqual(3)
+    const width = 477.4
+    for (let i = 1; i < planters.length; i++) {
+      expect(planters[i].minX - planters[i - 1].maxX).toBeLessThan(width)
+    }
+    // …and that is what the refusal names, at an x between two of them
+    const between = (planters[0].maxX + planters[1].minX) / 2
+    const v = probe(id, { x: between, y: reach })
+    expect(v.some((x) => x.kind === 'collision')).toBe(true)
+  })
+
+  /**
+   * The measurement the clearance decision is made from (§2.2), in one assertion.
+   *
+   * The band-to-band aisle the rule measures and the aisle a guest can actually
+   * walk down are NOT the same number, because the serpentine's chairs stand
+   * 250.5 cm from its centre while its drape reaches only ~211. At today's 170 the
+   * real chair-back-to-chair-back walkway beside a ⌀180 is 31.5 cm — against the
+   * 18.0 cm the app already considers normal between two ⌀180 round tables.
+   */
+  it('records the aisle the clearance rule buys, and the one it does not', () => {
+    const serp = addObject(SERP, ORIGIN)
+    const judged = judgedBox(serp)
+    const other = addObject('table.round', { x: 3000, y: 400 })
+    const otherBox = judgedBox(other)
+    const half = (otherBox.maxX - otherBox.minX) / 2
+
+    let firstLegal = Infinity
+    for (let dx = 150; dx <= 900; dx += 1) {
+      if (!checkPlacement(scene(), ghost('table.round', { x: ORIGIN.x + dx, y: ORIGIN.y })).length) {
+        firstLegal = dx
+        break
+      }
+    }
+    expect(firstLegal).toBe(423)
+    expect(firstLegal - (judged.maxX - ORIGIN.x) - half).toBeCloseTo(31.5, 1)
+
+    // the house norm the number above has to be judged against
+    let roundToRound = Infinity
+    for (let dx = 150; dx <= 900; dx += 1) {
+      if (!checkPlacement(scene(), ghost('table.round', { x: 3000 + dx, y: 400 })).length) {
+        roundToRound = dx
+        break
+      }
+    }
+    expect(roundToRound).toBe(300)
+    expect(roundToRound - 2 * half).toBeCloseTo(18.0, 1)
+  })
+
+  /**
+   * The floor under the whole clearance question: chair-to-chair COLLISION already
+   * refuses a real ⌀180 until the centres are 325.4 cm apart, where the band gap is
+   * 86.7. Any clearance at or below that changes nothing at all.
+   */
+  it('shows that a clearance below ~87 could not change anything', () => {
+    addObject(SERP, ORIGIN)
+    const round = addObject('table.round', { x: 3000, y: 400 })
+    let clear = Infinity
+    for (let dx = 150; dx <= 900; dx += 0.1) {
+      const o = scene().objects[round]
+      const v = checkPlacement(scene(), {
+        catalogId: o.catalogId,
+        transform: { ...o.transform, position: { x: ORIGIN.x + dx, y: ORIGIN.y } },
+        size: o.size,
+        excludeId: round,
+        subtreeOf: round,
+      })
+      if (!v.some((x) => x.kind === 'collision')) {
+        clear = dx
+        break
+      }
+    }
+    expect(clear).toBeCloseTo(325.4, 0)
+  })
+})
+
+/**
  * PLAN-07 §4.1 — an entry may state its own service aisle.
  *
  * Nothing in the catalog sets `clearance` today (the number for the serpentine is

@@ -50,8 +50,10 @@ const grid = (presetId: string, xs: number[], ys: number[], rotation?: number): 
  * 50cm. At 460cm wide it is the width, not the depth, that
  * dictates what goes in it. Cells measured with tableCellSize (table + its chair
  * ring): the ⌀180 round is 282 across and clears 89cm either side; the ⌀380 is
- * 482 and does not fit at all; the serpentine is 434, which clears 13cm and is
- * not a layout; the 480 knights table is 582 and fits only turned onto its side.
+ * 482 and does not fit at all; the serpentine is 477.4 × 502.2 — re-measured
+ * 2026-08-02 against `tableCellSize` on the current geometry, which is where the
+ * stale 434 in this sentence came from — so it does not fit either; the 480
+ * knights table is 582 and fits only turned onto its side.
  */
 export const HALL_LAYOUTS: HallLayout[] = [
   {
