@@ -593,6 +593,46 @@
       "pxPerCm": 4.0002,
       "w": 636,
       "h": 130
+    },
+    "/props/decor-place-setting-diagonal.glb": {
+      "file": "decor-place-setting-diagonal.webp",
+      "cmW": 45.9,
+      "cmD": 41.19,
+      "pxPerCm": 4.0087,
+      "w": 184,
+      "h": 165
+    },
+    "/props/decor-place-setting-folded.glb": {
+      "file": "decor-place-setting-folded.webp",
+      "cmW": 45.9,
+      "cmD": 43.01,
+      "pxPerCm": 4.0087,
+      "w": 184,
+      "h": 172
+    },
+    "/props/decor-place-setting-horizontal.glb": {
+      "file": "decor-place-setting-horizontal.webp",
+      "cmW": 45.9,
+      "cmD": 43.01,
+      "pxPerCm": 4.0087,
+      "w": 184,
+      "h": 172
+    },
+    "/props/decor-place-setting-tied.glb": {
+      "file": "decor-place-setting-tied.webp",
+      "cmW": 45.9,
+      "cmD": 41.64,
+      "pxPerCm": 4.0087,
+      "w": 184,
+      "h": 167
+    },
+    "/props/decor-place-setting-vertical.glb": {
+      "file": "decor-place-setting-vertical.webp",
+      "cmW": 45.9,
+      "cmD": 40.14,
+      "pxPerCm": 4.0087,
+      "w": 184,
+      "h": 161
     }
   },
   "failed": []
