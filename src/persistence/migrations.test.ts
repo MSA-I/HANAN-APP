@@ -1355,6 +1355,28 @@ describe('migrateAndValidate', () => {
     expect('hangSpread' in meta).toBe(false)
   })
 
+  /**
+   * PLAN-01/R5 §3.7 added a SECOND unnamed slot, `napkin`, on the four covers whose
+   * linen `tools/glb-prep/mark-napkin.mjs` could address. Same reasoning as the
+   * candle above and the same absence of a schema line — but written against a
+   * different entry and a different key on purpose, because "the record is open"
+   * has to hold for the NEXT slot too, not just the one that first needed it. The
+   * plan calls this "the test that catches the day somebody tightens the schema".
+   */
+  it('keeps a napkin colour on a cover that carries its own fold (v13)', () => {
+    const file = validFile()
+    ;(file.project.scene.objects as Record<string, unknown>).n1 = {
+      ...storedObject('n1', 'decor.place-setting-tied', { width: 36, depth: 32.64, height: 14.88 }),
+      appearance: { napkin: { color: '#1a237e' } },
+    }
+    file.project.scene.objectOrder.push('n1')
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(file)))
+    expect(revived.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(revived.project.scene.objects.n1.appearance).toEqual({ napkin: { color: '#1a237e' } })
+    // and the id did not move: no migration is owed for adding a slot
+    expect(revived.project.scene.objects.n1.catalogId).toBe('decor.place-setting-tied')
+  })
+
   it('rejects garbage', () => {
     expect(() => migrateAndValidate({ nope: true })).toThrow()
     expect(() => migrateAndValidate(null)).toThrow()
