@@ -79,6 +79,7 @@ import {
   isObjectVisible,
   lightingOf,
   objectAABB as objectAABBOf,
+  seatBounds,
   subtreeAABB,
   surfaceChildren,
 } from './selectors'
@@ -1216,14 +1217,41 @@ function deleteWithStack(scene: SceneState, item: SceneObject): void {
  * stand on. See `laySeatItems`.
  */
 export function addSeatItemsToTable(catalogId: string, tableId: Id): Id[] {
-  const table0 = get().scene.objects[tableId]
-  if (!table0?.seating || table0.parentId || isEffectivelyLocked(get().scene, table0)) {
+  return addSeatItemsToTables(catalogId, [tableId])
+}
+
+/**
+ * The same gesture over a whole selection of tables — ONE mutation, so N tables
+ * dressed is one Ctrl+Z. `addSeatItemsToTable` is a one-line wrapper over this
+ * rather than the other way round: with a single implementation the two scopes
+ * cannot drift, and the ~45 test lines that already drive the single-table name
+ * keep testing the real code path.
+ *
+ * Two things are said ONCE for the whole gesture rather than once per table:
+ *
+ *  - `designLocked` fires only when NOTHING was eligible. Eight locked tables must
+ *    not raise eight toasts, and — this is the part that matters — a locked table
+ *    standing beside seven free ones must not raise one at all.
+ *  - ⚠ THE REFUSAL IS CLEARED WHEN ANYTHING LANDED. `laySeatItems` writes the
+ *    module-level `refusal` when a napkin finds no cover to sit on
+ *    (`missingHost`), and `mutateScene` publishes whatever is pending at the end.
+ *    Without this line, table #7 having no covers would put a refusal pill on
+ *    screen for a gesture that dressed the other six.
+ */
+export function addSeatItemsToTables(catalogId: string, tableIds: Id[]): Id[] {
+  const scene0 = get().scene
+  const targets = tableIds.filter((id) => {
+    const t = scene0.objects[id]
+    return !!t?.seating && !t.parentId && !isEffectivelyLocked(scene0, t)
+  })
+  if (!targets.length) {
     notify(strings.presets.designLocked)
     return []
   }
-  let ids: Id[] = []
+  const ids: Id[] = []
   mutateScene((scene) => {
-    ids = laySeatItems(scene, catalogId, tableId)
+    for (const tableId of targets) ids.push(...laySeatItems(scene, catalogId, tableId))
+    if (ids.length) refusal = null
   })
   pruneSelection() // the replaced set may have been selected
   return ids
@@ -1324,8 +1352,15 @@ function laySeatItems(scene: SceneState, catalogId: string, tableId: Id): Id[] {
  * left the napkins floating.
  */
 export function removeSeatItems(tableId: Id): void {
+  removeSeatItemsFrom([tableId])
+}
+
+/** Clear the covers off a whole selection of tables — one mutation, one undo entry. */
+export function removeSeatItemsFrom(tableIds: Id[]): void {
   mutateScene((scene) => {
-    for (const item of seatItems(scene, tableId)) deleteWithStack(scene, item)
+    for (const tableId of tableIds) {
+      for (const item of seatItems(scene, tableId)) deleteWithStack(scene, item)
+    }
   })
   pruneSelection()
 }
@@ -1587,19 +1622,59 @@ function layOne(design: TableDesign, tableId: Id): Id[] {
 /** Same design on every table in the hall — one gesture, one undo entry. */
 export function applyTableDesignToAll(designId: string): Id[] {
   const design = getTableDesign(designId)
-  return design ? layAll(() => design) : []
+  return design ? layOn(() => design, null) : []
 }
 
 export function applySavedTableDesignToAll(layout: SavedLayout): Id[] {
-  return layAll((table) => designFromSavedLayout(layout, table))
+  return layOn((table) => designFromSavedLayout(layout, table), null)
 }
 
-function layAll(designFor: (table: SceneObject) => TableDesign | null): Id[] {
+/**
+ * The same design on the SELECTED tables — the multi-selection inspector's route.
+ *
+ * ⚠ IT IS `layOn` WITH A SHORTER LIST, not a second implementation, and that is
+ * the point: "apply to the selected" and "apply to every table in the hall" are
+ * now provably the same code with a different id list, so the two can never
+ * answer differently about locks, refusals, scaling or undo. `store.test.ts`
+ * covers the hall-wide names untouched and would fail if this refactor moved
+ * either one.
+ */
+export function applyTableDesignTo(designId: string, tableIds: Id[]): Id[] {
+  const design = getTableDesign(designId)
+  return design ? layOn(() => design, tableIds) : []
+}
+
+/**
+ * A user-captured design on the selected tables. `designFor` is called PER TABLE,
+ * so `designFromSavedLayout` rescales the arrangement to each target on its own —
+ * a design captured on a ⌀180 lands correctly on a ⌀380 in the same click.
+ */
+export function applySavedTableDesignTo(layout: SavedLayout, tableIds: Id[]): Id[] {
+  return layOn((table) => designFromSavedLayout(layout, table), tableIds)
+}
+
+/** Every floor table in the hall, in render order — the "all" of apply-to-all. */
+export function floorTableIds(scene: SceneState): Id[] {
+  return scene.objectOrder.filter((id) => {
+    const obj = scene.objects[id]
+    // defensive: `obj.seating` already excludes both v13 arrivals
+    return !!obj?.seating && isFloorTable(getCatalogEntry(obj.catalogId))
+  })
+}
+
+/**
+ * Lay a design on a list of tables, or on the whole hall when `tableIds` is null.
+ * One `mutateScene` either way, which is what buys the single undo entry for free
+ * — no gesture bracket, nothing to forget to close.
+ */
+function layOn(
+  designFor: (table: SceneObject) => TableDesign | null,
+  tableIds: Id[] | null,
+): Id[] {
   const ids: Id[] = []
   mutateScene((scene) => {
-    for (const id of [...scene.objectOrder]) {
+    for (const id of tableIds ?? floorTableIds(scene)) {
       const obj = scene.objects[id]
-      // defensive: `obj.seating` already excludes both v13 arrivals
       if (!obj?.seating || !isFloorTable(getCatalogEntry(obj.catalogId))) continue
       const design = designFor(obj)
       if (design) ids.push(...layTableDesign(scene, design, id))
@@ -1621,8 +1696,15 @@ export function captureTableDesign(tableId: Id, name: string): SavedLayout | nul
 
 /** Remove a design's decor only — hand-placed decor on the same table survives. */
 export function removeTableDesign(tableId: Id): void {
+  removeTableDesignFrom([tableId])
+}
+
+/** The same, across a selection: one mutation, one undo entry. */
+export function removeTableDesignFrom(tableIds: Id[]): void {
   mutateScene((scene) => {
-    for (const child of designItems(scene, tableId)) delete scene.objects[child.id]
+    for (const tableId of tableIds) {
+      for (const child of designItems(scene, tableId)) delete scene.objects[child.id]
+    }
   })
   pruneSelection()
 }
@@ -2524,6 +2606,47 @@ export function rotateObjectsBy(ids: Id[], delta: number): void {
  * is symmetric about the axis it is reflected in — which is why nothing here
  * special-cases collision.
  */
+/**
+ * Turn a selection to ONE absolute angle — "make every table face north".
+ *
+ * Written in `rotateObjectsBy`'s shape line for line, because every argument that
+ * one makes applies here: judged per object, children rotated but never probed,
+ * the refused ones counted out loud, and no scene write at all when nothing
+ * survives the probe. The only difference is the target angle, which is given
+ * rather than added.
+ *
+ * ⚠ WHY THIS IS SAFE WHERE AN ABSOLUTE POSITION FIELD WOULD NOT BE. `setPosition`
+ * over a selection stacks eight tables on one point; an angle has no such
+ * collapse — each object turns about its own centre, stays where it stands, and
+ * `poseAllowed` still judges each one separately. It is destructive only in the
+ * sense the user asked for: a ring of tables all facing the middle will end up
+ * all facing the same way, which is what "set the rotation to 45" says.
+ */
+export function setObjectsRotation(ids: Id[], rotation: number): void {
+  const before = get().scene
+  const target = normalizeDeg(rotation)
+  const targets = editable(before, ids)
+  const turning = targets
+    .filter(
+      (obj) => !!obj.parentId || poseAllowed(before, obj, { transform: { ...obj.transform, rotation: target } }),
+    )
+    .map((obj) => obj.id)
+  const refusedCount = targets.length - turning.length
+  if (refusedCount) notify(strings.status.rotationRefused(refusedCount))
+  if (refusedCount && !turning.length) {
+    publishRefusal()
+    return
+  }
+  mutateScene((scene) => {
+    for (const obj of editable(scene, turning)) {
+      obj.transform.rotation = target
+      if (obj.attachment?.kind === 'seat') obj.attachment.manual = true
+    }
+    clampToVenue(scene, turning)
+    clampSurfaceChildrenIn(scene, turning)
+  })
+}
+
 export function mirrorObjects(ids: Id[]): void {
   const before = get().scene
   const targets = editable(before, ids).filter((obj) => !obj.parentId)
@@ -2693,6 +2816,61 @@ export function setSeatingConfig(id: Id, patch: Partial<SeatingConfig>): void {
     if (!obj?.seating) return
     Object.assign(obj.seating, patch)
     reconcileSeats(scene, id)
+  })
+}
+
+/**
+ * Swap the chair model on a whole selection of tables — one mutation, one undo.
+ *
+ * The chair's catalog id is a plain string with no dependency on the table's own
+ * geometry, which is exactly why THIS seating field is safe to write across mixed
+ * tables while seat count and gap are not: `reconcileSeats` re-walks each table's
+ * own seat ring afterwards, so a ⌀180 and a ⌀380 each end up with their own
+ * correct number of the new chair.
+ *
+ * ⚠ It filters through `editable()` where the single-table `setSeatingConfig`
+ * does NOT (that one guards on `obj.seating` alone). The asymmetry is deliberate:
+ * a multi-selection routinely contains locked tables, and silently restyling one
+ * is the complaint this round exists to answer. `setSeatingConfig` is left alone —
+ * `selectors.test.ts` leans on its current behaviour.
+ */
+export function setChairModel(tableIds: Id[], chairCatalogId: string): void {
+  if (!hasCatalogEntry(chairCatalogId)) return
+  mutateScene((scene) => {
+    for (const obj of editable(scene, tableIds)) {
+      if (!obj.seating || obj.parentId) continue
+      obj.seating.chairCatalogId = chairCatalogId
+      reconcileSeats(scene, obj.id)
+    }
+  })
+}
+
+/**
+ * Add or remove seats on every selected table, each clamped to ITS OWN limits.
+ *
+ * RELATIVE and not absolute, and that is the honest form of the control here.
+ * `seatBounds` is a fact about one table's geometry — the ⌀180 tops out at 8
+ * where the ⌀380 takes 20 — so a shared "seats = 12" field would silently give
+ * four tables something other than what it says. "+1 to each" means the same
+ * thing on every table and clamps without lying: a table already at its maximum
+ * simply stays there.
+ *
+ * `seatBounds` rather than the catalog cap alone, because that is the pair of
+ * numbers the single-table stepper shows, and two ceilings for one question is
+ * how a UI ends up promising a seat the reconciler then drops.
+ */
+export function addSeatsBy(tableIds: Id[], delta: number): void {
+  if (!delta) return
+  mutateScene((scene) => {
+    for (const obj of editable(scene, tableIds)) {
+      if (!obj.seating || obj.parentId) continue
+      const bounds = seatBounds(scene, obj.id)
+      const cap = getCatalogEntry(obj.catalogId).seating
+      const min = bounds?.min ?? cap?.min ?? 0
+      const max = bounds?.max ?? cap?.max ?? obj.seating.count
+      obj.seating.count = Math.max(min, Math.min(max, obj.seating.count + delta))
+      reconcileSeats(scene, obj.id)
+    }
   })
 }
 

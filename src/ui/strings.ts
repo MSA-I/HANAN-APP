@@ -536,8 +536,22 @@ export const strings = {
     autoFill: 'מילוי אוטומטי',
     choose: 'בחרו…',
     apply: 'החל',
-    applyAll: 'החל על כל השולחנות',
+    /**
+     * ⚠ CHANGED VALUE ('החל על כל השולחנות' → '…באולם'), not a new key. This button
+     * has always ignored the selection and dressed the whole hall. That was
+     * unambiguous while it only ever appeared under ONE selected table; from round
+     * 5 the panel also carries a table-design block headed «על 6 שולחנות», and two
+     * neighbours reading "apply to all tables" and "apply to the six" would be one
+     * word apart with a hall of difference between them. The multi block therefore
+     * has NO apply-to-all button at all, and this one names its own scope.
+     */
+    applyAll: 'החל על כל השולחנות באולם',
     remove: 'הסרת העיצוב',
+    /** the multi block's own removal — scoped to the selection, never the hall */
+    removeFromSelected: 'הסרת העיצוב מהנבחרים',
+    /** the multi place-settings block: a count of TABLES, where the single-table one counts seats */
+    placeSettingsOnTables: (n: number) =>
+      n === 1 ? 'ערכות על שולחן אחד' : `ערכות על ${n} שולחנות`,
     removeLayout: 'הסרת הפריסה',
     fillHall: 'מלא אולם',
     fillHint: 'ממלא את השטח הפנוי בשולחנות מהפריסה שנבחרה — מוסיף בלבד, לא מזיז את הקיים',
@@ -708,6 +722,42 @@ export const strings = {
      */
     lightingFine: 'כוונון עדין',
     tableStyling: 'עיצוב השולחן',
+    /**
+     * ROUND 5 — the multi-selection inspector. In the user's words: "גם בעורך
+     * הדו מימד כשאני בוחר מספר פריטים התפריט השמאלי לא מאפשר לי לערוך אותם".
+     *
+     * Two rules run through the whole group:
+     *  - every section says WHOM it acts on, in words and in a number, because a
+     *    mixed selection (six tables + three chairs + a plant) means most controls
+     *    touch a subset and the user must know which before he clicks;
+     *  - a value the selection disagrees about is shown as `mixedValue` and never
+     *    as an average or as the first item's — see `NumberField.mixed`.
+     */
+    mixedValue: '—',
+    /** the count line at the top of the panel already says how many are selected */
+    someLocked: (n: number) =>
+      n === 1 ? 'פריט אחד נעול ולא ישתנה' : `${n} פריטים נעולים ולא ישתנו`,
+    unlockSelected: 'ביטול נעילה',
+    lockSelected: 'נעילת הנבחרים',
+    scopeTables: (n: number) => (n === 1 ? 'על שולחן אחד' : `על ${n} שולחנות`),
+    scopeItems: (n: number) => `(${n})`,
+    /** relative turns: 45° is ROTATION_SNAP_DEG, 90° is what the ⋯ menu offers */
+    rotationSection: 'סיבוב ושיקוף',
+    rotateBy: (deg: number) => (deg > 0 ? `סיבוב ${deg}° עם כיוון השעון` : `סיבוב ${-deg}° נגד כיוון השעון`),
+    /**
+     * `rotateObjectsBy` turns each item about ITS OWN centre, not the selection
+     * about its middle. That is the right behaviour for a hall of tables and it is
+     * not what a user assumes, so it is said rather than discovered.
+     */
+    rotateHint: 'כל פריט מסתובב סביב עצמו',
+    mirrorSelected: 'שיקוף',
+    mirrorCopySelected: 'שיקוף עם עותק',
+    duplicateSelected: 'שכפול',
+    /** ± one seat on every selected table, each clamped to its own geometry */
+    seatsStep: 'מקומות ישיבה',
+    seatsAdd: 'מקום נוסף בכל שולחן',
+    seatsRemove: 'מקום אחד פחות בכל שולחן',
+    seatsHint: 'כל שולחן נעצר במקסימום שלו',
   },
   statusBar: {
     tables: 'שולחנות',

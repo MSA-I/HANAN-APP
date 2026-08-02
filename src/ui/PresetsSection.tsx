@@ -57,8 +57,10 @@ import {
   applyHallLayout,
   applySavedLayout,
   applySavedTableDesign,
+  applySavedTableDesignTo,
   applySavedTableDesignToAll,
   applyTableDesign,
+  applyTableDesignTo,
   applyTableDesignToAll,
   beginGesture,
   captureTableDesign,
@@ -72,6 +74,7 @@ import {
   removeHallLayout,
   removeLightingLayout,
   removeTableDesign,
+  removeTableDesignFrom,
   reshuffleHallHeights,
   setHallHeights,
   tableDesignBlock,
@@ -746,6 +749,92 @@ export function TableDesignBlock({ obj }: { obj: SceneObject }) {
         />
       )}
       {confirm.dialog}
+    </>
+  )
+}
+
+/**
+ * The same grid for a SELECTION of tables — round 5, the user's own report: with
+ * several items selected the left panel offered nothing but align, distribute and
+ * delete, so a hall could not be dressed without clicking twenty tables one by one.
+ *
+ * ⚠ IT IS A SIBLING OF `TableDesignBlock`, NOT A GENERALISATION OF IT, and that is
+ * a decision rather than laziness. `TableDesignBlock` is rendered verbatim inside
+ * the 3D popover (`viewer3d/SelectionBar3D`), where its `{ obj }` props are a
+ * declared contract; folding both scopes into one body would put the N-path under
+ * that popover with N=1, for the sake of sharing a body that differs in three of
+ * its four controls. What IS shared is everything that carries weight — the grid,
+ * the cards, the saved-design store hook and the actions themselves — so the two
+ * cannot drift on anything a user can see.
+ *
+ * THREE DIFFERENCES FROM THE SINGLE-TABLE BLOCK, each one load-bearing:
+ *
+ *  · NO "apply to every table in the hall". Two adjacent buttons, one of which
+ *    quietly ignores the selection the user just made, is precisely the accident
+ *    worth designing out. That button keeps living where "all" is unambiguous —
+ *    under a single selected table — and now says `באולם` out loud.
+ *  · NO "save the current design". `captureTableDesign` photographs ONE table;
+ *    "save the design of six tables" has no meaning, and picking one of them
+ *    arbitrarily would be a lie with a filename.
+ *  · The count is stated in the block: applying dresses `tableIds`, and the
+ *    toast afterwards says how many landed.
+ */
+export function MultiTableDesignBlock({ tableIds }: { tableIds: Id[] }) {
+  const [designId, setDesignId] = useState(TABLE_DESIGNS[0].id)
+  // ⚠ a NUMBER, never the array: a store selector that builds a fresh array on
+  // every call never settles under `useSyncExternalStore` (see `appliedHallId`)
+  const appliedCount = useEditorStore(
+    (s) => tableIds.filter((id) => designItems(s.scene, id).length > 0).length,
+  )
+  const saved = useTableDesigns()
+
+  if (!tableIds.length) return null
+  const apply = (id: string) => {
+    setDesignId(id)
+    const savedDesign = saved.find((item) => item.id === id)
+    const ids = savedDesign
+      ? applySavedTableDesignTo(savedDesign, tableIds)
+      : applyTableDesignTo(id, tableIds)
+    // `layOn` raises its own refusal when nothing landed — one toast, not two
+    if (!ids.length) return
+    // the ids are the DECOR that was laid; what the user counts is TABLES
+    const { objects } = useEditorStore.getState().scene
+    const tables = new Set<Id>()
+    for (const id of ids) {
+      const parent = objects[id]?.parentId
+      if (parent) tables.add(parent)
+    }
+    notify(N.designAppliedAll(tables.size), { tone: 'info' })
+  }
+
+  return (
+    <>
+      <ThumbGrid
+        value={designId}
+        onChange={apply}
+        options={TABLE_DESIGNS.map((d) => ({ ...d, thumbnail: designThumb(d) }))}
+      />
+      {saved.length > 0 && (
+        <>
+          <SubHeading>{T.savedDesigns}</SubHeading>
+          <div className="grid grid-cols-2 gap-1.5">
+            {saved.map((layout) => (
+              <SavedLayoutCard
+                key={layout.id}
+                layout={layout}
+                active={designId === layout.id}
+                subtitle={T.tableDesign}
+                onApply={() => apply(layout.id)}
+              />
+            ))}
+          </div>
+        </>
+      )}
+      {appliedCount > 0 && (
+        <button className={dangerClass} onClick={() => removeTableDesignFrom(tableIds)}>
+          {T.removeFromSelected}
+        </button>
+      )}
     </>
   )
 }
