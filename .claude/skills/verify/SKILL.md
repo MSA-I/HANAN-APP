@@ -10,10 +10,13 @@ description: Build, launch and drive HANAN-APP end-to-end (headless) to verify c
 - Confirm the server is up: `Invoke-WebRequest http://127.0.0.1:3001` → 200.
 
 ## Drive it (headless — the Chrome extension blocks localhost)
-The claude-in-chrome extension refuses localhost/private-IP navigation (site permissions), so drive with puppeteer-core + the system Edge instead:
+The claude-in-chrome extension refuses localhost/private-IP navigation (site permissions), so drive with puppeteer-core + the system Chrome instead:
 
 - `npm install --no-save puppeteer-core`
-- Edge binary: `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`
+- Chrome binary: `C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`
+  ⚠ **Chrome, not Edge.** Edge does not work for verification on this machine (2026-08-02); the
+  older instruction to use `msedge.exe` is wrong and every plan document that inherited it is wrong
+  with it. If Chrome ever moves, look for it under both `Program Files` and `Program Files (x86)`.
 - Put the script inside the repo (e.g. `.tmp/verify.mjs` — gitignored) so `node_modules` resolves.
 - Launch args: `['--enable-unsafe-swiftshader', '--lang=he']` (SwiftShader enables WebGL for the 3D view).
 
