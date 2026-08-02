@@ -444,16 +444,46 @@ interface SliderFieldProps {
   step?: number
   /** shown after the value, e.g. '°' */
   unit?: string
+  /** one line under the track, same class as `Stepper`'s */
+  hint?: string
+  /** a dead track reads as broken, so say so instead: pair it with a `hint` */
+  disabled?: boolean
+  /**
+   * Bracket the whole drag as ONE undo entry.
+   *
+   * ⚠ React maps a range input's `input` event to `onChange`, so `onChange`
+   * fires on every pixel of a drag — and a writer that opens and closes its own
+   * gesture per call therefore records one undo step per tick. MEASURED on this
+   * component before the props existed: dragging `מרחק מהרצפה` end to end cost
+   * 20 Ctrl+Z at 40 pointer moves and 38 at 120, against a zundo ceiling of 100.
+   *
+   * Both are optional, so the four existing call sites keep their old behaviour
+   * until they opt in.
+   */
+  onGestureStart?: () => void
+  onGestureEnd?: () => void
   onChange: (v: number) => void
 }
 
 /** Range slider: LTR track inside RTL layout, live value readout. */
-export function SliderField({ label, value, min, max, step = 1, unit = '', onChange }: SliderFieldProps) {
+export function SliderField({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  unit = '',
+  hint,
+  disabled = false,
+  onGestureStart,
+  onGestureEnd,
+  onChange,
+}: SliderFieldProps) {
   return (
     <div>
       <div className="mb-1 flex items-center justify-between">
-        <span className="text-[14px] text-ink-soft">{label}</span>
-        <span className="ltr-nums text-[14px] font-medium text-ink">
+        <span className={`text-[14px] text-ink-soft${disabled ? ' opacity-40' : ''}`}>{label}</span>
+        <span className={`ltr-nums text-[14px] font-medium text-ink${disabled ? ' opacity-40' : ''}`}>
           {Math.round(value * 100) / 100}
           {unit}
         </span>
@@ -465,10 +495,21 @@ export function SliderField({ label, value, min, max, step = 1, unit = '', onCha
         max={max}
         step={step}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-accent"
+        // pointer for the drag, key for the arrow keys, blur as the backstop:
+        // a pointer released outside the window never delivers `pointerup` here,
+        // and an unclosed gesture leaves history paused for the rest of the session
+        onPointerDown={onGestureStart}
+        onPointerUp={onGestureEnd}
+        onPointerCancel={onGestureEnd}
+        onKeyDown={onGestureStart}
+        onKeyUp={onGestureEnd}
+        onBlur={onGestureEnd}
+        className="w-full accent-accent disabled:opacity-40"
         aria-label={label}
       />
+      {hint && <p className="mt-1 text-[13px] text-ink-soft">{hint}</p>}
     </div>
   )
 }

@@ -1204,6 +1204,68 @@ describe('migrateAndValidate', () => {
     expect(revived.project.scene.objects.c1.appearance).toEqual({ candle: { color: '#c62828' } })
   })
 
+  /**
+   * PLAN-06 §7.3, and the assertion the whole of §4.7 rests on.
+   *
+   * The scattered lighting rig stores three numbers per fixture — `hangTier`,
+   * `hangBase`, `hangSpread` — in `meta`, and declares NOTHING in zod for them.
+   * That is only free because `meta` is a `z.record` of primitives
+   * (core/migrations/index.ts): an unnamed key survives a load. `SceneSettings`
+   * next door is a `z.object` and would STRIP all three in silence, which is
+   * precisely what happened to `stackedOn` for a whole round and is why the
+   * spread lives on the objects and not in the settings.
+   *
+   * If this ever fails, the schema was tightened and §4.7 is void: the three keys
+   * need declaring, or the scatter resets itself on every open with nothing
+   * anywhere reporting it.
+   */
+  it('keeps the hang tier, base and spread a lighting design wrote into meta (v13)', () => {
+    const file = validFile()
+    const lamp = getCatalogEntry('lamp.chandelier-diamond')
+    ;(file.project.scene.objects as Record<string, unknown>).f1 = {
+      ...storedObject('f1', lamp.id, { ...lamp.defaultSize }, 600, 400),
+      transform: { position: { x: 600, y: 400 }, rotation: 0, elevation: 630 },
+      meta: { design: 'hall.chandeliers-diamond', hangTier: -1, hangBase: 480, hangSpread: 300 },
+    }
+    file.project.scene.objectOrder.push('f1')
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(file)))
+    expect(revived.schemaVersion).toBe(SCHEMA_VERSION)
+    const f1 = revived.project.scene.objects.f1
+    // the values AND their types: a number coerced to a string would still be
+    // "present" and would still break `tierElevation`
+    expect(f1.meta).toEqual({
+      design: 'hall.chandeliers-diamond',
+      hangTier: -1,
+      hangBase: 480,
+      hangSpread: 300,
+    })
+    expect(typeof f1.meta.hangTier).toBe('number')
+    expect(typeof f1.meta.hangBase).toBe('number')
+    expect(typeof f1.meta.hangSpread).toBe('number')
+    // and the elevation the tier produced is stored as itself, not re-derived
+    expect(f1.transform.elevation).toBe(630)
+  })
+
+  /**
+   * The other half of §4.7: a project saved BEFORE the feature has none of the
+   * three keys, and must load as it always did. `appliedHallBase` falls back to
+   * `transform.elevation` and a missing `hangSpread` reads as 0 — the old flat
+   * plane — so no migration is needed and `SCHEMA_VERSION` stays put.
+   */
+  it('leaves a pre-scatter fixture without the keys rather than inventing them', () => {
+    const file = validFile()
+    const lamp = getCatalogEntry('lamp.chandelier-diamond')
+    ;(file.project.scene.objects as Record<string, unknown>).f1 = {
+      ...storedObject('f1', lamp.id, { ...lamp.defaultSize }, 600, 400),
+      transform: { position: { x: 600, y: 400 }, rotation: 0, elevation: 480 },
+      meta: { design: 'hall.chandeliers-diamond' },
+    }
+    file.project.scene.objectOrder.push('f1')
+    const meta = migrateAndValidate(JSON.parse(JSON.stringify(file))).project.scene.objects.f1.meta
+    expect(meta).toEqual({ design: 'hall.chandeliers-diamond' })
+    expect('hangSpread' in meta).toBe(false)
+  })
+
   it('rejects garbage', () => {
     expect(() => migrateAndValidate({ nope: true })).toThrow()
     expect(() => migrateAndValidate(null)).toThrow()

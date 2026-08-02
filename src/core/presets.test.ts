@@ -6,7 +6,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { getCatalogEntry, hasCatalogEntry } from './catalog/registry'
 import { HALL_LAYOUTS, layoutStats } from './hallLayouts'
-import { clampHang, hangRange } from './layout/beams'
+import { clampHang, hangRange, maxHangSpread } from './layout/beams'
 import { holeRadius } from './layout/bounds'
 import { checkPlacement } from './layout/collision'
 import { maxSeatsForEntry } from './layout/seatLayout'
@@ -18,8 +18,12 @@ import {
   applyTableDesign,
   beginGesture,
   endGesture,
+  hallFixtureIds,
   newProject,
+  reshuffleHallHeights,
   setElevation,
+  setHallHeights,
+  setLocked,
   undo,
 } from '../state/actions'
 import { useEditorStore } from '../state/store'
@@ -144,6 +148,135 @@ describe('a hall design applied at its floorDistance', () => {
     const after = useEditorStore.getState().scene
     expect(after.objectOrder).toHaveLength(before)
     for (const id of ids) expect(after.objects[id]).toBeUndefined()
+  })
+})
+
+/**
+ * PLAN-06 §7.2 — the scattered rig, driven through the real actions.
+ *
+ * Component tests do not exist in this project (`vite.config.ts` runs vitest in
+ * `environment: 'node'` over `src/**` /`*.test.ts` only), so the behaviour under
+ * test is the action sequence `HallDesignBlock` runs, exactly as the block above
+ * does for the flat case.
+ */
+describe('a hall design scattered over three tiers', () => {
+  const pack = getVenuePack('resort')!
+  const DESIGN = 'hall.chandeliers-diamond'
+
+  beforeEach(() => {
+    newProject({ name: 'scatter', venuePackId: 'resort' })
+  })
+
+  const scene = () => useEditorStore.getState().scene
+  const elevations = () => hallFixtureIds(scene()).map((id) => scene().objects[id].transform.elevation)
+  const designOf = (id: string) => HALL_DESIGNS.find((d) => d.id === id)!
+  const heightOf = (id: string) => getCatalogEntry(designOf(id).catalogId).defaultSize.height
+
+  const lay = (id = DESIGN) => {
+    applyHallDesign(id)
+    return designOf(id).floorDistance!
+  }
+
+  it('leaves every fixture on the base at spread 0 — the pre-feature scene', () => {
+    const fd = lay()
+    setHallHeights(fd, 0)
+    const es = elevations()
+    expect(es.length).toBeGreaterThan(2)
+    for (const e of es) expect(e).toBe(fd)
+  })
+
+  it('produces exactly three distinct heights, evenly stepped about the base', () => {
+    const fd = lay()
+    const spread = 300
+    setHallHeights(fd, spread)
+    const distinct = [...new Set(elevations())].sort((a, b) => a - b)
+    expect(distinct).toEqual([fd - spread / 2, fd, fd + spread / 2])
+  })
+
+  it.each(HALL_DESIGNS)('$id keeps every fixture inside its own hangRange', (design) => {
+    const fd = lay(design.id)
+    const h = heightOf(design.id)
+    const range = hangRange(pack, pack.wallHeight, h)
+    // deliberately over-asked: four times the legal spread, to prove the band
+    // shrinks rather than the fixtures being clipped out of the range
+    setHallHeights(fd, 4 * maxHangSpread(pack, pack.wallHeight, h, fd))
+    for (const e of elevations()) {
+      expect(e).toBeGreaterThanOrEqual(range.min)
+      expect(e).toBeLessThanOrEqual(range.max)
+    }
+  })
+
+  /**
+   * ⭐ The claim the whole design exists to make: the slider STRETCHES one drawn
+   * pattern, it does not draw a new one. Without it the user can never converge —
+   * every nudge throws away the arrangement he was nudging towards.
+   */
+  it('gives back the same heights when the spread returns to a value it had', () => {
+    const fd = lay()
+    setHallHeights(fd, 100)
+    const first = elevations()
+    setHallHeights(fd, 250)
+    expect(elevations()).not.toEqual(first)
+    setHallHeights(fd, 100)
+    expect(elevations()).toEqual(first)
+  })
+
+  it('translates the whole pattern when only the base moves', () => {
+    const fd = lay()
+    setHallHeights(fd, 100)
+    const before = elevations()
+    setHallHeights(fd - 40, 100)
+    // −40 exactly, per fixture: a re-roll would shuffle which fixture sits where
+    expect(elevations()).toEqual(before.map((e) => e - 40))
+  })
+
+  it('costs ONE Ctrl+Z for a whole slider drag', () => {
+    const fd = lay()
+    setHallHeights(fd, 0)
+    const before = elevations()
+
+    beginGesture()
+    setHallHeights(fd, 80)
+    setHallHeights(fd, 160)
+    setHallHeights(fd, 240)
+    endGesture()
+    expect(elevations()).not.toEqual(before)
+
+    undo()
+    expect(elevations()).toEqual(before)
+  })
+
+  it('leaves a locked fixture where it is and moves the rest', () => {
+    const fd = lay()
+    setHallHeights(fd, 0)
+    const ids = hallFixtureIds(scene())
+    setLocked([ids[0]], true)
+    setHallHeights(fd, 300)
+
+    expect(scene().objects[ids[0]].transform.elevation).toBe(fd)
+    // and it really was a drag that would otherwise have moved things
+    expect(new Set(ids.slice(1).map((id) => scene().objects[id].transform.elevation)).size).toBeGreaterThan(1)
+  })
+
+  it('re-rolls the tiers without moving a fixture in plan', () => {
+    const fd = lay()
+    setHallHeights(fd, 300)
+    const ids = hallFixtureIds(scene())
+    const positions = ids.map((id) => ({ ...scene().objects[id].transform.position }))
+
+    // it is a draw, so it can legitimately repeat: try until it differs, and fail
+    // loudly if it never does rather than looping forever
+    let changed = false
+    for (let i = 0; i < 20 && !changed; i++) {
+      const before = elevations()
+      reshuffleHallHeights()
+      changed = JSON.stringify(elevations()) !== JSON.stringify(before)
+    }
+    expect(changed).toBe(true)
+    // the whole point of the button: the same fixtures, still where the user put them
+    expect(hallFixtureIds(scene())).toEqual(ids)
+    expect(ids.map((id) => ({ ...scene().objects[id].transform.position }))).toEqual(positions)
+    expect([...new Set(elevations())].sort((a, b) => a - b)).toEqual([fd - 150, fd, fd + 150])
   })
 })
 

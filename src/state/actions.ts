@@ -39,7 +39,14 @@ import {
   rectRing,
   tableCellSize,
 } from '../core/layout/fillHall'
-import { beamGrid, clampHang, snapToBeam } from '../core/layout/beams'
+import {
+  beamGrid,
+  clampHang,
+  rollHangTiers,
+  snapToBeam,
+  tierElevation,
+  type HangTier,
+} from '../core/layout/beams'
 import { isZoneInside } from '../core/layout/zoneOccupancy'
 import { seatItemTransforms } from '../core/layout/seatItemLayout'
 import { seatItemSeatsForEntry } from '../core/layout/seatLayout'
@@ -1574,6 +1581,33 @@ function hallDesignIds(scene: SceneState): Id[] {
   return scene.objectOrder.filter((id) => scene.objects[id]?.meta.design !== undefined)
 }
 
+/**
+ * The CEILING fixtures a hall design put in the scene — the set the two height
+ * sliders move, read back from the tag `applyHallDesign` writes rather than from
+ * the ids it returned, which go stale on the first undo.
+ *
+ * ⚠ Deliberately NARROWER than `hallDesignIds`, by the ceiling test. That one
+ * feeds the DELETE paths of `applyHallDesign`/`removeHallDesign` and must not be
+ * narrowed here — changing which objects a re-apply wipes is a risk with nothing
+ * to do with this feature. This one feeds height WRITES, where the extra test
+ * keeps a table's design-tagged decor out of the list; `setElevation` refuses
+ * those anyway, so it is belt and braces on a read. The gap between the two is
+ * logged in PLAN-06 §9.
+ *
+ * Was a private twin in `PresetsSection.tsx`; one place now.
+ */
+export function hallFixtureIds(scene: SceneState): Id[] {
+  return scene.objectOrder.filter((id) => {
+    const obj = scene.objects[id]
+    return (
+      !!obj &&
+      obj.meta.design !== undefined &&
+      hasCatalogEntry(obj.catalogId) &&
+      getCatalogEntry(obj.catalogId).placement === 'ceiling'
+    )
+  })
+}
+
 export function hasHallDesign(scene: SceneState): boolean {
   return hallDesignIds(scene).length > 0
 }
@@ -1620,6 +1654,104 @@ export function removeHallDesign(): void {
     scene.objectOrder = scene.objectOrder.filter((id) => !!scene.objects[id])
   })
   pruneSelection()
+}
+
+/** `meta.hangTier` read back as one of the three legal tiers. */
+function storedTier(raw: unknown): HangTier {
+  return raw === 1 ? 1 : raw === -1 ? -1 : 0
+}
+
+/**
+ * Deal a tier to every fixture in `ids` that is missing one, in place.
+ *
+ * "If ONE is missing, roll them ALL" is safe because the group is all-or-none: a
+ * fixture that lost its `meta` (only `replaceObject` does that) lost `meta.design`
+ * with it and so left the group entirely. There is no in-between state. It is also
+ * what makes a fresh design get a fresh draw for free — `applyHallDesign` deletes
+ * and recreates, and new objects are born without a tier.
+ */
+function ensureHangTiers(scene: SceneState, ids: Id[]): void {
+  if (ids.every((id) => typeof scene.objects[id].meta.hangTier === 'number')) return
+  const tiers = rollHangTiers(ids.map((id) => scene.objects[id].transform.position))
+  ids.forEach((id, i) => {
+    scene.objects[id].meta.hangTier = tiers[i]
+  })
+}
+
+/**
+ * Height of the hall design's fixtures: one base for all of them, and on top of
+ * it a symmetric scatter over three tiers `spread` cm wide.
+ *
+ * ONE mutation for the whole rig rather than `setElevation` in a loop. A slider
+ * drag fires a tick per pixel, and N produce calls per tick over 40 fixtures is
+ * 1600 fresh scenes for one drag.
+ *
+ * ⚠ The draw happens HERE and nowhere else, exactly once per fixture for its
+ * whole life. After that the height is a pure function of (hangTier, base,
+ * spread) — and that is what lets the user converge: dragging the slider stretches
+ * the SAME pattern instead of rolling a new one. Re-rolling per tick is not a
+ * feature, it is noise, and it is the failure this design exists to prevent.
+ *
+ * `clampHang` still runs inside `tierElevation`, so the elevation invariant holds
+ * whatever base and spread are handed in.
+ */
+export function setHallHeights(base: number, spread: number): void {
+  mutateScene((scene) => {
+    const ids = hallFixtureIds(scene)
+    if (!ids.length) return
+    ensureHangTiers(scene, ids)
+    const pack = getVenuePack(scene.venue.venuePackId)
+    for (const id of ids) {
+      const obj = scene.objects[id]
+      // a locked fixture (or one on a locked layer) keeps its height, exactly as
+      // `setElevation` already refuses it — PLAN-06 §9 notes that this is silent
+      if (isEffectivelyLocked(scene, obj)) continue
+      obj.meta.hangBase = base
+      obj.meta.hangSpread = spread
+      obj.transform.elevation = tierElevation(
+        pack,
+        scene.venue.wallHeight,
+        obj.size.height,
+        base,
+        spread,
+        storedTier(obj.meta.hangTier),
+      )
+    }
+  })
+}
+
+/**
+ * Draw the scatter again, keeping the fixtures where they are.
+ *
+ * Without it the only re-roll a user can ask for is clicking the design card a
+ * second time — and `applyHallDesign` deletes and recreates, so that throws away
+ * every fixture he had slid along its beam. This keeps the positions and changes
+ * only which tier each one rides.
+ */
+export function reshuffleHallHeights(): void {
+  mutateScene((scene) => {
+    const ids = hallFixtureIds(scene)
+    if (!ids.length) return
+    for (const id of ids) delete scene.objects[id].meta.hangTier
+    ensureHangTiers(scene, ids)
+    const pack = getVenuePack(scene.venue.venuePackId)
+    for (const id of ids) {
+      const obj = scene.objects[id]
+      if (isEffectivelyLocked(scene, obj)) continue
+      // base and spread are whatever the rig already carries: this re-rolls the
+      // pattern, it does not re-open the two sliders
+      const base = typeof obj.meta.hangBase === 'number' ? obj.meta.hangBase : obj.transform.elevation
+      const spread = typeof obj.meta.hangSpread === 'number' ? obj.meta.hangSpread : 0
+      obj.transform.elevation = tierElevation(
+        pack,
+        scene.venue.wallHeight,
+        obj.size.height,
+        base,
+        spread,
+        storedTier(obj.meta.hangTier),
+      )
+    }
+  })
 }
 
 // ---------------------------------------------------------------------------

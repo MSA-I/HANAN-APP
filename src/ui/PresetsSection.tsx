@@ -32,7 +32,7 @@ import {
 import { getCatalogEntry, hasCatalogEntry, listByCategory } from '../core/catalog/registry'
 import { isFloorTable } from '../core/catalog/types'
 import { layoutStats, layoutsForVenue, type HallLayout } from '../core/hallLayouts'
-import { hangRange } from '../core/layout/beams'
+import { hangRange, maxHangSpread } from '../core/layout/beams'
 import type { Id, SceneObject, SceneState } from '../core/model/types'
 import { HALL_DESIGNS, TABLE_DESIGNS, TABLE_PRESETS, getHallDesign } from '../core/presets'
 import { getVenuePack } from '../core/venuePacks'
@@ -65,12 +65,15 @@ import {
   designItems,
   endGesture,
   fillHallWithTables,
+  hallFixtureIds,
   hasHallDesign,
+  isGestureActive,
   removeHallDesign,
   removeHallLayout,
   removeLightingLayout,
   removeTableDesign,
-  setElevation,
+  reshuffleHallHeights,
+  setHallHeights,
   tableDesignBlock,
   type HallLayoutOptions,
 } from '../state/actions'
@@ -254,38 +257,21 @@ const hallThumb = (design: (typeof HALL_DESIGNS)[number]) =>
   getCatalogEntry(design.catalogId).thumbnail
 
 /**
- * The fixtures a hall design put in the scene, read back from the tag
- * `applyHallDesign` writes. The action returns its ids at apply time, but the
- * height control has to reach them again afterwards, and after an undo the ids
- * the component remembered would be stale. `objectOrder` is top-level only, and
- * the ceiling test keeps a table's design-tagged DECOR out of the list —
- * `setElevation` refuses those anyway (it is ceiling-placement only), so this is
- * belt and braces on a read.
- */
-function hallFixtureIds(scene: SceneState): Id[] {
-  return scene.objectOrder.filter((id) => {
-    const obj = scene.objects[id]
-    return (
-      !!obj &&
-      obj.meta.design !== undefined &&
-      hasCatalogEntry(obj.catalogId) &&
-      getCatalogEntry(obj.catalogId).placement === 'ceiling'
-    )
-  })
-}
-
-/**
- * The design actually hanging and the height it hangs at, read off the scene
- * rather than remembered in component state. The inspector unmounts on every trip
- * through the 3D view, so a `useState` pick is forgotten while the fixtures stay —
- * and the height control would then be showing ANOTHER fixture's legal band,
- * offering the user metres that `clampHang` would silently discard.
+ * The design actually hanging, the height it hangs at and how far its fixtures
+ * are spread — read off the scene rather than remembered in component state. The
+ * inspector unmounts on every trip through the 3D view, so a `useState` pick is
+ * forgotten while the fixtures stay — and the height control would then be
+ * showing ANOTHER fixture's legal band, offering the user metres that `clampHang`
+ * would silently discard.
  *
- * ⚠ Two selectors returning PRIMITIVES, not one returning `{id, elevation}`: a
- * store selector that builds a fresh object every call fails
- * `useSyncExternalStore`'s cache check and spins ("The result of getSnapshot
- * should be cached to avoid an infinite loop"). Found by running the app, not by
- * the tests.
+ * ⚠ THREE selectors returning PRIMITIVES, not one returning
+ * `{id, elevation, spread}`: a store selector that builds a fresh object every
+ * call fails `useSyncExternalStore`'s cache check and spins ("The result of
+ * getSnapshot should be cached to avoid an infinite loop"). Found by running the
+ * app, not by the tests.
+ *
+ * `hallFixtureIds` itself now lives in `state/actions.ts` — the height WRITE
+ * needs the same set, and two definitions of one idea is how they drift.
  */
 function appliedHallId(scene: SceneState): string | null {
   const first = hallFixtureIds(scene)[0]
@@ -293,9 +279,25 @@ function appliedHallId(scene: SceneState): string | null {
   return typeof tag === 'string' ? tag : null
 }
 
-function appliedHallElevation(scene: SceneState): number | null {
+/**
+ * ⚠ The fallback to `transform.elevation` IS the backward compatibility, and it
+ * is there INSTEAD of a migration: a project saved before the scatter existed has
+ * no `meta.hangBase`, and its elevation is precisely the base it was trimmed to.
+ * A missing `hangSpread` reads as 0, i.e. the old flat plane. That is why
+ * `SCHEMA_VERSION` did not move (PLAN-06 §4.7) — do not "tidy" this away.
+ */
+function appliedHallBase(scene: SceneState): number | null {
   const first = hallFixtureIds(scene)[0]
-  return first ? scene.objects[first].transform.elevation : null
+  if (!first) return null
+  const obj = scene.objects[first]
+  return typeof obj.meta.hangBase === 'number' ? obj.meta.hangBase : obj.transform.elevation
+}
+
+function appliedHallSpread(scene: SceneState): number | null {
+  const first = hallFixtureIds(scene)[0]
+  if (!first) return null
+  const raw = scene.objects[first].meta.hangSpread
+  return typeof raw === 'number' ? raw : null
 }
 
 interface ConfirmRequest {
@@ -1187,9 +1189,13 @@ export function HallDesignBlock() {
   // cm above the floor, i.e. transform.elevation: the BOTTOM of the fixture.
   // Only consulted before anything hangs — once it does, the scene is the truth.
   const [hangCm, setHangCm] = useState(() => HALL_DESIGNS[0].floorDistance ?? 0)
+  // likewise: the scatter the user last asked for, remembered only until a rig
+  // exists to read it off
+  const [spreadCm, setSpreadCm] = useState(0)
   const hallApplied = useEditorStore((s) => hasHallDesign(s.scene))
   const appliedId = useEditorStore((s) => appliedHallId(s.scene))
-  const appliedCm = useEditorStore((s) => appliedHallElevation(s.scene))
+  const appliedCm = useEditorStore((s) => appliedHallBase(s.scene))
+  const appliedSpread = useEditorStore((s) => appliedHallSpread(s.scene))
   const venuePackId = useEditorStore((s) => s.scene.venue.venuePackId)
   const wallHeight = useEditorStore((s) => s.scene.venue.wallHeight)
 
@@ -1199,33 +1205,61 @@ export function HallDesignBlock() {
   const hallId = appliedId ?? pickedId
   const hallDesign = getHallDesign(hallId) ?? HALL_DESIGNS[0]
   const fixtureHeight = getCatalogEntry(hallDesign.catalogId).defaultSize.height
-  const range = hangRange(getVenuePack(venuePackId), wallHeight, fixtureHeight)
+  const pack = getVenuePack(venuePackId)
+  const range = hangRange(pack, wallHeight, fixtureHeight)
   const shown = Math.min(range.max, Math.max(range.min, appliedCm ?? hangCm))
 
+  // Same reasoning one level down: the scatter is bounded by the headroom THIS
+  // fixture has left either side of `shown`, so the user cannot ask for more than
+  // fits and never watches a silent clamp eat his input. Lower the height slider
+  // and this maximum grows in front of him — which is the answer to "I want more".
+  const maxSpread = maxHangSpread(pack, wallHeight, fixtureHeight, shown)
+  const shownSpread = Math.min(appliedSpread ?? spreadCm, maxSpread)
+  const noRoom = maxSpread < 10
+
   /**
-   * Apply the design and trim its fixtures to one height, as ONE undo entry
-   * (BRIEF §1.5) — `applyHallDesign` is a separate mutation from each
-   * `setElevation`, so without the gesture a single click would cost the user
-   * one Ctrl+Z per fixture. `setElevation` runs `clampHang` itself, which is why
-   * the design can state a plain plan-cm height and nothing here re-clamps it.
+   * Nest safely inside an outer gesture instead of opening a second one.
+   *
+   * ⚠ `beginGesture` is idempotent, `endGesture` is NOT: without this guard the
+   * inner `endGesture` of the FIRST tick closes the caller's bracket and the rest
+   * of the drag records a step per tick again. No test can see it — it is DOM
+   * behaviour — so it was measured in the browser instead: 20 undo entries for a
+   * 40-move drag of `מרחק מהרצפה`, 38 for a 120-move one.
    */
-  const applyHall = (id: string, cm: number) => {
+  const inGesture = (fn: () => void) => {
+    if (isGestureActive()) return fn()
     beginGesture()
     try {
-      for (const objId of applyHallDesign(id)) setElevation(objId, cm)
+      fn()
     } finally {
       endGesture()
     }
   }
 
-  /** Move fixtures already hanging. Re-applying the design instead would throw
-   *  away any fixture the user had slid along its beam since. */
-  const retrim = (cm: number) => {
-    const ids = hallFixtureIds(useEditorStore.getState().scene)
-    if (!ids.length) return
+  /**
+   * Move fixtures already hanging. Re-applying the design instead would throw
+   * away any fixture the user had slid along its beam since.
+   *
+   * One action, one mutation for the whole rig — the old loop of `setElevation`
+   * produced N fresh scenes per slider tick.
+   */
+  const applyHeights = (cm: number, spread: number) => {
+    if (!hallFixtureIds(useEditorStore.getState().scene).length) return
+    inGesture(() => setHallHeights(cm, spread))
+  }
+
+  /**
+   * Apply the design and trim its fixtures, as ONE undo entry (BRIEF §1.5) —
+   * `applyHallDesign` is a separate mutation from the heights, so without the
+   * gesture a single click would cost the user one Ctrl+Z per fixture.
+   * `setHallHeights` clamps for itself, which is why the design can state a plain
+   * plan-cm height and nothing here re-clamps it.
+   */
+  const applyHall = (id: string, cm: number, spread: number) => {
     beginGesture()
     try {
-      for (const id of ids) setElevation(id, cm)
+      applyHallDesign(id)
+      setHallHeights(cm, spread)
     } finally {
       endGesture()
     }
@@ -1240,13 +1274,18 @@ export function HallDesignBlock() {
           // hang (top against the truss) is the top of that fixture's band
           const next = getHallDesign(id)
           const entry = next ? getCatalogEntry(next.catalogId) : null
-          const band = entry
-            ? hangRange(getVenuePack(venuePackId), wallHeight, entry.defaultSize.height)
-            : range
+          const band = entry ? hangRange(pack, wallHeight, entry.defaultSize.height) : range
           const cm = next?.floorDistance ?? band.max
+          // the scatter SURVIVES the swap, shrunk to what the new fixture can take:
+          // the user chose it, and changing the kind of lamp is not a reason to
+          // throw that choice away (PLAN-06 §6ה — arguable, and argued there)
+          const spread = entry
+            ? Math.min(shownSpread, maxHangSpread(pack, wallHeight, entry.defaultSize.height, cm))
+            : shownSpread
           setPickedId(id)
           setHangCm(cm)
-          applyHall(id, cm)
+          setSpreadCm(spread)
+          applyHall(id, cm, spread)
         }}
         options={HALL_DESIGNS.map((d) => ({ ...d, thumbnail: hallThumb(d) }))}
       />
@@ -1256,15 +1295,41 @@ export function HallDesignBlock() {
         min={Math.round(range.min) / 100}
         max={Math.round(range.max) / 100}
         step={0.05}
+        onGestureStart={beginGesture}
+        onGestureEnd={endGesture}
         onChange={(v) => {
           setHangCm(v * 100)
-          retrim(v * 100)
+          applyHeights(v * 100, shownSpread)
+        }}
+      />
+      {/* Below the height and not above it: the scatter is symmetric ABOUT the
+          base, so the base is the sentence's subject and reads first. Both sit
+          under `ThumbGrid`, which decides the fixture and therefore the band that
+          bounds them both. */}
+      <SliderField
+        label={T.heightScatter}
+        hint={noRoom ? T.heightScatterNoRoom : T.heightScatterHint}
+        disabled={noRoom}
+        value={Math.round(shownSpread) / 100}
+        min={0}
+        max={Math.round(Math.max(maxSpread, 1)) / 100}
+        step={0.05}
+        onGestureStart={beginGesture}
+        onGestureEnd={endGesture}
+        onChange={(v) => {
+          setSpreadCm(v * 100)
+          applyHeights(shown, v * 100)
         }}
       />
       {hallApplied && (
-        <button className={dangerClass} onClick={() => removeHallDesign()}>
-          {T.remove}
-        </button>
+        <>
+          <button className={buttonClass} onClick={() => reshuffleHallHeights()}>
+            {T.heightScatterShuffle}
+          </button>
+          <button className={dangerClass} onClick={() => removeHallDesign()}>
+            {T.remove}
+          </button>
+        </>
       )}
     </>
   )

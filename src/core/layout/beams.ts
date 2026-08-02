@@ -180,6 +180,94 @@ export function clampHang(
 }
 
 /**
+ * The three levels a scattered rig hangs on: below the base, on it, above it.
+ *
+ * ODD on purpose. The middle tier IS the base, which is the only reason the
+ * neighbouring `מרחק מהרצפה` slider goes on describing a height that exists in
+ * the scene — with an even count no fixture sits on the value it shows.
+ */
+export const HANG_TIERS = [-1, 0, 1] as const
+export type HangTier = (typeof HANG_TIERS)[number]
+
+/**
+ * The widest SYMMETRIC scatter this fixture can take at this base height.
+ *
+ * Symmetric so the middle tier stays exactly on the base (see `HANG_TIERS`). The
+ * price is visible and deliberate: on all five hall designs `floorDistance` sits
+ * ABOVE the middle of `hangRange`, so the headroom is always the binding side,
+ * and a user who wants more scatter lowers `מרחק מהרצפה` — at which point this
+ * maximum grows in front of him.
+ */
+export function maxHangSpread(
+  pack: Pick<VenuePack, 'hangHeight'> | undefined,
+  wallHeight: number,
+  height: number,
+  base: number,
+): number {
+  const { min, max } = hangRange(pack, wallHeight, height)
+  const b = Math.min(max, Math.max(min, base))
+  return 2 * Math.max(0, Math.min(b - min, max - b))
+}
+
+/**
+ * One fixture's elevation in a scattered rig. `spread` is the FULL band width in
+ * cm; `tier` picks which of the three levels this fixture rides.
+ *
+ * ⚠ It SHRINKS the band, it does not clip fixture by fixture. Per-fixture
+ * clipping flattens the top tier onto the rail, three levels silently become two,
+ * and the user watches his scatter disappear with nothing to tell him why. The
+ * shape is the feature. `clampHang` still runs after — it is the guarantee, not
+ * the policy.
+ */
+export function tierElevation(
+  pack: Pick<VenuePack, 'hangHeight'> | undefined,
+  wallHeight: number,
+  height: number,
+  base: number,
+  spread: number,
+  tier: HangTier,
+): number {
+  const half = Math.min(spread, maxHangSpread(pack, wallHeight, height, base)) / 2
+  return clampHang(pack, wallHeight, height, base + tier * half)
+}
+
+/**
+ * Deal tiers so no fixture shares a level with its NEAREST neighbour.
+ *
+ * Random, but never twice running in the same patch: an independent draw over 40
+ * fixtures reliably produces runs of three and four at one height, and a clump
+ * like that reads as a collision rather than as a rhythm.
+ *
+ * "Nearest neighbour" and not "previous in the list": `fillHallSlots` returns
+ * row-major, so adjacent indices are neighbours in x ONLY — and the resort grid
+ * is 11 by 3, so the y neighbour would go unguarded. O(n²) over n ≤ MAX_CEILING
+ * (40) is under 800 comparisons, once in the life of the layout.
+ *
+ * `random` is injected so a test can pin a sequence and assert that the same
+ * input gives the same output — that is what stands in for a seeded PRNG in the
+ * product code, and it is why the drawn tier is STORED rather than re-derived.
+ */
+export function rollHangTiers(points: readonly Vec2[], random: () => number = Math.random): HangTier[] {
+  const out: HangTier[] = []
+  for (let i = 0; i < points.length; i++) {
+    let nearest = -1
+    let best = Infinity
+    for (let j = 0; j < i; j++) {
+      const d = (points[j].x - points[i].x) ** 2 + (points[j].y - points[i].y) ** 2
+      if (d < best) {
+        best = d
+        nearest = j
+      }
+    }
+    const pool: readonly HangTier[] = nearest < 0 ? HANG_TIERS : HANG_TIERS.filter((t) => t !== out[nearest])
+    // Math.random never returns exactly 1, but a stubbed one in a test does, and
+    // an out-of-range index here would put `undefined` into the scene
+    out.push(pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))])
+  }
+  return out
+}
+
+/**
  * Length of the procedural cord bridging the fixture's top to the truss. Zero at
  * the seeded elevation — the GLB already models its own drop there — and grows as
  * the user pulls the fixture down.

@@ -507,6 +507,22 @@ export const strings = {
     tablesSuffix: 'שולחנות',
     /** hall design: the height its fixtures hang at, measured from the floor up (source doc §43) */
     floorDistance: 'מרחק מהרצפה',
+    /**
+     * Height scatter: NOT a height control but a band-WIDTH control. 0 puts every
+     * fixture on the same height — the behaviour before the feature — and the
+     * maximum is whatever headroom this fixture has left above and below
+     * `floorDistance` (`maxHangSpread`).
+     *
+     * `פיזור גבהים` and not `גבהים רנדומליים`: the control does not decide the
+     * randomness, which was already drawn and is stored per fixture. It decides
+     * how far that pattern is stretched. A label saying "random" would make the
+     * user expect a fresh draw on every nudge — which is exactly the behaviour
+     * this design was built to prevent.
+     */
+    heightScatter: 'פיזור גבהים',
+    heightScatterHint: 'מפזר את הגופים בשלושה מפלסים סביב הגובה שנבחר. 0 — כולם באותו גובה.',
+    heightScatterNoRoom: 'אין מרווח לפיזור בגובה הזה — הורידו את "מרחק מהרצפה"',
+    heightScatterShuffle: 'ערבוב מחדש',
     items: {
       presetRound12GoldWhite: 'עגול 180 · 12 · זהב לבן',
       presetRound10XWhite: 'עגול 180 · 10 · לבן איקס',
