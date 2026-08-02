@@ -18,12 +18,18 @@ import {
   select,
   toggleSelect,
 } from '../state/actions'
-import { isEffectivelyLocked, isTable, objectAABB, visibleTopLevelIds } from '../state/selectors'
+import { isEffectivelyLocked, isTable, subtreeAABB, visibleTopLevelIds } from '../state/selectors'
 import { setDesignEditTable, useEditorStore } from '../state/store'
 import { overlay } from './overlayStore'
 import { useViewportStore } from './viewportStore'
 
-let ctx: { ids: Id[]; lines: SnapLines } | null = null
+/**
+ * `copies` — the ids Alt+drag just made, which travel with the gesture as things
+ * the gate must NOT see. See `moveObjectsBy`'s third parameter: without it the
+ * original sits inside its own copy for the whole drag, `ruled()` is false on
+ * every frame, and the placement gate is simply off.
+ */
+let ctx: { ids: Id[]; copies: Id[]; lines: SnapLines } | null = null
 let childCtx: { id: Id; parentRotation: number } | null = null
 
 /**
@@ -104,13 +110,18 @@ export function onObjectDragStart(id: Id, e: KonvaEventObject<DragEvent>): void 
     return o && !o.parentId && !isEffectivelyLocked(state.scene, o)
   })
   // hidden objects are not snap targets — only what the user can see guides them
+  // subtree, not outline: the snap line has to promise what the GATE will allow.
+  // Measured on the serpentine, the two boxes differ by 15.9 cm west and 39.5 cm
+  // east, so the line lay flat on the wall while the table stopped 38 cm short of
+  // it — and on a curved band the outline edge is up to 2 m of empty air
+  // (PLAN-07 §3.6a). Chair back to chair back is also what a hall planner means.
   const staticBoxes = visibleTopLevelIds(state.scene)
     .filter((oid) => !ids.includes(oid))
-    .map((oid) => objectAABB(state.scene, oid))
+    .map((oid) => subtreeAABB(state.scene, oid))
     .filter((b): b is AABB => !!b)
   const venue = state.scene.venue.size
   staticBoxes.push({ minX: 0, minY: 0, maxX: venue.width, maxY: venue.depth })
-  ctx = { ids, lines: collectSnapLines(staticBoxes) }
+  ctx = { ids, copies: [], lines: collectSnapLines(staticBoxes) }
   beginGesture()
   /**
    * ALT+drag duplicates, and snap-bypass moved to CTRL to make room for it.
@@ -142,7 +153,11 @@ export function onObjectDragStart(id: Id, e: KonvaEventObject<DragEvent>): void 
    * would glue the drag to its own starting point.
    */
   if (e.evt.altKey) {
-    duplicateObjects(ctx.ids, { x: 0, y: 0 })
+    // …and the copies are handed to every `moveObjectsBy` of this drag as
+    // `ignoreIds`. A copy in exact overlap is an obstacle the gesture created for
+    // itself; counting it would not merely refuse the drag, it would DISARM the
+    // gate for the whole of it (§4.3(2)).
+    ctx.copies = duplicateObjects(ctx.ids, { x: 0, y: 0 })
     select(ctx.ids)
   }
 }
@@ -158,7 +173,7 @@ export function onObjectDragMove(id: Id, e: KonvaEventObject<DragEvent>): void {
   let delta = { x: nodePos.x - obj.transform.position.x, y: nodePos.y - obj.transform.position.y }
 
   const boxes = ctx.ids
-    .map((oid) => objectAABB(state.scene, oid))
+    .map((oid) => subtreeAABB(state.scene, oid))
     .filter((b): b is AABB => !!b)
   // CTRL, not Alt — Alt now makes a copy. Mirrored in ObjectGroup.tsx for 3D.
   if (boxes.length && !(e.evt.ctrlKey || e.evt.metaKey)) {
@@ -196,7 +211,7 @@ export function onObjectDragMove(id: Id, e: KonvaEventObject<DragEvent>): void {
     })
   }
 
-  if (delta.x !== 0 || delta.y !== 0) moveObjectsBy(ctx.ids, delta)
+  if (delta.x !== 0 || delta.y !== 0) moveObjectsBy(ctx.ids, delta, ctx.copies)
   const committed = useEditorStore.getState().scene.objects[id]
   if (committed) node.position({ x: committed.transform.position.x, y: committed.transform.position.y })
 }

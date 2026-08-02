@@ -137,6 +137,16 @@ export const strings = {
         ? 'פריט אחד לא שוקף — אין לו מקום חוקי בכיוון הזה'
         : `${n} פריטים לא שוקפו — אין להם מקום חוקי בכיוון הזה`,
     /**
+     * One shared line for the three copy routes — duplicate, paste and
+     * mirror-with-copy. A `unique` item may exist once (source doc §62/§43) and
+     * `addObject` has always said so; the copy routes used to make a second one
+     * in silence, which is the same rule disagreeing with itself in three places.
+     */
+    uniqueNotCopied: (n: number) =>
+      n === 1
+        ? 'פריט אחד לא שוכפל — הוא יכול להופיע פעם אחת בלבד'
+        : `${n} פריטים לא שוכפלו — הם יכולים להופיע פעם אחת בלבד`,
+    /**
      * Why a placement was refused (core/layout/collision.ts `Violation`). `{…}`
      * placeholders are filled by StatusBar: numbers from the violation itself,
      * zone names from the venue pack's own Hebrew labels.
@@ -793,6 +803,7 @@ export const strings = {
       snapBypass: 'עקיפת הצמדה',
       dragDuplicate: 'שכפול הפריט תוך כדי גרירה',
       mirror: 'שיקוף הנבחרים',
+      mirrorCopy: 'שיקוף עם העתקה של הנבחרים',
       keepRatio: 'שמירה על יחס הצלעות',
       resizeFromCenter: 'שינוי גודל מהמרכז',
       /**
@@ -847,6 +858,10 @@ export const strings = {
     rotate90ccw: 'סיבוב 90° נגד כיוון השעון',
     /** a real reflection, which is why it is not called 'היפוך' — see Transform2D.mirrored */
     mirror: 'שיקוף',
+    /** the same reflection, with the original left standing. 'שיקוף' stays the head
+     *  word so the two lines read as a pair — and so it does not sort itself, visually,
+     *  next to `duplicate` at the top of the menu, which is where it does NOT belong. */
+    mirrorCopy: 'שיקוף עם העתקה',
     replace: 'החלפת פריט…',
     bringForward: 'הבא קדימה',
     sendBackward: 'שלח אחורה',

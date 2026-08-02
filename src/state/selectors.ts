@@ -1,7 +1,8 @@
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import type { Category } from '../core/catalog/types'
-import { outlineAABB, type AABB } from '../core/layout/bounds'
+import { aabbUnion, outlineAABB, type AABB } from '../core/layout/bounds'
 import { maxGapForSeats, maxSeatsForEntry } from '../core/layout/seatLayout'
+import { attachedChairs } from '../core/model/seatingReconciler'
 import {
   childSortKey,
   DEFAULT_LIGHTING,
@@ -33,6 +34,29 @@ export function objectAABB(scene: SceneState, id: Id): AABB | null {
   if (!obj || !world) return null
   const outline = getCatalogEntry(obj.catalogId).footprint(obj.size).outline
   return outlineAABB(world, outline)
+}
+
+/**
+ * Footprint of a top-level object INCLUDING its attached chairs (world/plan).
+ *
+ * The box the placement rules actually judge — `objectAABB` above is the outline
+ * alone, and for a laid table the two are far apart: measured on the serpentine,
+ * 15.9 cm at the west edge and 39.5 cm at the east. Snapping to the outline while
+ * the gate measures the subtree is what makes a snap line promise a wall the table
+ * then stops 38 cm short of (PLAN-07 §3.6a).
+ *
+ * Lives here rather than in state/actions.ts, where it was private, because the
+ * 2D drag controller is now the second caller. `actions.ts` imports it back.
+ */
+export function subtreeAABB(scene: SceneState, id: Id): AABB | null {
+  const boxes: AABB[] = []
+  const self = objectAABB(scene, id)
+  if (self) boxes.push(self)
+  for (const chair of attachedChairs(scene, id)) {
+    const b = objectAABB(scene, chair.id)
+    if (b) boxes.push(b)
+  }
+  return boxes.length ? aabbUnion(boxes) : null
 }
 
 export function childrenOf(scene: SceneState, id: Id): SceneObject[] {
