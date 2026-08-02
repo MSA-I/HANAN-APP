@@ -161,6 +161,10 @@ describe('the safety floor', () => {
    * failure of the package; one surplus reference costs a slot. When the
    * measurement claims a full room is empty, the measurement is what goes.
    */
+  /** Everything the frustum accepted, probed and reported as covering nothing. */
+  const allZero = (scene: SceneState, camera: SealedCamera): Coverage =>
+    Object.fromEntries(objectsInFrame(scene, camera).map((o) => [o.id, 0]))
+
   it('falls back to the frustum when a measurement empties a full room', () => {
     const scene = sceneWith(
       createObject('table.round', MIDDLE, venue),
@@ -169,7 +173,7 @@ describe('the safety floor', () => {
     const unmeasured = selectRefs(scene, cam('s1'))
     expect(unmeasured.groups.length).toBeGreaterThan(0)
 
-    const collapsed = selectRefs(scene, cam('s1'), {})
+    const collapsed = selectRefs(scene, cam('s1'), allZero(scene, cam('s1')))
     expect(collapsed.groups).toEqual(unmeasured.groups)
     expect(collapsed.refs).toEqual(unmeasured.refs)
     expect(collapsed.warnings.join(' ')).toContain('Visibility measurement found none')
@@ -177,7 +181,7 @@ describe('the safety floor', () => {
 
   it('says so out loud rather than degrading quietly', () => {
     const scene = sceneWith(createObject('table.round', MIDDLE, venue))
-    const pkg = composeExport(scene, 's1', {})
+    const pkg = composeExport(scene, 's1', allZero(scene, cam('s1')))
     expect(pkg.warnings.join(' ')).toContain('it was discarded')
     // …and the package is still complete
     expect(pkg.prompt).toContain('TABLES:')
@@ -187,6 +191,18 @@ describe('the safety floor', () => {
     const empty = selectRefs(sceneWith(), cam('s1'), {})
     expect(empty.groups).toEqual([])
     expect(empty.warnings.join(' ')).not.toContain('Visibility measurement found none')
+  })
+
+  /**
+   * An empty map is "the oracle probed nothing", not "the oracle saw nothing" —
+   * `measureCoverage` returns undefined rather than {} when there is nothing
+   * tagged, but the distinction has to hold here regardless.
+   */
+  it('treats a map that measured nothing as a no-op, not as a collapse', () => {
+    const scene = sceneWith(createObject('table.round', MIDDLE, venue))
+    const nothing = selectRefs(scene, cam('s1'), {})
+    expect(nothing.groups.map((g) => g.catalogId)).toEqual(['table.round'])
+    expect(nothing.warnings.join(' ')).not.toContain('Visibility measurement found none')
   })
 
   it('does not cry fallback when the measurement merely thins the list', () => {
@@ -251,5 +267,46 @@ describe('ranking inside a tier', () => {
       [table.id]: 0.5,
     }).map((g) => g.entry.category)
     expect(order[0]).toBe('chuppah')
+  })
+})
+
+/**
+ * The chair case, which the calibration run found and the plan's own sketch
+ * would have got wrong.
+ *
+ * `objectsInFrame` accepted 305 objects on a dressed hall while the oracle could
+ * probe 42: seating renders as one InstancedMesh per table, so a chair has no
+ * `userData.objectId` to hide and re-render. It is therefore ABSENT from the
+ * coverage map rather than present-and-zero, and `(coverage[id] ?? 0) >= MIN`
+ * would have deleted every chair in the room from every export.
+ */
+describe('an object nobody could measure keeps the frustum’s answer', () => {
+  it('keeps a product the coverage map says nothing about', () => {
+    const table = createObject('table.round', MIDDLE, venue)
+    const chair = createObject('chair.x-white', at(2150, 850), venue)
+    const scene = sceneWith(table, chair)
+    // only the table was probed; the chair is not a key at all
+    const groups = selectRefs(scene, cam('s1'), { [table.id]: 0.1 }).groups
+    expect(groups.map((g) => g.catalogId).sort()).toEqual(['chair.x-white', 'table.round'])
+    expect(composeExport(scene, 's1', { [table.id]: 0.1 }).prompt).toContain('CHAIRS:')
+  })
+
+  it('still cuts a product that was probed and measured zero', () => {
+    const table = createObject('table.round', MIDDLE, venue)
+    const chair = createObject('chair.x-white', at(2150, 850), venue)
+    const scene = sceneWith(table, chair)
+    const groups = selectRefs(scene, cam('s1'), { [table.id]: 0.1, [chair.id]: 0 }).groups
+    expect(groups.map((g) => g.catalogId)).toEqual(['table.round'])
+  })
+
+  it('does not let an unmeasurable group win the tie-break it cannot compete in', () => {
+    // its coverage sums to 0 because nothing was recorded; count must still rank it
+    const chairs = Array.from({ length: 8 }, (_, i) =>
+      createObject('chair.x-white', at(2100 + i * 30, 850), venue),
+    )
+    const scene = sceneWith(...chairs)
+    const groups = groupForRefs(scene, cam('s1'), { nobody: 0.5 })
+    expect(groups.map((g) => g.catalogId)).toEqual(['chair.x-white'])
+    expect(groups[0].count).toBe(8)
   })
 })

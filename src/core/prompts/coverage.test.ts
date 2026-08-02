@@ -111,10 +111,16 @@ describe('the threshold', () => {
     expect(isVisibleEnough(MIN_COVERAGE_FRACTION * 0.999)).toBe(false)
   })
 
-  it('treats an unmeasured object as invisible', () => {
-    // reached only when a coverage map EXISTS and omits the id, which means the
-    // oracle looked and found nothing — not "nobody looked"
-    expect(isVisibleEnough(undefined)).toBe(false)
+  /**
+   * The line that keeps two hundred and fifty chairs in the prompt.
+   *
+   * A calibration run over a dressed hall had the frustum accept 305 objects
+   * while the oracle could only probe 42: seating renders as one InstancedMesh
+   * per table, so individual chairs carry no tag to hide. Reading their absence
+   * from the map as zero would delete every chair from every export.
+   */
+  it('keeps an object nobody could measure, and cuts one that measured zero', () => {
+    expect(isVisibleEnough(undefined)).toBe(true)
     expect(isVisibleEnough(0)).toBe(false)
   })
 

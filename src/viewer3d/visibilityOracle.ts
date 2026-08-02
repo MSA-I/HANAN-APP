@@ -53,12 +53,22 @@ const MEASURE_HEIGHT = Math.round(
   (MEASURE_WIDTH * CAPTURE_SIZE.height) / CAPTURE_SIZE.width,
 )
 
-/** Every tagged object in the tree, by the id `ObjectGroup` stamped on it. */
-function taggedObjects(scene: Scene): Map<string, Object3D[]> {
+/**
+ * Every tagged object in the tree, by the id `ObjectGroup` stamped on it —
+ * narrowed to `only` when the caller has already ruled some out.
+ *
+ * `only` is the frustum's answer, and passing it is worth real time: each id
+ * costs one full render plus one readback, and on a measured resort hall 53
+ * objects were being probed to answer a question the frustum had already
+ * answered for most of them. On the reception deck, which faces away from the
+ * hall entirely, it takes the work to nothing.
+ */
+function taggedObjects(scene: Scene, only?: ReadonlySet<string>): Map<string, Object3D[]> {
   const found = new Map<string, Object3D[]>()
   scene.traverse((node) => {
     const id = node.userData?.objectId
     if (typeof id !== 'string' || !id) return
+    if (only && !only.has(id)) return
     const list = found.get(id)
     if (list) list.push(node)
     else found.set(id, [node])
@@ -99,8 +109,13 @@ function renderInto(
  * scene the user is looking at — leaving an object hidden would be worse than
  * any wrong reference.
  */
-export function measureCoverage(gl: WebGLRenderer, scene: Scene, camera: Camera): Coverage | undefined {
-  const tagged = taggedObjects(scene)
+export function measureCoverage(
+  gl: WebGLRenderer,
+  scene: Scene,
+  camera: Camera,
+  only?: ReadonlySet<string>,
+): Coverage | undefined {
+  const tagged = taggedObjects(scene, only)
   if (!tagged.size) return undefined
 
   const target = new WebGLRenderTarget(MEASURE_WIDTH, MEASURE_HEIGHT, {

@@ -12,8 +12,9 @@ import { EquirectangularReflectionMapping, SRGBColorSpace, Vector3, type Perspec
 import { Box, Camera, Check, Download, Eye, Grid2x2, Images, RotateCcw } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { composeExport, exportableAngles } from '../core/prompts/compose'
-import { BACKGROUND_REF, CAPTURE_SIZE, HALL_FLOOR_REF } from '../core/prompts/refs'
-import { getVenuePack } from '../core/venuePacks'
+import { BACKGROUND_REF, CAPTURE_SIZE, HALL_FLOOR_REF, objectsInFrame } from '../core/prompts/refs'
+import { getVenuePack, type SealedCamera } from '../core/venuePacks'
+import type { SceneState } from '../core/model/types'
 import { useOverlayStore } from '../editor2d/overlayStore'
 import { exportPromptPackage, type PromptExportOutcome, type PromptExportStatus } from '../persistence/export'
 import { strings } from '../ui/strings'
@@ -45,12 +46,34 @@ import { VenueMesh } from './VenueMesh'
  * `scene` is here because the camera is NOT parented into the graph, so walking
  * up from it reaches nothing — and the shadow rig can only be asserted on by
  * finding the sun and reading its shadow frustum (Plans/R2/PERF-REPORT.md).
+ *
+ * `measureCoverage` and `sceneState` are PLAN-05 C3's: calibrating
+ * MIN_COVERAGE_FRACTION means reading real coverage numbers off a real dressed
+ * hall from all seven sealed angles, and neither the measurement nor the object
+ * table is otherwise reachable from a page script. `measureCoverage` goes
+ * through `measureCoverage3d`, i.e. the exact function the export button calls,
+ * so what is calibrated is what ships rather than a parallel implementation.
  */
 function DevProbe({ controlsRef }: { controlsRef: RefObject<CameraControlsImpl | null> }) {
   const { gl, scene, camera, invalidate } = useThree()
   useEffect(() => {
     const w = window as typeof window & { __viewer3d?: unknown }
-    w.__viewer3d = { gl, scene, camera, controlsRef, invalidate, info: () => gl.info }
+    w.__viewer3d = {
+      gl,
+      scene,
+      camera,
+      controlsRef,
+      invalidate,
+      info: () => gl.info,
+      measureCoverage: (only?: string[]) =>
+        measureCoverage3d(only ? new Set(only) : undefined),
+      sceneState: () => useEditorStore.getState().scene,
+      objectsInFrame: (angleId: string) => {
+        const s = useEditorStore.getState().scene
+        const c = getVenuePack(s.venue.venuePackId)?.cameras?.find((x) => x.id === angleId)
+        return objectsInFrame(s, c ?? null).map((o) => o.id)
+      },
+    }
     return () => {
       delete w.__viewer3d
     }
@@ -197,13 +220,13 @@ function CoverageRegistrar() {
   const scene = useThree((s) => s.scene)
   const camera = useThree((s) => s.camera)
   useEffect(() => {
-    registerMeasureCoverage3d(() => {
+    registerMeasureCoverage3d((only) => {
       const cam = camera as PerspectiveCamera
       const origAspect = cam.aspect
       try {
         cam.aspect = CAPTURE_SIZE.width / CAPTURE_SIZE.height
         cam.updateProjectionMatrix()
-        return measureCoverage(gl, scene, camera)
+        return measureCoverage(gl, scene, camera, only)
       } finally {
         cam.aspect = origAspect
         cam.updateProjectionMatrix()
@@ -318,6 +341,17 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
     })
 
   /**
+   * PLAN-05 C3. The oracle costs one render and one readback per object, so it
+   * is only asked about objects the frustum already accepted — the same cheap
+   * pre-filter `objectsInFrame` applies before the coverage gate, reused here to
+   * decide what is worth probing. Measured on a dressed resort hall this drops
+   * the work from 53 objects to what is in front of the camera, and on the
+   * reception deck, which faces away from the hall, to nothing at all.
+   */
+  const measureVisible = (scene: SceneState, angle: SealedCamera | undefined) =>
+    measureCoverage3d(new Set(objectsInFrame(scene, angle ?? null).map((o) => o.id)))
+
+  /**
    * Block until the eye is actually AT `position`, or give up after ~1s.
    *
    * `setLookAt` only records where the camera should go; camera-controls moves
@@ -405,13 +439,13 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
     // the chips fly with an animated transition — capturing mid-flight would
     // export a frame from somewhere between two angles
     if (angle) await settleAt(angle.position)
+    const { scene, projectName } = useEditorStore.getState()
     // PLAN-05 C3 — measured from the settled camera, after clearSelection above
     // (a selection outline would be counted as part of whatever it wraps) and
     // before grabFrame, so the frame measured is the frame sent.
-    const coverage = measureCoverage3d()
+    const coverage = measureVisible(scene, angle)
     const url = await grabFrame()
     if (!url) return
-    const { scene, projectName } = useEditorStore.getState()
     if (!angle) {
       // a free preset: no sealed camera, so no angle template and no frustum
       try {
@@ -457,12 +491,12 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
         applySealedCamera(controls, cam, false)
         setActive(cam.id)
         await settleAt(cam.position)
+        const state = useEditorStore.getState()
         // measured per angle, never once for the batch: what is visible is the
         // whole question and it is different from every one of the seven
-        const coverage = measureCoverage3d()
+        const coverage = measureVisible(state.scene, cam)
         const url = await grabFrame()
         if (!url) continue
-        const state = useEditorStore.getState()
         outcomes.push(
           await exportPromptPackage(
             composeExport(state.scene, cam.id, coverage),

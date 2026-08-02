@@ -11,7 +11,13 @@
  */
 import type { Coverage } from '../core/prompts/refs'
 
-export type MeasureCoverage3dFn = () => Coverage | undefined
+/**
+ * `only` narrows the measurement to ids worth probing — in practice whatever the
+ * frustum already accepted. Each id costs one render and one readback, so this
+ * is the difference between measuring a hall and measuring the four things in
+ * front of the camera. Omitted means "probe everything tagged".
+ */
+export type MeasureCoverage3dFn = (only?: ReadonlySet<string>) => Coverage | undefined
 
 let current: MeasureCoverage3dFn | null = null
 
@@ -19,6 +25,6 @@ export function registerMeasureCoverage3d(fn: MeasureCoverage3dFn | null): void 
   current = fn
 }
 
-export function measureCoverage3d(): Coverage | undefined {
-  return current ? current() : undefined
+export function measureCoverage3d(only?: ReadonlySet<string>): Coverage | undefined {
+  return current ? current(only) : undefined
 }

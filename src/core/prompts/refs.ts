@@ -343,6 +343,10 @@ export type Coverage = Record<Id, number>
  * and it is the only answer available under vitest; the coverage test is a
  * second gate behind it, never a replacement. An object the frustum rejects is
  * never measured in the first place.
+ *
+ * ⚠ An id MISSING from a coverage map keeps the frustum's answer — see
+ * `isVisibleEnough`. The oracle records an explicit 0 for everything it probed,
+ * so absence means "could not be probed", and chairs are always in that state.
  */
 export function objectsInFrame(
   scene: SceneState,

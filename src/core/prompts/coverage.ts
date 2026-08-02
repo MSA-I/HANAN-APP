@@ -25,18 +25,32 @@
  * The smallest share of the frame a product must occupy to be worth one of the
  * sixteen input images.
  *
- * ⛔ MEASURED, NOT CHOSEN. PLAN-05 named 0.001 as a starting point and required
- * it be calibrated against a real scene before being fixed; the calibration is
- * in `handoff/FOUND-C3.md`, run over all seven sealed angles of a dressed
- * resort hall. What it showed is that the distribution has no knee anywhere near
- * 0.001 — the gap in the data sits three orders of magnitude lower, between
- * things that are genuinely occluded (exactly 0) and the smallest thing that is
- * genuinely visible. See FOUND-C3.md for the table and the reasoning.
+ * ⛔ MEASURED, NOT CHOSEN — PLAN-05 C3 made this a blocking gate. Calibrated on
+ * 2026-08-02 over a dressed resort hall (28 round tables, ~250 chairs, 22
+ * planters and the three baked bar units) from all seven sealed angles: 34
+ * product-groups measured, table in handoff/FOUND-C3.md.
  *
- * At 1536×1024 this is ~157 pixels, a smudge of about 12×12. Below that there is
- * nothing in the capture for a product photograph to attach to. The measuring
- * pass runs at 384×256, one sixteenth of the area, so the same fraction is ~10
- * pixels there — which is why the pass cannot go much smaller than it does.
+ * The measuring pass is 384×256 = 98,304 pixels, so ONE pixel is 1.017e-5, and
+ * reading the sorted results in pixels is what settles the number:
+ *
+ *   0 px          5 groups   provably occluded (bars behind the camera)
+ *   1 px          1 group    k2's back bar wall, 22 metres away
+ *   5 px          1 group    s1's back bar wall
+ *   ── the gap ──
+ *   21 px         1 group    k2's planters, a real if small blob
+ *   27 px         1 group    k2's 28 tables seen across the terrace
+ *   71 px and up  25 groups  everything else, climbing smoothly to 55%
+ *
+ * The only knee in the data is between 5 and 21 pixels: below it are one- and
+ * five-pixel flecks indistinguishable from an antialiased edge, above it are
+ * small but real objects. 1e-4 is 9.8 pixels there, in the middle of that gap,
+ * and 157 pixels at the capture's own 1536×1024.
+ *
+ * ⚠ PLAN-05 PROPOSED 0.001 AND THE MEASUREMENT REFUSED IT. Ten times higher, it
+ * lands in the middle of the populated part of the distribution and cuts s2's
+ * bar.resort-left (7.9e-4) and bar.back-wall (8.2e-4) — from the angle whose
+ * own template calls the bar wall its subject. The plan was explicit that the
+ * number had to be measured rather than assumed, and this is what that bought.
  */
 export const MIN_COVERAGE_FRACTION = 0.0001
 
@@ -84,7 +98,26 @@ export function coverageFrom(
   return out
 }
 
-/** Does this product occupy enough of the frame to be worth showing the model? */
+/**
+ * Does this object occupy enough of the frame to be worth showing the model?
+ *
+ * ⚠ `undefined` means NOT MEASURED, and is therefore TRUE — not false. This
+ * looks backwards and is the single most important line in the file.
+ *
+ * A coverage map holds a key for every object the oracle actually probed, with
+ * an explicit 0 for the ones it probed and found invisible. An object can be
+ * missing from the map entirely, and the measured reason is chairs: seating
+ * renders as one InstancedMesh per table (viewer3d/ObjectGroup ChairInstances),
+ * so individual chairs carry no `userData.objectId` and there is nothing to hide
+ * and re-render. On a calibration run the frustum accepted 305 objects and the
+ * oracle could probe 42 of them.
+ *
+ * Reading absence as zero would therefore have cut every chair in the hall out
+ * of every export — the CHAIRS line gone from the prose and the chair's product
+ * shot gone from the references, on a scene holding two hundred and fifty of
+ * them. Absence of evidence is not evidence of absence: an unprobed object keeps
+ * whatever the frustum said about it.
+ */
 export function isVisibleEnough(fraction: number | undefined): boolean {
-  return (fraction ?? 0) >= MIN_COVERAGE_FRACTION
+  return fraction === undefined || fraction >= MIN_COVERAGE_FRACTION
 }
