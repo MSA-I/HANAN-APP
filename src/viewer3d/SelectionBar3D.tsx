@@ -45,6 +45,7 @@ import {
   duplicateObjects,
   removeObjects,
   reorder,
+  mirrorCopyObjects,
   mirrorObjects,
   rotateObjectsBy,
   setLocked,
@@ -306,6 +307,18 @@ function OverflowMenu({ onClose, anchor }: { onClose: () => void; anchor: DOMRec
     // Same gate as rotation: both are poses, and both are refused for the same
     // reasons (locked, frozen, or no legal room in the new pose).
     { label: M.mirror, shortcut: 'M', disabled: !caps.canRotate, onClick: () => mirrorObjects(ids) },
+    /**
+     * `canDuplicate`, NOT `canRotate` — and the difference is the point.
+     * `menuCapabilities` defines `canDuplicate` as `topLevel.length > 0`, which is
+     * exactly the set `mirrorCopyObjects` acts on (it filters children out). A
+     * locked source is copyable, so the absence of a lock test is right too.
+     */
+    {
+      label: M.mirrorCopy,
+      shortcut: 'Alt+M',
+      disabled: !caps.canDuplicate,
+      onClick: () => mirrorCopyObjects(ids),
+    },
     {
       /**
        * Arms the library's replace mode; the actual pick happens over there,
