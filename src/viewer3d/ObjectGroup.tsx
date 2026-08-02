@@ -500,6 +500,10 @@ export function ObjectGroup({ id }: { id: Id }) {
     <>
       <group
         ref={groupRef}
+        // PLAN-05 C3: the only id→Object3D tag in the 3D tree, and the whole of
+        // what visibilityOracle needs to hide one product and measure what
+        // vanished. Inert otherwise — nothing reads userData during rendering.
+        userData={{ objectId: id }}
         // Muted means OUT of the session, not merely faint: 2D takes `listening`
         // away from the same objects, so leaving these attached would let a user
         // in 3D select, drag and even open the mode on a table the plan will not
@@ -870,6 +874,9 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
     <>
       <group
         ref={groupRef}
+        // PLAN-05 C3, same tag as the top-level group: an attached centrepiece is
+        // its own product and earns (or loses) its own reference slot.
+        userData={{ objectId: id }}
         // `muted` is the TABLE's — the whole group stands down together, decor
         // included, or a ghosted table would still hand out its centrepieces.
         onClick={muted ? undefined : handleClick}

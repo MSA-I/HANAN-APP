@@ -5,13 +5,23 @@
  *
  * Every `base` below was written while LOOKING AT that angle rendered from the
  * venue pack — never from the camera numbers, and never from the other angles.
- * The captures are kept at `HANAN-APP-DOCS/Plans/handoff/08-angles/<id>.png`
+ * The captures are kept at `HANAN-APP-DOCS/Plans/R1/handoff/08-angles/<id>.png`
  * (2026-07-28, empty hall, `resort` pack), next to `shoot-angles.mjs`, the
  * puppeteer harness that took them.
  *
  * An angle description written from a guess is a wrong prompt, and the prompt is
  * the entire product — so if a camera moves or the venue GLB is re-imported,
  * RE-SHOOT THE ANGLE AND READ IT before touching the text.
+ *
+ * ⚠ THIS CONTRACT HAS ALREADY BEEN BROKEN ONCE, and PLAN-05 C4 is the repair.
+ * The R1 captures above are of an EMPTY hall: 48 hours after they were taken,
+ * 25 venue fixtures were baked in (core/venueFixtures.ts, `Generated:` header),
+ * among them 22 perimeter planters — and nobody re-shot. s1's eye turned out to
+ * be standing 6 cm from the centre of one of them, describing a frame that no
+ * longer existed. The whole pack was re-shot on 2026-08-02 after s1's camera
+ * moved, and those captures are at `HANAN-APP-DOCS/Plans/R5/handoff/angles/`.
+ * They are the ones s1's text below is written against; the R1 set is kept
+ * because it is the evidence of what the original prose was written from.
  *
  * The ids are the venue pack's own (`venuePacks.ts` cameras): 's1'–'s5' for the
  * hall and 'k1'/'k2' for the raised reception deck. PLAN-08 called the last two
@@ -36,6 +46,21 @@ export interface AngleTemplate {
 /**
  * The building, as it reads in all five hall angles. Repeated per-angle prose
  * would drift apart on the first edit; the differences live in `base`.
+ *
+ * ⚠ THE FLOOR SENTENCE WAS WRONG UNTIL PLAN-05 C1, and it was wrong in the one
+ * way that matters: it described a floor that does not exist.
+ *
+ * It used to ask for "large-format stone inlaid with darker geometric chevron
+ * banding that divides it into big square panels". That pattern is the working
+ * TEXTURE of the SketchUp model — plainly visible in the capture, and in
+ * Plans/R1/handoff/08-angles/s1.png — and it is in neither of the hall's two
+ * reference photographs, which show plain metre-square honed marble in an
+ * orthogonal grid with nothing but joint lines in it. The model was being handed
+ * three inputs that disagreed: a photograph with no pattern, a capture with one,
+ * and prose demanding one. "הריצוף לא יוצא טוב" is what disagreeing inputs look
+ * like coming out of an image model, and this sentence was one third of it. The
+ * other two thirds are the FLOOR instruction in compose.ts and the floor swatch
+ * in refs.ts, and all three have to say the same thing or none of them works.
  */
 const HALL_SHELL =
   'The venue is a large open resort banquet hall, roughly 44 by 25 metres, ' +
@@ -44,8 +69,11 @@ const HALL_SHELL =
   'carrying regular rows of black moving-head spotlights; square plastered columns in a colonnade with ' +
   'full-height glazing between them; a deep oxblood-red beam running horizontally at column-head height; ' +
   'a feature wall of tall maroon louvered slat panels hung in front of terracotta perforated-brick screens; ' +
-  'and a floor of pale sand-coloured large-format stone inlaid with darker geometric chevron banding that ' +
-  'divides it into big square panels.'
+  'and a floor of large-format polished stone tiles, roughly one metre square: pale warm grey-beige marble ' +
+  'with soft cloudy darker-grey veining that differs from tile to tile, laid in a plain orthogonal grid ' +
+  'aligned to the room, with thin, slightly darker joint lines and no border, band or inlaid pattern of any ' +
+  'kind. The stone is honed to a satin sheen — it returns broad, soft reflections of the daylight and of ' +
+  'the columns, never a mirror image and never a matte flatness.'
 
 /**
  * Constraints that apply to every angle. Kept out of the per-angle text.
@@ -95,23 +123,43 @@ export const SHARED_DIRECTION =
   'framing and perspective of the supplied capture; the capture defines the geometry and the layout, ' +
   'and your task is to render it as a real photograph of a dressed venue.'
 
+/**
+ * PLAN-05 C2 — appended only when the user turned the viewport's shadows OFF.
+ *
+ * It is the OPPOSITE of what the toggle's name suggests, and deliberately so.
+ * SHARED_DIRECTION tells the model "the capture defines the geometry", so a
+ * capture with no shadows anywhere is a strong cue for flat, shadowless light —
+ * which is the SketchUp look §25 (SHARED_NEGATIVE, above) exists to refuse. The
+ * toggle is about the INPUT the model is given, never about the output asked of
+ * it, so the prompt has to say which of the two the missing shadows belong to.
+ *
+ * Nothing is added when shadows are on: the capture then carries them, and a
+ * sentence about their absence would be a lie about the picture.
+ */
+export const CAPTURE_SHADOWS_OFF =
+  'Shadows were suppressed in the supplied capture so the geometry reads clearly. That is a ' +
+  'property of the capture, not of the scene: the render must still carry full, natural, ' +
+  'photographic shadows — cast shadows from the daylight and soft contact shadows under every ' +
+  'object that stands on the floor.'
+
 const TEMPLATES: AngleTemplate[] = [
   {
     cameraId: 's1',
     base:
       `${HALL_SHELL} ` +
-      'This angle stands at eye level, 1.8 metres up, in the western corner of the hall and looks ' +
-      'diagonally across it toward the far end, so the full length of the room recedes away from the ' +
-      'viewer. The truss roof and its ranks of black spotlights fill the top third of the frame. Across ' +
+      'This angle stands at eye level, 1.8 metres up, just inside the western corner of the hall and ' +
+      'looks diagonally across it toward the far end, so the full length of the room recedes away from ' +
+      'the viewer. The truss roof and its ranks of black spotlights fill the top third of the frame. Across ' +
       'the middle sits the far wall: a two-storey element with a glazed clerestory strip over a woven ' +
       'perforated screen, terracotta brick panelling with maroon lintels above recessed doorways, and a ' +
       'large black screen panel. Along the right the glazed colonnade admits strong daylight, with the ' +
       'oxblood beam crossing above it. The indoor pool runs across the middle right — turquoise water, ' +
       'pale concrete coping, slim brass vertical-bar railings and a line of clipped topiary along the rail. ' +
-      'The patterned stone floor fills the lower two thirds and converges hard toward the far corner.',
+      'The stone floor fills the lower half; its joint grid converges hard toward the far corner.',
     emphasis: [
       'The long diagonal sweep of the hall — this angle is the one that shows how much room there is.',
-      'Strong perspective convergence of the floor pattern toward the far corner.',
+      "Strong perspective convergence of the floor's tile grid toward the far corner — the joints are " +
+        'the only lines in it.',
       'Warm daylight raking in from the glazed colonnade on the right.',
       'The truss and spotlight rig read clearly overhead.',
     ],
@@ -126,7 +174,7 @@ const TEMPLATES: AngleTemplate[] = [
       'colonnade: tall bright openings between square columns, with the oxblood beam raking steeply down ' +
       'into the frame. The right half is the feature wall, a run of six tall maroon louvered slat panels ' +
       'spaced evenly against the terracotta perforated screen, with the black screen panel at centre left. ' +
-      'The pool sits in the left middle distance behind its brass railing. The patterned stone floor fills ' +
+      'The pool sits in the left middle distance behind its brass railing. The stone floor fills ' +
       'the entire lower half.',
     emphasis: [
       'The maroon louvered feature wall is the backdrop of this angle — it must read as the dominant surface.',
@@ -144,7 +192,7 @@ const TEMPLATES: AngleTemplate[] = [
       'of the frame and bright openings behind. The truss roof shows above. In the middle distance the pool ' +
       'crosses the frame, divided by a pale concrete walkway on the centreline, brass vertical-bar railings ' +
       'on both sides and a row of clipped hedging behind them; a low pale grey platform sits on the floor at ' +
-      'the centre, on the axis. The patterned stone floor fills the lower half and runs straight out toward ' +
+      'the centre, on the axis. The stone floor fills the lower half and runs straight out toward ' +
       'the viewer.',
     emphasis: [
       'Symmetry — this is the ceremony axis, and the frame is built around the centreline.',
@@ -162,11 +210,13 @@ const TEMPLATES: AngleTemplate[] = [
       'lighting truss seen close up, its black moving-head spotlights nearly in silhouette. The upper left is ' +
       'dominated by the feature wall seen almost in elevation: around nine tall maroon louvered slat panels ' +
       'hung against a two-tone terracotta perforated screen, with a plain band above the recessed doorways. ' +
-      'The lower two thirds is the stone floor seen from above, so its full geometric inlay is legible — large ' +
-      'square panels bordered with dark chevron banding. The corner of the pool with its brass railing and a ' +
+      'The lower two thirds is the stone floor seen from above, so the tile grid is fully legible: roughly ' +
+      'metre-square marble tiles in a plain orthogonal bond, thin joint lines, veining that changes tile to ' +
+      'tile, and no banding or border anywhere. The corner of the pool with its brass railing and a ' +
       'strip of turquoise water cuts into the bottom right.',
     emphasis: [
-      'The floor pattern — this is the angle where the whole geometric inlay is readable, so it must be right.',
+      'The floor — this is the angle where the whole of it is readable, so the tile module, the joint grid ' +
+        'and the veining must be right. There is no inlaid pattern to draw.',
       'The overall layout is legible from up here: this is the angle a client uses to check the plan.',
       'The lighting truss overhead, seen close and from below.',
     ],
@@ -181,7 +231,7 @@ const TEMPLATES: AngleTemplate[] = [
       'a secondary maroon rail crossing it. On the right are the maroon louvered slat panels over the ' +
       'terracotta screen, with the black screen panel at centre. The pool is the subject of the middle distance: ' +
       'a long turquoise rectangle wrapped by brass vertical-bar railings, a row of planted hedging along its far ' +
-      'edge, and a large pale grey raised platform projecting out over the water. The patterned stone floor ' +
+      'edge, and a large pale grey raised platform projecting out over the water. The stone floor ' +
       'occupies the right side and the foreground.',
     emphasis: [
       'The pool and the pale platform projecting over it — this angle exists to show the ceremony setting.',

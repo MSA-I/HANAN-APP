@@ -10,8 +10,14 @@ import type { Category } from '../catalog/types'
 import type { SceneState } from '../model/types'
 import { getVenuePack, type SealedCamera } from '../venuePacks'
 import { pluralize } from './fragments'
-import { selectRefs, type DesignGroup, type ExportRef, type RefRole } from './refs'
-import { SHARED_BACKGROUND, SHARED_DIRECTION, SHARED_NEGATIVE, templateFor } from './templates'
+import { selectRefs, type Coverage, type DesignGroup, type ExportRef, type RefRole } from './refs'
+import {
+  CAPTURE_SHADOWS_OFF,
+  SHARED_BACKGROUND,
+  SHARED_DIRECTION,
+  SHARED_NEGATIVE,
+  templateFor,
+} from './templates'
 
 export interface ExportPackage {
   angleId: string
@@ -111,7 +117,11 @@ function refPhrase(refs: ExportRef[], role: RefRole): string | null {
  * with no venue pack and an empty room all produce a usable prompt, because the
  * caller is a capture button and a thrown error there loses the frame.
  */
-export function composeExport(scene: SceneState, angleId: string): ExportPackage {
+export function composeExport(
+  scene: SceneState,
+  angleId: string,
+  coverage?: Coverage,
+): ExportPackage {
   const warnings: string[] = []
   const pack = getVenuePack(scene.venue.venuePackId)
   const camera = pack?.cameras?.find((c) => c.id === angleId)
@@ -132,7 +142,14 @@ export function composeExport(scene: SceneState, angleId: string): ExportPackage
         'considered, not only the ones in frame.',
     )
   }
-  const selection = selectRefs(scene, camera ?? null)
+  /**
+   * PLAN-05 C3. `coverage` reaches the prose and the picture list through this
+   * one call, which is the point: `sectionLines` below reads the SAME `groups`,
+   * so an item the camera cannot see loses its reference slot and its sentence
+   * together. Culling one without the other would leave the prompt describing a
+   * table the model was never shown, or showing one it was told nothing about.
+   */
+  const selection = selectRefs(scene, camera ?? null, coverage)
 
   const lines = sectionLines(selection.groups)
   if (!lines.length) {
@@ -141,17 +158,46 @@ export function composeExport(scene: SceneState, angleId: string): ExportPackage
 
   const materials = refPhrase(selection.refs, 'materials')
   const background = refPhrase(selection.refs, 'background')
+  const floor = refPhrase(selection.refs, 'floor')
   const fixed = refPhrase(selection.refs, 'fixed')
   const design = refPhrase(selection.refs, 'design')
   const refInstructions = [
     materials && `MATERIALS: match ${materials} — floors, ceilings, metalwork, wall finishes.`,
     background && `BACKGROUND: ${background} is the real landscape this venue stands in.`,
+    /**
+     * PLAN-05 C1. The last sentence is the actual repair.
+     *
+     * The capture is a viewport shot of a SketchUp-derived model whose floor
+     * carries a chevron working texture that the real hall does not have, while
+     * SHARED_DIRECTION tells the model the capture defines everything. Handing
+     * it the right photograph without also naming the one place it may depart
+     * from the capture leaves it copying the zigzag with the swatch in hand —
+     * which is exactly the state the user reported as "הריצוף לא יוצא טוב".
+     */
+    floor &&
+      `FLOOR: ${floor} is a close-up of the stone this hall's floor is actually made of. Match ` +
+        'its stone, colour, veining, tile size, joint lines and orthogonal layout exactly, at the ' +
+        'same tile scale, throughout the frame. The floor in the supplied capture is a ' +
+        'placeholder texture — take the layout and the perspective from the capture, and the ' +
+        'floor material from this reference instead.',
     fixed &&
       `VENUE FIXTURES: ${fixed} are this building's OWN bar, DJ booth and planting — fittings of ` +
         'the hall, not props brought in for the event. Render them as shown and leave them where ' +
         'the capture puts them.',
     design && `DESIGN ELEMENTS: match ${design}.`,
   ].filter((s): s is string => !!s)
+
+  /**
+   * PLAN-05 C2. Read straight off the scene rather than through
+   * `state/selectors.lightingOf`: core/prompts is renderer- and state-free by
+   * design (refs.ts:180-182), and `composeExport` must stay a pure function of
+   * the scene it is handed.
+   *
+   * `=== false` and not `!(… ?? true)` — absent and `true` are the same state,
+   * and neither may put a sentence about missing shadows into the prompt of a
+   * project that never touched the toggle.
+   */
+  const shadowsOff = scene.settings.lighting?.shadowsEnabled === false
 
   const prompt = [
     template?.base,
@@ -160,6 +206,7 @@ export function composeExport(scene: SceneState, angleId: string): ExportPackage
     refInstructions.join('\n'),
     background ? SHARED_BACKGROUND : null,
     SHARED_DIRECTION,
+    shadowsOff ? CAPTURE_SHADOWS_OFF : null,
     [SHARED_NEGATIVE, template?.negative].filter(Boolean).join(' '),
   ]
     .filter((part): part is string => !!part)
@@ -202,20 +249,21 @@ export function manifestOf(pkg: ExportPackage, capturedAt: string) {
 }
 
 /**
- * `01-materials-hall.png`, `02-background-landscape.png`,
- * `03-fixed-bar-resort-left.webp`, `04-chuppah-draped-white.webp` — ordered and
- * readable, and the two fixed references are named for their ROLE because their
- * own file names ("1.png") say nothing.
+ * `01-materials-hall.png`, `02-background-landscape.png`, `03-floor-detail.png`,
+ * `04-fixed-bar-resort-left.webp`, `05-chuppah-draped-white.webp` — ordered and
+ * readable, and the three always-on references are named for their ROLE because
+ * their own file names ("1.png", "ריצוף.png") say nothing in an output folder.
  *
  * ⚠ Mirrored by `refFileName` in tools/capture-plugin.ts, which is what actually
  * writes the folder. The two must agree or manifest.json names files that are
- * not there.
+ * not there — compose.test.ts calls both and compares them role by role.
  */
 export function refFileName(ref: ExportRef, index: number): string {
   const ext = /\.[a-z0-9]+$/i.exec(ref.path)?.[0] ?? '.png'
   const n = String(index + 1).padStart(2, '0')
   if (ref.role === 'materials') return `${n}-materials-hall${ext}`
   if (ref.role === 'background') return `${n}-background-landscape${ext}`
+  if (ref.role === 'floor') return `${n}-floor-detail${ext}`
   const stem = ref.path.split('/').pop()?.replace(/\.[a-z0-9]+$/i, '') ?? 'ref'
   return `${n}-${ref.role === 'fixed' ? 'fixed-' : ''}${stem}${ext}`
 }

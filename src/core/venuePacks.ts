@@ -334,7 +334,37 @@ export const VENUE_PACKS: VenuePack[] = [
     // the session is the only source. Re-read on the 15:09 AND the 19:47 imports:
     // still 7 Scenes, positions identical to 4 decimals. Nothing to update here.
     cameras: [
-      { id: 's1', label: 'זווית 1', position: [0.34, 1.77, 0.79], target: [20.45, 1.7, 11.52], fov: 45 },
+      /**
+       * PLAN-05 C4, 2026-08-02 — "בזווית 1 צריך להתקרב עם המצלמה טיפה כי
+       * הצמחייה מפריעה לשדה הראייה".
+       *
+       * The SKP's own Scene put this eye at [0.34, 1.77, 0.79], i.e. plan
+       * (34, 79). `fixture-resort-020` — a `plant.potted-2`, 71.25 x 65.7 cm and
+       * 240 cm tall — was later baked at plan (40, 80): the camera stood 6 cm
+       * from its centre, inside its footprint, at foliage height. It is the
+       * corner planter where the two perimeter rows meet, so moving the PLANTER
+       * would open a hole in every other angle and in the 2D plan to fix one
+       * frame; the camera is the thing that is wrong here.
+       *
+       * The eye moves 1.00 m along its own view vector (0.8823, 0.4708 in plan)
+       * to [1.222, 1.77, 1.261] = plan (122, 126). The TARGET does not move, so
+       * the framing is preserved: eye-to-target goes 22.79 m to 21.79 m.
+       *
+       * Why 1.0 and not the 0.53 m the arithmetic allows, or the 0.5 m rung that
+       * photographs clean: at d = 0.5 the planter's box still reaches 2.66 cm in
+       * FRONT of the eye and is invisible only because the near plane clips it
+       * (0.1 m, Scene3D). That is a silent dependency on an unrelated constant —
+       * lower `near` and this angle breaks again with nobody the wiser. At
+       * d = 1.0 the whole box sits 47 cm BEHIND the eye and no clipping is
+       * involved. Measured ladder and the seven frames: handoff/FOUND-C4.md.
+       *
+       * ⚠ `position[1]` STAYS 1.77 EXACTLY. `isElevatedAngle` (prompts/refs.ts)
+       * asks whether position[1] − target[1] >= 1, and s1 sits at 0.07. Raising
+       * the eye would swap s1's materials photograph for the top-down one
+       * without a word. The view vector's vertical component is −0.07 m over
+       * 22.79, i.e. 3 mm over this move, which is not worth the risk.
+       */
+      { id: 's1', label: 'זווית 1', position: [1.222, 1.77, 1.261], target: [20.45, 1.7, 11.52], fov: 45 },
       { id: 's2', label: 'זווית 2', position: [44.23, 1.6, 0.75], target: [28.71, 1.41, 8.77], fov: 45 },
       { id: 's3', label: 'זווית 3', position: [21.86, 1.55, 0.18], target: [22.22, 1.35, 16.27], fov: 45 },
       { id: 's4', label: 'זווית 4 (מוגבה)', position: [0.09, 6.71, 20.88], target: [20.1, 0.52, 1.99], fov: 45 },

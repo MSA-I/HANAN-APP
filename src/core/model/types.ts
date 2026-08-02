@@ -179,6 +179,21 @@ export interface LightingSettings {
    * renders exactly what it rendered before.
    */
   shadowSharpness?: ShadowSharpness
+  /**
+   * PLAN-05 C2 — shadows in the VIEW. Optional, and absent means true: exactly
+   * the behaviour that existed before the field did, so a project saved without
+   * it opens pixel-identical. Same pattern as `shadowSharpness` above and for
+   * the same reason — an optional addition does not move SCHEMA_VERSION.
+   *
+   * ⚠ It DOES need its own line in the zod schema (core/migrations/index.ts).
+   * That object is non-strict, so an undeclared key is stripped on every load
+   * and the toggle would appear to reset itself with no error at all.
+   *
+   * This is a property of the viewport and of the capture sent to the image
+   * model — NOT an instruction to render a shadowless picture. See
+   * `CAPTURE_SHADOWS_OFF` in core/prompts/templates.ts.
+   */
+  shadowsEnabled?: boolean
 }
 
 /** Sunset seeded from the pre-v5 hardcoded sun so the default render is unchanged. */

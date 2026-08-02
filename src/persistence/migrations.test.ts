@@ -1144,6 +1144,46 @@ describe('migrateAndValidate', () => {
     })
   })
 
+  /**
+   * PLAN-05 C2, and the single highest-severity risk in that plan.
+   *
+   * `sceneSettings.lighting` is a plain `z.object`, which STRIPS an undeclared
+   * key instead of rejecting it. A `shadowsEnabled` declared in the TypeScript
+   * interface but not in the schema would therefore work perfectly for one
+   * session and come back on at the next load, with no error anywhere — exactly
+   * what happened to `stackedOn` (migrations/index.ts:752-757) and cost a round.
+   * A type-level declaration cannot be tested; this is the only guard there is.
+   */
+  it('round-trips shadowsEnabled: false — the key zod would otherwise strip', () => {
+    const file = validFile()
+    file.project.scene.settings.lighting = {
+      mode: 'sunset',
+      sunAzimuth: 50.6,
+      sunElevation: 65.6,
+      sunIntensity: 0.9,
+      shadowsEnabled: false,
+    }
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(file)))
+    expect(revived.project.scene.settings.lighting?.shadowsEnabled).toBe(false)
+  })
+
+  it('leaves a project that never touched the toggle without the field', () => {
+    const file = validFile()
+    file.project.scene.settings.lighting = {
+      mode: 'day',
+      sunAzimuth: 10,
+      sunElevation: 40,
+      sunIntensity: 1,
+    }
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(file)))
+    const lighting = revived.project.scene.settings.lighting!
+    expect(lighting.shadowsEnabled).toBeUndefined()
+    expect('shadowsEnabled' in lighting).toBe(false)
+    // and nothing else moved with it
+    expect(lighting).toEqual({ mode: 'day', sunAzimuth: 10, sunElevation: 40, sunIntensity: 1 })
+    expect(revived.project.schemaVersion).toBe(SCHEMA_VERSION)
+  })
+
   it('rejects garbage', () => {
     expect(() => migrateAndValidate({ nope: true })).toThrow()
     expect(() => migrateAndValidate(null)).toThrow()

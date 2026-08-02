@@ -115,8 +115,17 @@ interface IncomingRef {
   caption: string
 }
 
-/** RefRole in core/prompts/refs.ts. Anything else the browser sends is a design shot. */
-const REF_ROLES = new Set(['materials', 'background', 'fixed', 'design'])
+/**
+ * RefRole in core/prompts/refs.ts. Anything else the browser sends is a design
+ * shot — a SILENT downgrade, which is the whole reason this list is exported and
+ * held against `REF_ROLE_NAMES` by a test: a role added there and forgotten here
+ * gets the wrong name in manifest.json and the wrong name on disk, with no error
+ * anywhere to say so.
+ *
+ * Not imported from refs.ts directly: this module is loaded by vite.config.ts,
+ * and refs.ts pulls in three and the whole catalog registry.
+ */
+export const REF_ROLES = new Set(['materials', 'background', 'floor', 'fixed', 'design'])
 
 function readRefs(raw: unknown): IncomingRef[] {
   if (!Array.isArray(raw)) return []
@@ -135,11 +144,12 @@ function readRefs(raw: unknown): IncomingRef[] {
 }
 
 /** `01-materials-hall.png` — mirrors refFileName in core/prompts/compose.ts. */
-function refFileName(ref: IncomingRef, index: number): string {
+export function refFileName(ref: IncomingRef, index: number): string {
   const ext = /\.[a-z0-9]+$/i.exec(ref.path)?.[0] ?? '.png'
   const n = String(index + 1).padStart(2, '0')
   if (ref.role === 'materials') return `${n}-materials-hall${ext}`
   if (ref.role === 'background') return `${n}-background-landscape${ext}`
+  if (ref.role === 'floor') return `${n}-floor-detail${ext}`
   const stem = ref.path.split('/').pop()?.replace(/\.[a-z0-9]+$/i, '') ?? 'ref'
   return `${n}-${ref.role === 'fixed' ? 'fixed-' : ''}${safeSegment(stem, 'ref')}${ext}`
 }

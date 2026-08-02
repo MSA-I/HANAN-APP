@@ -836,6 +836,11 @@ const sceneSettings = z.object({
       // an unlisted key is stripped on every load and the setting would appear
       // to reset itself (the same trap that eats `stackedOn`, :319).
       shadowSharpness: z.enum(['soft', 'medium', 'sharp']).optional(),
+      // PLAN-05 C2, and the SAME trap one line up: absent means "shadows on", so
+      // the only value that ever reaches disk is `false` — precisely the one a
+      // stripped key would erase. Without this line the toggle works for the
+      // session and comes back on at the next load, silently.
+      shadowsEnabled: z.boolean().optional(),
     })
     .optional(),
 })

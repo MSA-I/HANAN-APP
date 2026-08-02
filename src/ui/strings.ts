@@ -110,6 +110,14 @@ export const strings = {
      * the English caption that travels INTO the prompt belongs in prompts/refs.ts.
      */
     backgroundRef: 'רפרנס רקע',
+    /**
+     * PLAN-05 C1's floor close-up, same job as `backgroundRef` above: a "not on
+     * disk" warning otherwise reaches the user as a raw path. It matters more
+     * here than for the other two — this one is a stand-in swatch that is meant
+     * to be replaced by a real photograph of the hall's floor, and the day it is
+     * swapped out is a day the warning can appear.
+     */
+    floorRef: 'רפרנס ריצוף',
   },
   status: {
     saved: 'נשמר',
@@ -539,6 +547,10 @@ export const strings = {
      * controls acne, not sharpness, and moving it reads as a bug.
      */
     shadows: 'צללים',
+    /** PLAN-05 C2 — "הצל לא עובד לטובתנו צריך לעשות כפתור שמכבה או מדליק את הצל" */
+    shadowsOn: 'צללים בתצוגה',
+    shadowsHint:
+      'כיבוי מבהיר את התצוגה ואת הצילום שנשלח למודל התמונה. הרינדור הסופי עדיין יכלול צללים טבעיים',
     shadowSharpness: 'חדות הצל',
     shadowSharpnessHint: 'מפת צל גדולה יותר — קצוות חדים יותר, ומעט יותר עומס על כרטיס המסך',
     shadowSharpnessLow: 'רכה',
