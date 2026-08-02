@@ -8,10 +8,19 @@
 import { describe, expect, it } from 'vitest'
 import { createDefaultScene, createObject } from '../model/factory'
 import type { SceneObject, SceneState, Vec2 } from '../model/types'
+import { VENUE_FIXTURES } from '../venueFixtures'
 import { getVenuePack, type SealedCamera } from '../venuePacks'
 import { composeExport } from './compose'
 import { MIN_COVERAGE_FRACTION } from './coverage'
-import { groupForRefs, objectsInFrame, selectRefs, type Coverage } from './refs'
+import {
+  groupForRefs,
+  HALL_MATERIAL_REF,
+  isElevatedAngle,
+  materialRefFor,
+  objectsInFrame,
+  selectRefs,
+  type Coverage,
+} from './refs'
 
 const PACK = 'resort'
 const cameras = getVenuePack(PACK)!.cameras!
@@ -308,5 +317,95 @@ describe('an object nobody could measure keeps the frustum’s answer', () => {
     const groups = groupForRefs(scene, cam('s1'), { nobody: 0.5 })
     expect(groups.map((g) => g.catalogId)).toEqual(['chair.x-white'])
     expect(groups[0].count).toBe(8)
+  })
+})
+
+/**
+ * PLAN-05 C4 — "בזווית 1 צריך להתקרב עם המצלמה טיפה כי הצמחייה מפריעה לשדה
+ * הראייה".
+ *
+ * s1's eye came from a SketchUp Scene taken when the hall was empty. Two days
+ * later 22 perimeter planters were baked in and `fixture-resort-020`, the corner
+ * one where the two rows meet, landed 6 cm from that eye — so the camera stood
+ * inside a 71 x 66 cm planter at foliage height, and half of it rendered.
+ *
+ * These tests fix the INTENTION, not the number. They read the planter straight
+ * out of VENUE_FIXTURES and the eye straight out of the pack, so they fail both
+ * if somebody restores the camera to the corner and if somebody moves a planter
+ * onto it — neither of which anything guarded against before.
+ */
+describe('angle 1 does not stand inside a baked planter (C4)', () => {
+  const s1 = cam('s1')
+  const planter = VENUE_FIXTURES[PACK].find((o) => o.id === 'fixture-resort-020')!
+  // plan cm ← three metres, the conversion in core/space.ts
+  const eye = { x: s1.position[0] * 100, y: s1.position[2] * 100 }
+
+  it('has a planter there at all — the test is worthless if this ever changes', () => {
+    expect(planter).toBeDefined()
+    expect(planter.catalogId).toBe('plant.potted-2')
+    expect(planter.flags.frozen).toBe(true)
+  })
+
+  it('keeps the eye outside its footprint', () => {
+    const half = { x: planter.size.width / 2, y: planter.size.depth / 2 }
+    const inside =
+      Math.abs(eye.x - planter.transform.position.x) < half.x &&
+      Math.abs(eye.y - planter.transform.position.y) < half.y
+    expect(inside, `eye (${eye.x}, ${eye.y}) vs planter ${JSON.stringify(planter.transform.position)}`).toBe(false)
+  })
+
+  /**
+   * Outside the footprint is not enough — a 240 cm planter 20 cm to the side is
+   * still a green wall across half the lens. The whole box has to be BEHIND the
+   * eye, and behind it by more than the 0.1 m near plane, or it survives only
+   * because an unrelated constant clips it.
+   */
+  it('leaves the whole planter behind the eye, not merely clipped by the near plane', () => {
+    const dir = { x: s1.target[0] * 100 - eye.x, y: s1.target[2] * 100 - eye.y }
+    const len = Math.hypot(dir.x, dir.y)
+    const unit = { x: dir.x / len, y: dir.y / len }
+    const half = { x: planter.size.width / 2, y: planter.size.depth / 2 }
+
+    let reach = -Infinity
+    for (const sx of [-1, 1]) {
+      for (const sy of [-1, 1]) {
+        const cx = planter.transform.position.x + sx * half.x
+        const cy = planter.transform.position.y + sy * half.y
+        reach = Math.max(reach, (cx - eye.x) * unit.x + (cy - eye.y) * unit.y)
+      }
+    }
+    // negative = every corner is behind the eye. Measured: -47.35 cm at d = 1.0
+    expect(reach).toBeLessThan(0)
+  })
+
+  it('keeps the eye level, so the materials reference does not change', () => {
+    // isElevatedAngle asks position[1] - target[1] >= 1; s1 sits at 0.07
+    expect(s1.position[1]).toBe(1.77)
+    expect(isElevatedAngle(s1)).toBe(false)
+    expect(materialRefFor(s1)).toEqual(HALL_MATERIAL_REF)
+  })
+
+  it('did not move the target, so the framing is the same shot', () => {
+    expect(s1.target).toEqual([20.45, 1.7, 11.52])
+    expect(s1.fov).toBe(45)
+    // "טיפה": one metre out of a 22.8 m sight line
+    expect(Math.hypot(s1.target[0] - s1.position[0], s1.target[2] - s1.position[2])).toBeCloseTo(
+      21.79,
+      1,
+    )
+  })
+
+  it('left every other sealed camera exactly where it was', () => {
+    const before: Record<string, [number, number, number]> = {
+      s2: [44.23, 1.6, 0.75],
+      s3: [21.86, 1.55, 0.18],
+      s4: [0.09, 6.71, 20.88],
+      s5: [45.25, 6.97, 0.6],
+      k1: [45.24, 6.32, 7.6],
+      k2: [60.01, 6.38, 24.35],
+    }
+    for (const [id, position] of Object.entries(before)) {
+      expect(cam(id).position, id).toEqual(position)
+    }
   })
 })

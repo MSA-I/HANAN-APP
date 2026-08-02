@@ -5,13 +5,23 @@
  *
  * Every `base` below was written while LOOKING AT that angle rendered from the
  * venue pack — never from the camera numbers, and never from the other angles.
- * The captures are kept at `HANAN-APP-DOCS/Plans/handoff/08-angles/<id>.png`
+ * The captures are kept at `HANAN-APP-DOCS/Plans/R1/handoff/08-angles/<id>.png`
  * (2026-07-28, empty hall, `resort` pack), next to `shoot-angles.mjs`, the
  * puppeteer harness that took them.
  *
  * An angle description written from a guess is a wrong prompt, and the prompt is
  * the entire product — so if a camera moves or the venue GLB is re-imported,
  * RE-SHOOT THE ANGLE AND READ IT before touching the text.
+ *
+ * ⚠ THIS CONTRACT HAS ALREADY BEEN BROKEN ONCE, and PLAN-05 C4 is the repair.
+ * The R1 captures above are of an EMPTY hall: 48 hours after they were taken,
+ * 25 venue fixtures were baked in (core/venueFixtures.ts, `Generated:` header),
+ * among them 22 perimeter planters — and nobody re-shot. s1's eye turned out to
+ * be standing 6 cm from the centre of one of them, describing a frame that no
+ * longer existed. The whole pack was re-shot on 2026-08-02 after s1's camera
+ * moved, and those captures are at `HANAN-APP-DOCS/Plans/R5/handoff/angles/`.
+ * They are the ones s1's text below is written against; the R1 set is kept
+ * because it is the evidence of what the original prose was written from.
  *
  * The ids are the venue pack's own (`venuePacks.ts` cameras): 's1'–'s5' for the
  * hall and 'k1'/'k2' for the raised reception deck. PLAN-08 called the last two
@@ -137,15 +147,15 @@ const TEMPLATES: AngleTemplate[] = [
     cameraId: 's1',
     base:
       `${HALL_SHELL} ` +
-      'This angle stands at eye level, 1.8 metres up, in the western corner of the hall and looks ' +
-      'diagonally across it toward the far end, so the full length of the room recedes away from the ' +
-      'viewer. The truss roof and its ranks of black spotlights fill the top third of the frame. Across ' +
+      'This angle stands at eye level, 1.8 metres up, just inside the western corner of the hall and ' +
+      'looks diagonally across it toward the far end, so the full length of the room recedes away from ' +
+      'the viewer. The truss roof and its ranks of black spotlights fill the top third of the frame. Across ' +
       'the middle sits the far wall: a two-storey element with a glazed clerestory strip over a woven ' +
       'perforated screen, terracotta brick panelling with maroon lintels above recessed doorways, and a ' +
       'large black screen panel. Along the right the glazed colonnade admits strong daylight, with the ' +
       'oxblood beam crossing above it. The indoor pool runs across the middle right — turquoise water, ' +
       'pale concrete coping, slim brass vertical-bar railings and a line of clipped topiary along the rail. ' +
-      'The stone floor fills the lower two thirds; its joint grid converges hard toward the far corner.',
+      'The stone floor fills the lower half; its joint grid converges hard toward the far corner.',
     emphasis: [
       'The long diagonal sweep of the hall — this angle is the one that shows how much room there is.',
       "Strong perspective convergence of the floor's tile grid toward the far corner — the joints are " +
