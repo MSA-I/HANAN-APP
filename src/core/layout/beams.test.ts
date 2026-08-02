@@ -270,6 +270,48 @@ describe('maxHangSpread', () => {
     const mid = (min + max) / 2
     expect(maxHangSpread(resort, resort.wallHeight, 90, mid)).toBe(max - min)
   })
+
+  /**
+   * ⭐ The guard the 2026-08-02 report exists for, and the one thing here that is a
+   * claim about the DESIGNS rather than about the arithmetic.
+   *
+   * `hall.pendant-clusters` shipped with 140 cm of scatter against the diamond's
+   * 380 — legal, inside its band, and asserted by every case above, because all of
+   * those are parametric in `floorDistance` and so pass for ANY legal value. That
+   * is exactly how a base authored for a ×2.5 fixture survived the ×6.25 rescale of
+   * round-4 item 14a unnoticed. Nothing in the suite could tell "calibrated" from
+   * "merely legal", so this does.
+   *
+   * 200 and not 240 (the smallest the five actually get, the cluster's) so the
+   * assertion is a floor rather than a restatement of today's numbers: a design may
+   * be retuned within a 40 cm band without a test edit, and only a genuine
+   * mis-calibration — the 140/150 class — trips it. It is deliberately far below
+   * the 385 cm the band is worth: the claim is "every design scatters visibly",
+   * not "every design scatters maximally", which the clearance rule forbids anyway.
+   */
+  it.each(HALL_DESIGNS)('$id — offers at least 2 m of scatter at its own base', (design) => {
+    const h = fixture(design)
+    expect(maxHangSpread(resort, resort.wallHeight, h, design.floorDistance!)).toBeGreaterThanOrEqual(200)
+  })
+
+  /**
+   * The other half of the same calibration, and the reason the bases are not simply
+   * parked in the middle of their bands where the scatter would be widest: at full
+   * scatter the LOWEST tier is the one a guest walks under. `elevation` is the
+   * bottom of the fixture, so this is a real clearance in centimetres.
+   *
+   * 260 is the floor that was asked for; the bases carry 15 cm over it (277.5 is
+   * the tightest, `hall.pendants`), which is what lets the numbers be round.
+   */
+  it.each(HALL_DESIGNS)('$id — keeps its lowest fixture clear of the room at full scatter', (design) => {
+    const h = fixture(design)
+    const base = design.floorDistance!
+    const bottom = base - maxHangSpread(resort, resort.wallHeight, h, base) / 2
+    expect(bottom).toBeGreaterThanOrEqual(260)
+    // and the clearance is the BASE's doing, not the band's: every one of the five
+    // bands reaches lower than the line held here, four of them below 260 outright
+    expect(hangRange(resort, resort.wallHeight, h).min).toBeLessThan(bottom)
+  })
 })
 
 describe('tierElevation', () => {
