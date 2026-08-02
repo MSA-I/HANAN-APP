@@ -479,12 +479,35 @@ const srgbToLinear = (c) => {
   const v = c / 255
   return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
 }
+const src = prim.getMaterial()
 const candleMat = doc
   .createMaterial('candle')
   .setBaseColorFactor([srgbToLinear(waxR), srgbToLinear(waxG), srgbToLinear(waxB), 1])
-  .setMetallicFactor(0)
-  .setRoughnessFactor(0.6)
-// no setBaseColorTexture, on purpose — the header's "NO BASE COLOUR TEXTURE" note
+// ⚠ NO base-colour texture — that is the header's "NO BASE COLOUR TEXTURE" note, and
+// it is the only map that would bias the colour the user picks.
+//
+// The OTHER maps are carried over, and that is measured rather than tidy. The first
+// cut dropped all three and set a flat metallic 0 / roughness 0.6, which is
+// invisible on four models but turned decor-candelabrum-gold's candles from warm
+// bronze into flat grey: every one of these materials declares metallic 1 /
+// roughness 1 modulated by a metallicRoughness map, and on that model the wax texels
+// are marked metallic. metallicRoughness and normal carry no colour, so keeping them
+// preserves the surface exactly while leaving the base colour a clean factor.
+if (src) {
+  candleMat.setMetallicFactor(src.getMetallicFactor()).setRoughnessFactor(src.getRoughnessFactor())
+  const mr = src.getMetallicRoughnessTexture()
+  if (mr) {
+    candleMat.setMetallicRoughnessTexture(mr)
+    const info = src.getMetallicRoughnessTextureInfo()
+    if (info) candleMat.getMetallicRoughnessTextureInfo()?.copy(info)
+  }
+  const nrm = src.getNormalTexture()
+  if (nrm) {
+    candleMat.setNormalTexture(nrm).setNormalScale(src.getNormalScale())
+    const info = src.getNormalTextureInfo()
+    if (info) candleMat.getNormalTextureInfo()?.copy(info)
+  }
+}
 
 const idxArray = (arr) => (vertCount > 65535 ? new Uint32Array(arr) : new Uint16Array(arr))
 const buffer = indices.getBuffer() ?? root.listBuffers()[0]
