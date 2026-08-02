@@ -246,6 +246,30 @@ describe('a hall design scattered over three tiers', () => {
     expect(elevations()).toEqual(before)
   })
 
+  /**
+   * The card click, as `HallDesignBlock` now composes it. The describe above
+   * still covers the old `applyHallDesign` + `setElevation` loop, which is a
+   * public sequence and stays supported; this is the one the UI actually runs,
+   * and the claim is the same — laying 38 fixtures AND scattering them is one
+   * Ctrl+Z, not one per fixture.
+   */
+  it.each(HALL_DESIGNS)('$id lays and scatters in a single undo entry', (design) => {
+    const before = useEditorStore.getState().scene.objectOrder.length
+
+    beginGesture()
+    applyHallDesign(design.id)
+    setHallHeights(design.floorDistance!, 120)
+    endGesture()
+
+    const ids = hallFixtureIds(scene())
+    expect(ids.length).toBeGreaterThan(0)
+    expect(useEditorStore.getState().scene.objectOrder.length).toBeGreaterThan(before)
+
+    undo()
+    expect(useEditorStore.getState().scene.objectOrder).toHaveLength(before)
+    for (const id of ids) expect(scene().objects[id]).toBeUndefined()
+  })
+
   it('leaves a locked fixture where it is and moves the rest', () => {
     const fd = lay()
     setHallHeights(fd, 0)
