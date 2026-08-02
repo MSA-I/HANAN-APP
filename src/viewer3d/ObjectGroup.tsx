@@ -947,31 +947,59 @@ const glassMaterial = () =>
   }))
 
 /**
- * Cast acrylic (PMMA), rebuilt. Not a copy of the glass above — every number that
- * differs has a source:
+ * Cast acrylic (PMMA), rebuilt. The user asked for it plainly on 2026-08-02:
+ * "make it come out transparent, almost like glass". It is now almost the glass
+ * above — and still not a copy of it, because two numbers differ and both have a
+ * source rather than a preference:
  *
- *  · `ior` 1.49 is PMMA's refractive index. Glass is 1.50-1.52, and 1.5 would be
- *    wrong here even though the difference is small.
+ *  · `ior` 1.49 is PMMA's refractive index. Glass is 1.50-1.52. The gap is
+ *    invisible, which is exactly why moving it would be trading a fact for
+ *    nothing; the request was about transparency, and 1.49 is not what stood in
+ *    the way of it.
  *  · `specularIntensity`/`specularColor` are exactly the `KHR_materials_specular`
  *    the prep drops (specularFactor 1, specularColorFactor [0.8,0.8,0.8], linear).
  *    That is a 1:1 restoration of what was deleted, not an invention.
- *  · `roughness` is above the glass's: the chair is a casting, not polished
- *    tableware, and the product shot shows broad soft highlights down the legs
- *    rather than a razor specular.
+ *
+ * ## What the pictures said, and where the old numbers came from
  *
  * `thickness` is measured in SCENE units and this app renders in metres
  * (core/space.ts), so the glass's 0.5 is half a metre on a 15 cm wine glass — it
  * was never a physical measurement, it is an appearance dial.
  *
- * ⛔ 3.0 IS A MEASURED CHOICE AND IT IS THE OPPOSITE OF THE ONE PLANNED. The four
- * values 0.1 / 0.3 / 1.0 / 3.0 were rendered from one camera against the product
- * shot (.tmp/shots/04-05-thickness-*.png, 2026-08-02). The plan expected a LOW
- * value — "the chair reads clear and open, not thick glass" — and the pictures say
- * the reverse: at 0.1, 0.3 and 1.0 the chair is a barely-there smear with no edges,
- * while the product shot is a chair you can plainly SEE, with bright legible edges
- * and the seat refracting the floor. 3.0 is the only one of the four that reads
- * like it. It is also the top of the range tested, so a follow-up may find more
- * above it; nothing below it is a candidate.
+ * The previous values (roughness 0.08, transmission 0.92, thickness 3.0) were also
+ * measured, and 3.0 was chosen because at 0.1-1.0 "the chair was a barely-there
+ * smear with no edges". ⚠ THAT SCAN MOVED ONE DIAL. Rescanned 2026-08-02 as a grid
+ * — {0.08/0.92, 0.05/0.95} × thickness {0.1 … 5.0}, one scene, one camera, the
+ * material mutated live so nothing else could move — against a frame with the chair
+ * hidden, so that what is counted is the chair's own mark on the image and not the
+ * pool railing showing through it:
+ *
+ *      thickness    0.1    0.3    0.5    1.0    1.5    2.0    3.0    5.0
+ *      presence   24.6   24.8   26.4   28.1   29.2   29.8   31.0   32.1
+ *      edge       49.8   53.4  *54.3   52.7   53.1   51.5   49.3   48.0
+ *      peak        126    129    134    136   *141    133    114    108
+ *
+ * `presence` climbs with thickness, and that is the whole of what the earlier scan
+ * saw: a thicker chair marks the picture more. But the mark it adds is a WASH.
+ * Edge structure and the bright rims both PEAK low and fall away, and 3.0 is the
+ * worst of everything at or below it on both. The crops say it without arithmetic:
+ * at 0.5 the pool railing is legible through the medallion with a bright rim around
+ * it, which is the product shot; at 3.0 the railing is gone and the medallion is a
+ * milky blur. So the low values were never the smear — the SINGLE-DIAL SCAN WAS
+ * READING `presence`, and more presence is not more chair.
+ *
+ * Below roughness 0.05 the picture stops changing at all (0.05, 0.02 and 0.00 give
+ * presence 26.36 / edge 54.3 / peak 134 to the last digit), so 0.05 is the floor of
+ * the effect and not a value borrowed from the glass. transmission 0.98 and 1.00 do
+ * keep creeping (edge 55.9, 56.9) — declined: they put the acrylic PAST the glass
+ * it was asked to resemble, for 5%.
+ *
+ * ⛔ `side` STAYS AT THE DEFAULT (FrontSide), and this was re-measured rather than
+ * inherited. The old note said FrontSide and DoubleSide were indistinguishable AT
+ * THICKNESS 3, which is no longer the thickness. At 0.5 they are distinguishable
+ * and DoubleSide is WORSE — edge 49.0 against 54.3 — because the extra back faces
+ * fill the shell back in with exactly the wash we just removed. It would also
+ * double the drawn triangles of a 102k-triangle mesh to do it.
  *
  * `attenuationColor`/`attenuationDistance` are deliberately absent: without a
  * finite attenuation distance `thickness` barely tints, and adding both means
@@ -982,20 +1010,13 @@ const acrylicMaterial = () =>
   (sharedAcrylic ??= new THREE.MeshPhysicalMaterial({
     color: '#ffffff',
     metalness: 0,
-    roughness: 0.08,
-    transmission: 0.92,
-    thickness: 3,
+    roughness: 0.05,
+    transmission: 0.95,
+    thickness: 0.5,
     ior: 1.49,
     specularIntensity: 1,
     specularColor: new THREE.Color().setRGB(0.8, 0.8, 0.8, THREE.LinearSRGBColorSpace),
     transparent: true,
-    // ⛔ `side` LEFT AT THE DEFAULT (FrontSide), and that too is a measurement
-    // rather than the expected answer. The plan reasoned that a thin transmissive
-    // shell needs its back faces to refract; rendered at thickness 3 from the same
-    // camera, `FrontSide` and `DoubleSide` are indistinguishable
-    // (.tmp/shots/04-07-t3-side-*.png) — this GLB's shell is closed, so the back
-    // faces are hidden anyway. DoubleSide would double the drawn triangles of a
-    // 102k-triangle mesh for a picture nobody can tell apart.
   }))
 
 /**
