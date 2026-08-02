@@ -236,31 +236,64 @@ export const TABLE_DESIGNS: TableDesign[] = [
  * `[max(0, 510 − height), 895 − height]`, and `transform.elevation` is the BOTTOM
  * of the fixture — so `floorDistance` is literally the distance from the floor.
  *
- *   design                fixture height   legal band       floorDistance   cord
- *   pendants                  312.5        [197.5, 582.5]       440         142.5
- *   pendant clusters          375          [135,   520]         450          70
- *   chandeliers diamond       225          [285,   670]         480         190
- *   chandeliers basket        275          [235,   620]         500         120
- *   chandeliers candelabra    300          [210,   595]         520          75
+ * ⭐ `floorDistance` is ALSO what decides how much height scatter the design can
+ * take, and that is what these numbers are now calibrated for. The scatter is
+ * symmetric about the base (`maxHangSpread`, layout/beams.ts), so
+ * `S_max = 2 × min(base − min, max − base)`: a base parked near one rail of its own
+ * band gets almost none. The band is 385 cm wide for ALL FIVE fixtures — both ends
+ * are `− height`, so they move together — and the ONLY thing that varies is how far
+ * `floorDistance` sits from the middle of it.
  *
- * ⚠ Re-derived for round-4 item 14a, which put the two drum pendants at ×6.25 of
- * their file bounds instead of ×2.5. Only the two `height` figures moved; the five
- * `floorDistance` values below are UNCHANGED and every one of them is still
- * strictly inside its band, so nothing silently clamps — which is the property
- * this table exists to check, and the reason it is worth re-deriving by hand.
+ * The rule, applied to all five below:
  *
- * What the rescale DID break is the reading that used to follow. Bottoms still
- * rise with the fixture — the ⌀229 candelabra needs more air under it than a
- * pendant before the room reads as low — but the last column no longer falls
- * monotonically with it. That column is the procedural cord `cordLength` opens
- * above the fixture, and the two pendants are now the TALLEST things that hang
- * (312.5 and 375, against 225-300 for the chandeliers), so their tops are the
- * closest to the truss and their cords the shortest: the cluster hangs 70 cm
- * below the steel, where it used to hang 2.95 m below it. The old "a small
- * pendant is cord-hung and drops far" is simply no longer what these two are.
+ *   base = the middle of the fixture's own band — where S_max is the full 385 —
+ *          raised, if it has to be, to the lowest value that still leaves the
+ *          BOTTOM tier at 275 cm or more at full scatter (2·base − max ≥ 275),
+ *          then rounded up to a whole 10 cm.
+ *
+ * The 275 is headroom for a person walking under the lowest fixture in the rig,
+ * with 15 cm of margin over the 260 cm floor this was asked to hold. It is the
+ * binding constraint on four of the five: their bands reach down to 135-235 cm,
+ * which is head height, so a base at the true middle would scatter fixtures into
+ * the room.
+ *
+ *   design                 height   legal band       middle   base   bottom   S_max   cord
+ *   pendants                312.5   [197.5, 582.5]   390      430    277.5    305     152.5
+ *   pendant clusters        375     [135,   520]     327.5    400    280      240     120
+ *   chandeliers diamond     225     [285,   670]     477.5    480    290      380     190
+ *   chandeliers basket      275     [235,   620]     427.5    450    280      340     170
+ *   chandeliers candelabra  300     [210,   595]     402.5    440    285      310     155
+ *
+ * (`bottom` is the lowest tier at full scatter; `cord` is what `cordLength` opens
+ * above the fixture at the base.)
+ *
+ * ⚠ Four of these moved on 2026-08-02, and the reason is worth keeping. The old
+ * values — 440 · 450 · 480 · 500 · 520 — were authored when the two drum pendants
+ * were ×2.5 of their file bounds; round-4 item 14a took them to ×6.25 and the two
+ * heights grew to 312.5 and 375, which drags the whole band down with them
+ * (`max = 895 − height`) and left the bases stranded near the TOP rail. The
+ * arithmetic was re-derived at the time and every value was still legal, so
+ * nothing clamped and nothing failed — but legal is not calibrated: the cluster
+ * was left with S_max = 140 cm of scatter against the diamond's 380, which is what
+ * the user reported. The candelabra was on 150 and would have been the next
+ * complaint.
+ *
+ * The rule REPRODUCES the diamond's 480 exactly, which is the check on it: the
+ * diamond is the one design the user held up as working, and it is the one design
+ * whose band floor (285) already clears 275 on its own, so the middle of the band
+ * IS its base. The other four had to be lowered to buy their scatter back.
+ *
+ * ⚠ The old ordering — "bottoms rise with the fixture, the ⌀229 candelabra needs
+ * more air under it than a pendant" — is GONE, deliberately. It cannot survive the
+ * rule, because the band is a function of HEIGHT and not of width: a tall fixture's
+ * whole band sits lower, so the 375 cm cluster now hangs at 400 and the 225 cm
+ * diamond at 480. What replaces it is a property the eye actually reads in the
+ * room: at full scatter every design's lowest fixture stands within 15 cm of the
+ * same 277-290 cm line, so no rig hangs into the guests' heads and none of them
+ * wastes its headroom either.
  */
 export const HALL_DESIGNS: HallDesign[] = [
-  { id: 'hall.pendants', labelKey: 'hallPendants', catalogId: 'lamp.pendant', spacing: 250, floorDistance: 440 },
+  { id: 'hall.pendants', labelKey: 'hallPendants', catalogId: 'lamp.pendant', spacing: 250, floorDistance: 430 },
   // ⚠ THIS DESIGN NOW OVERREACHES ITS OWN FIXTURE, and the fix is not in this file.
   // Source doc §29 confines `lamp.pendant-cluster` to the bar zone, which
   // entries/hanging.ts now states as `allowedZones`, so every cluster this design
@@ -269,10 +302,10 @@ export const HALL_DESIGNS: HallDesign[] = [
   // means narrowing the AREAS it fills, and those come from `ceilingAreas()` inside
   // `applyHallDesign` (state/actions.ts:1249-1262) — a file PLAN-02 may not touch.
   // Written up with the exact change in Plans/R3/handoff/FOUND-02.md.
-  { id: 'hall.pendant-clusters', labelKey: 'hallPendantClusters', catalogId: 'lamp.pendant-cluster', spacing: 350, floorDistance: 450 },
+  { id: 'hall.pendant-clusters', labelKey: 'hallPendantClusters', catalogId: 'lamp.pendant-cluster', spacing: 350, floorDistance: 400 },
   { id: 'hall.chandeliers-diamond', labelKey: 'hallChandeliersDiamond', catalogId: 'lamp.chandelier-diamond', spacing: 400, floorDistance: 480 },
-  { id: 'hall.chandeliers-basket', labelKey: 'hallChandeliersBasket', catalogId: 'lamp.chandelier-basket', spacing: 500, floorDistance: 500 },
-  { id: 'hall.chandeliers-candelabra', labelKey: 'hallChandeliersCandelabra', catalogId: 'lamp.chandelier-candelabra', spacing: 600, floorDistance: 520 },
+  { id: 'hall.chandeliers-basket', labelKey: 'hallChandeliersBasket', catalogId: 'lamp.chandelier-basket', spacing: 500, floorDistance: 450 },
+  { id: 'hall.chandeliers-candelabra', labelKey: 'hallChandeliersCandelabra', catalogId: 'lamp.chandelier-candelabra', spacing: 600, floorDistance: 440 },
 ]
 
 export function getTablePreset(id: string): TablePreset | undefined {
