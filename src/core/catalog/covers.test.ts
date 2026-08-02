@@ -242,15 +242,46 @@ describe('the shipped GLB', () => {
   })
 
   /**
-   * The knowingly-shipped gap, stated rather than hidden (entries/tableDecor.ts,
-   * the `cover()` note): in `-tied` the wine glass is welded to the napkin knot
-   * into a cluster 0.3 cm over `COLUMN_MAX`, so `mark-glass.mjs` marks neither
-   * vessel and both render opaque. If someone fixes it, this is the line to delete.
+   * Every fold's glassware is glass, and TWO of the five got there the hard way.
+   *
+   * `mark-glass.mjs` is geometric and each of those two defeats it differently:
+   * `-tied`'s wine glass clusters with the napkin ring (11.3 × 13.7 cm against
+   * `COLUMN_MAX` 11.0 — 0.3 cm), and the re-exported `-horizontal` shatters both
+   * vessels into 52 shards the clustering bridges through. Both were named with
+   * `mark-material --only` after a containment measurement, and both are read back
+   * from the shipped file here.
+   *
+   * ⚠ The assertion is deliberately over the WHOLE list rather than a count: an
+   * empty `FOLDS`, or a filter that quietly stopped matching, would satisfy
+   * "four of five" and satisfy a `.every()` too.
    */
-  it('has glass on four of the five folds — -tied is the known exception', () => {
+  it('carries a glass marking on all five folds', () => {
     const marked = FOLDS.filter((id) =>
       glbJson(glbPath(id)).materials.some((m) => m.name.startsWith('glass')))
-    expect(marked).toEqual(FOLDS.filter((id) => id !== 'decor.place-setting-tied'))
+    expect(marked).toEqual(FOLDS)
+    expect(FOLDS).toHaveLength(5)
+  })
+
+  /**
+   * …and the marking reaches BOTH vessels, not just whichever one a rule happened
+   * to find. This is what fails if a future `--only` call names one material and
+   * forgets its twin — the exact shape of the bug that left `-tied` half-marked.
+   *
+   * ⚠ NOT asserted here: unique names. `mark-glass.mjs` gives every vessel part the
+   * same `glass-tall`/`glass-short` pair of names, so `-vertical` carries three
+   * glass materials under two names — and that is fine, unlike for the napkin above
+   * where the test DOES demand uniqueness. The difference is what the name buys:
+   * `propModel.buildParts` merges primitives sharing a material name and keeps only
+   * the first, which would dress nine napkin parts in part 0's maps over eight other
+   * UV layouts. A glass part has no maps to lose — `BUILT_MATERIALS` matches the
+   * `glass` PREFIX and replaces all of them with one shared singleton, so the merge
+   * is a saved draw call rather than a lost texture.
+   */
+  it.each(FOLDS)('%s marks both vessels, not just the one a rule could see', (id) => {
+    const names = glbJson(glbPath(id))
+      .materials.map((m) => m.name)
+      .filter((n) => n.startsWith('glass'))
+    expect(names.length).toBeGreaterThanOrEqual(2)
   })
 })
 

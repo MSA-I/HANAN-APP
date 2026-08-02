@@ -202,13 +202,21 @@ const COVER_KEYWORDS = ['סכו״ם', 'סכום', 'צלחת', 'ערכה', 'מז�
  * `decor-place-setting-segmented.glb` — so without the half turn every cover would
  * face its guest backwards and put the wine glass on the wrong side of the plate.
  *
- * ⚠ `-tied` SHIPPED WITHOUT ITS GLASS MARKED, knowingly. `mark-glass.mjs` finds
- * the water glass but not the wine glass: in that model the glass is welded to the
- * knot into one cluster whose footprint is 11.3 × 13.7 cm against `COLUMN_MAX`
- * 11.0 — a miss of 0.3 cm. Relaxing the constant would loosen the rule for every
- * file, and hand-written part indices are exactly what that tool exists to avoid
- * (§3.5), so this one cover renders both glasses opaque. A visual regression on
- * one item, not a broken one.
+ * ⚠ TWO of the five have glass `mark-glass.mjs` could not find, and BOTH are now
+ * marked by name instead. The rule is geometric — it clusters parts by proximity
+ * and rejects a cluster too wide to be a vessel — and each file defeats it in its
+ * own way. In `-tied` the wine glass sits close enough to the napkin ring to
+ * cluster with it: 11.3 × 13.7 cm against `COLUMN_MAX` 11.0, a miss of 0.3 cm. In
+ * the re-exported `-horizontal` both vessels are shattered into 52 shards and the
+ * clustering bridges straight through them.
+ *
+ * Relaxing `COLUMN_MAX` would loosen the rule for every file, and §3.5 forbids
+ * hand-written part INDICES — which is not what this is. `mark-material --only`
+ * names a MATERIAL, and the two it names in each file were chosen by a containment
+ * measurement whose answer matches the other covers' `glass-short`/`glass-tall`
+ * signature exactly: ⌀9 cm footprints with tops at ~11 and ~19 cm, in a region no
+ * other part of the model occupies. Cross-file identification, not a guess — and
+ * `covers.test.ts` reads both shipped files back so a re-prep cannot erase it.
  *
  * ── `napkinColor`: THE COLOUR PICKER THE BAKED FOLD COST, GIVEN BACK (§3.7) ────
  * Baking the napkin into the cover took away the free colour picker `napkin()`
