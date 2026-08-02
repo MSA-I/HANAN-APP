@@ -290,14 +290,23 @@ export const strings = {
       // list of FOLDS: every option starts with the same word, so the eye lands on
       // the part that differs. They are ערכות, not מפיות — a napkin here is not a
       // separate item the user drops, it comes with the cover.
-      // ⚠ מאוזן/מאונך are the source filenames' own words and are not
-      // self-evident; the five labels are the item PLAN-01 §7 leaves open for the
-      // user to confirm against the five thumbnails.
+      // All five confirmed by the user against the rendered thumbnails, 2026-08-02.
+      // מאוזן/מאונך came from the source filenames and were NOT self-evident — they
+      // were checked against the renders and are right: מאוזן lies left-to-right
+      // across the guest, מאונך lies toward and away from him.
+      //
+      // ⚠ No colour in any label, deliberately, even though two of the five folds
+      // arrive coloured (folded is olive, tied is copper). The napkin carries its
+      // own material slot, so the colour is the user's — a label naming it would
+      // become a lie the moment he picks another one.
       decorPlaceSettingDiagonal: 'ערכה — מפית באלכסון',
       decorPlaceSettingHorizontal: 'ערכה — מפית במאוזן',
       decorPlaceSettingVertical: 'ערכה — מפית במאונך',
       decorPlaceSettingFolded: 'ערכה — מפית מקופלת',
-      decorPlaceSettingTied: 'ערכה — מפית קשירה',
+      // The user's own word for it: the napkin is gathered through a RING (חבק),
+      // not knotted. 'קשירה' described the gesture; this describes the object, and
+      // the ring is the thing the eye actually picks out in the thumbnail.
+      decorPlaceSettingTied: 'ערכה — מפית עם חבק',
       // tableDesigns — the four centrepieces the venue bought as a set (source
       // doc §41/§47). The fourth model arrived at 19:07 on 2026-07-28, after the
       // round that shipped the first three had already scanned the folder — which

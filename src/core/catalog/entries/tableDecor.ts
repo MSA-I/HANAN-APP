@@ -418,5 +418,8 @@ export const tableDecorEntries: CatalogEntry[] = [
   cover('decor.place-setting-horizontal', 'decorPlaceSettingHorizontal', 'a full place setting with a napkin folded across the plate: charger, plate, cutlery and two glasses', 'decor-place-setting-horizontal.glb', { width: 36, depth: 33.76, height: 15.68 }, { width: 45, depth: 42.2, height: 19.6 }),
   cover('decor.place-setting-vertical', 'decorPlaceSettingVertical', 'a full place setting with a napkin folded lengthways down the plate: charger, plate, cutlery and two glasses', 'decor-place-setting-vertical.glb', { width: 36, depth: 31.52, height: 15.04 }, { width: 45, depth: 39.4, height: 18.8 }),
   cover('decor.place-setting-folded', 'decorPlaceSettingFolded', 'a full place setting with a squarely folded napkin: charger, plate, cutlery and two glasses', 'decor-place-setting-folded.glb', { width: 36, depth: 33.76, height: 14.08 }, { width: 45, depth: 42.2, height: 17.6 }),
-  cover('decor.place-setting-tied', 'decorPlaceSettingTied', 'a full place setting with a napkin gathered in a tie: charger, plate, cutlery and two glasses', 'decor-place-setting-tied.glb', { width: 36, depth: 32.64, height: 14.88 }, { width: 45, depth: 40.8, height: 18.6 }),
+  // "a napkin with a חבק", in the user's words — a ring, not a knot. The fragment
+  // goes to the image model, so the distinction is the difference between a cuff
+  // of a different material and a twist of the same cloth.
+  cover('decor.place-setting-tied', 'decorPlaceSettingTied', 'a full place setting with a napkin gathered upright through a napkin ring: charger, plate, cutlery and two glasses', 'decor-place-setting-tied.glb', { width: 36, depth: 32.64, height: 14.88 }, { width: 45, depth: 40.8, height: 18.6 }),
 ]
