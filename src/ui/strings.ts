@@ -285,6 +285,19 @@ export const strings = {
       decorCandleholdersWood: 'מחזיקי נר עץ',
       decorCandlestickWood: 'פמוט עץ',
       decorPlaceSetting: 'ערכת סכו״ם',
+      // The five covers that carry their own napkin (R5 PLAN-01 §5.6). The
+      // 'ערכה — <fold>' pattern is what makes the `סוג הערכה` dropdown read as a
+      // list of FOLDS: every option starts with the same word, so the eye lands on
+      // the part that differs. They are ערכות, not מפיות — a napkin here is not a
+      // separate item the user drops, it comes with the cover.
+      // ⚠ מאוזן/מאונך are the source filenames' own words and are not
+      // self-evident; the five labels are the item PLAN-01 §7 leaves open for the
+      // user to confirm against the five thumbnails.
+      decorPlaceSettingDiagonal: 'ערכה — מפית באלכסון',
+      decorPlaceSettingHorizontal: 'ערכה — מפית במאוזן',
+      decorPlaceSettingVertical: 'ערכה — מפית במאונך',
+      decorPlaceSettingFolded: 'ערכה — מפית מקופלת',
+      decorPlaceSettingTied: 'ערכה — מפית קשירה',
       // tableDesigns — the four centrepieces the venue bought as a set (source
       // doc §41/§47). The fourth model arrived at 19:07 on 2026-07-28, after the
       // round that shipped the first three had already scanned the folder — which

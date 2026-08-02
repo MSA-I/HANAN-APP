@@ -156,6 +156,78 @@ function napkin(entry: CatalogEntry, defaultTexture: string): CatalogEntry {
 }
 
 /**
+ * What all six covers answer to in the library search: the words of a place
+ * setting AND the words of a napkin, because a cover with a fold baked into it is
+ * both. `surfaceProp` prepends `SURFACE_KEYWORDS` to whatever is passed here, so
+ * the five below inherit 'קישוט'/'מרכז שולחן' exactly as `decor.place-setting`
+ * already does — deliberately NOT the `napkin()` treatment, which REPLACES the
+ * list. Six items that are the same kind of thing must answer the same search;
+ * stripping the three words from five of the six and leaving them on the sixth
+ * would make 'קישוט' return one cover and hide the rest.
+ */
+const COVER_KEYWORDS = ['סכו״ם', 'סכום', 'צלחת', 'ערכה', 'מזלג', 'סכין', 'כוס', 'כוסות', 'מפית', 'מפיות', 'קיפול']
+
+/**
+ * A COMPLETE COVER — charger, plate, cutlery, two glasses AND a napkin, all baked
+ * into one GLB. Five of them ship, one per fold, and they are how the user changes
+ * a napkin: pick the fold in `סוג הערכה` and re-lay, and the whole cover changes
+ * with it (source doc / R5 PLAN-01 §3.4, the user's own words — "בכל פעם שארצה
+ * להחליף מפית פשוט כל הערכה תשתנה ביחד עם המפית שנבחרה").
+ *
+ * WHY A SECOND FAMILY RATHER THAN A NAPKIN LAID ON THE OLD COVER. That is what
+ * `napkin()` above does and it is not good enough: a loose napkin keeps a rotation
+ * of its own (`clampToSurface` deliberately does not lock it — actions.ts:706-714),
+ * and a rotated napkin walks off the plate. Measured in SimLab on 2026-08-02
+ * against the real charger — the napkin's tail crosses the plate's rim at yaw 45°
+ * and 90° — so the fold is baked in instead of stacked on. `handoff/FOUND-01.md`
+ * §4 holds the numbers and the six renders.
+ *
+ * THE THREE OLD NAPKINS STAY, ON PURPOSE (§3.6). `id` is a storage key: a saved
+ * project holding `decor.napkin-folded` would break if the entry vanished, and so
+ * would its layer visibility and its thumbnail filename. They also cannot collide
+ * with these five — `requiresHost` names the EXACT id `'decor.place-setting'`, so
+ * dropping a napkin onto a table laid with a cover below refuses by itself with
+ * `missingHost`, without a line of code. `SCHEMA_VERSION` stays 13: nothing that
+ * is already stored changes meaning.
+ *
+ * SIZES ARE MEASURED, NOT DESIGNED. `modelSize` is the `final bounds` that
+ * `glb-prep --mode prop --diameter 45 --yaw 180` printed for each file, ×100 for
+ * cm (handoff/FOUND-01.md §1, 2026-08-02); `defaultSize` is a UNIFORM 0.8 of it,
+ * the same ratio and the same reason as `decor.place-setting` below — a per-axis
+ * fit would squash the round charger into an ellipse (see that entry's note).
+ *
+ * ⚠ `--yaw 180` IS MEASURED TOO, not copied from the older import. The wine-glass
+ * centre of all five raw files sits at (+7.3…+7.5, −13.4…−14.3) file cm, the same
+ * sign as the raw `ערכת סכום-ריזורט.glb` and the OPPOSITE of the shipped
+ * `decor-place-setting-segmented.glb` — so without the half turn every cover would
+ * face its guest backwards and put the wine glass on the wrong side of the plate.
+ *
+ * ⚠ `-tied` SHIPPED WITHOUT ITS GLASS MARKED, knowingly. `mark-glass.mjs` finds
+ * the water glass but not the wine glass: in that model the glass is welded to the
+ * knot into one cluster whose footprint is 11.3 × 13.7 cm against `COLUMN_MAX`
+ * 11.0 — a miss of 0.3 cm. Relaxing the constant would loosen the rule for every
+ * file, and hand-written part indices are exactly what that tool exists to avoid
+ * (§3.5), so this one cover renders both glasses opaque. A visual regression on
+ * one item, not a broken one.
+ */
+function cover(
+  id: string,
+  labelKey: string,
+  promptFragment: string,
+  file: string,
+  defaultSize: Size3D,
+  modelSize: Size3D,
+): CatalogEntry {
+  return {
+    ...surfaceProp(id, labelKey, promptFragment, P(file), defaultSize, '#d9d4cb', 'rect', COVER_KEYWORDS),
+    category: 'tableware',
+    placement: 'seat',
+    surfaceAnchor: 'free', // one per cover — never the centre
+    modelSize,
+  }
+}
+
+/**
  * A candle holder whose WAX has been split off into its own GLB primitive, so the
  * user can colour the candles to the event without touching the metal or the wood.
  *
@@ -333,4 +405,18 @@ export const tableDecorEntries: CatalogEntry[] = [
     // measured on the prepped GLB, 2026-07-28 (min [-22.5, 0, -19.57], max [22.5, 18.73, 19.57])
     modelSize: { width: 45, depth: 39.14, height: 18.73 },
   },
+  // ── the five covers with a napkin baked in (R5 PLAN-01 route 2) ────────────
+  // All five `modelSize` rows are the tool's own `final bounds` × 100, and every
+  // `defaultSize` is that row × 0.8 on all three axes. See `cover()` above for
+  // where the numbers come from, why the yaw is measured, why the three loose
+  // napkins stay, and why `-tied` ships with opaque glasses.
+  //
+  // The English half of each id is the FOLD, not the Hebrew filename: the id is a
+  // stable key that also names public/props/<id>.glb and public/thumbs/<id>.webp
+  // (tools/thumbs-prep.mjs), so it cannot be Hebrew and cannot be re-spelt later.
+  cover('decor.place-setting-diagonal', 'decorPlaceSettingDiagonal', 'a full place setting with a diagonally folded napkin: charger, plate, cutlery and two glasses', 'decor-place-setting-diagonal.glb', { width: 36, depth: 32.32, height: 15.92 }, { width: 45, depth: 40.4, height: 19.9 }),
+  cover('decor.place-setting-horizontal', 'decorPlaceSettingHorizontal', 'a full place setting with a napkin folded across the plate: charger, plate, cutlery and two glasses', 'decor-place-setting-horizontal.glb', { width: 36, depth: 33.76, height: 15.68 }, { width: 45, depth: 42.2, height: 19.6 }),
+  cover('decor.place-setting-vertical', 'decorPlaceSettingVertical', 'a full place setting with a napkin folded lengthways down the plate: charger, plate, cutlery and two glasses', 'decor-place-setting-vertical.glb', { width: 36, depth: 31.52, height: 15.04 }, { width: 45, depth: 39.4, height: 18.8 }),
+  cover('decor.place-setting-folded', 'decorPlaceSettingFolded', 'a full place setting with a squarely folded napkin: charger, plate, cutlery and two glasses', 'decor-place-setting-folded.glb', { width: 36, depth: 33.76, height: 14.08 }, { width: 45, depth: 42.2, height: 17.6 }),
+  cover('decor.place-setting-tied', 'decorPlaceSettingTied', 'a full place setting with a napkin gathered in a tie: charger, plate, cutlery and two glasses', 'decor-place-setting-tied.glb', { width: 36, depth: 32.64, height: 14.88 }, { width: 45, depth: 40.8, height: 18.6 }),
 ]
