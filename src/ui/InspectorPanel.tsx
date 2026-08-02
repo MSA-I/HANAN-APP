@@ -1282,8 +1282,14 @@ function MultiInspector({ ids }: { ids: string[] }) {
           / cover type in local state, and a pick remembered from the PREVIOUS
           selection would be applied to this one. Same remount trick, same reason,
           as `SelectionFilter` below. */}
+      {/* ⚠ THE `tables:` PREFIX IS NOT DECORATION. `SelectionFilter` below is keyed
+          off the same id list, and on an all-tables selection the two strings were
+          identical — two siblings of one parent with one key, which React reports
+          as "Encountered two children with the same key" and answers by dropping
+          or duplicating one of them. Caught in the browser, not by a test: the
+          panel still rendered, so nothing here could have failed. */}
       {edit.tableIds.length > 0 && (
-        <MultiTableSection key={edit.tableIds.join(',')} edit={edit} />
+        <MultiTableSection key={`tables:${edit.tableIds.join(',')}`} edit={edit} />
       )}
       {edit.slots.length > 0 && <MultiAppearanceSection slots={edit.slots} />}
       {/* LAST, and it moved down one place to get there. The reasoning it was
@@ -1307,7 +1313,10 @@ export function InspectorPanel() {
   )
 
   return (
-    <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-e border-line bg-panel 2xl:w-96">
+    <aside
+      data-testid="inspector-panel"
+      className="flex w-80 shrink-0 flex-col overflow-y-auto border-e border-line bg-panel 2xl:w-96"
+    >
       {selection.length === 0 && <ProjectInspector />}
       {selection.length === 1 && first && <SingleInspector obj={first} />}
       {selection.length > 1 && <MultiInspector ids={selection} />}
