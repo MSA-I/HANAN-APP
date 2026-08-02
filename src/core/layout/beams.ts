@@ -197,6 +197,17 @@ export type HangTier = (typeof HANG_TIERS)[number]
  * ABOVE the middle of `hangRange`, so the headroom is always the binding side,
  * and a user who wants more scatter lowers `מרחק מהרצפה` — at which point this
  * maximum grows in front of him.
+ *
+ * ⚠ How far above the middle is now a CALIBRATED number and not an accident. It
+ * was an accident once: `hall.pendant-clusters` sat 122 cm above its own middle
+ * and came back with 140 cm of scatter where `hall.chandeliers-diamond` had 380,
+ * and the user reported exactly that. The five bases were re-derived on 2026-08-02
+ * to sit as close to their middles as a 275 cm clearance under the LOWEST tier
+ * allows (the derivation, and why it is a base problem and not a formula problem,
+ * is the block above `HALL_DESIGNS` in `core/presets.ts`). Making the scatter
+ * asymmetric instead was considered and rejected in PLAN-06 §9.1: the mean height
+ * would then drift whenever the scatter slider moved, and the two controls would
+ * stop being independent.
  */
 export function maxHangSpread(
   pack: Pick<VenuePack, 'hangHeight'> | undefined,
