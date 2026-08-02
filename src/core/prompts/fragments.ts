@@ -18,17 +18,25 @@ import { editableSlotsOf, type CatalogEntry } from '../catalog/types'
  * G8 decision, and the user's "10" in §45 of the source document was the figure
  * being corrected. The package must never exceed it:
  *
- *   16 total = 1 capture + 1 materials + 1 background + up to 5 fixed + design refs
+ *   16 total = 1 capture + up to 3 always-on + up to 5 fixed + design refs
  *
- * The capture counts: it is an input image like any other. `materials` and
- * `background` are the two fixed references every angle carries (refs.ts).
- * `fixed` is §26's route for the hall's OWN fittings — the bar, the DJ booth,
- * the planters — which are selected ahead of the design cut so they stop being
- * the first thing to fall out of a crowded frame.
+ * The capture counts: it is an input image like any other. The always-on three
+ * are the references that describe the BUILDING rather than anything standing in
+ * it (refs.ts): the hall materials photograph, the site's landscape, and — on a
+ * hall angle only — the floor's stone in close-up. `fixed` is §26's route for
+ * the hall's OWN fittings, the bar, the DJ booth and the planters, which are
+ * selected ahead of the design cut so they stop being the first thing to fall
+ * out of a crowded frame.
  *
- * MAX_DESIGN_REFS is therefore the WORST case: what is left when five fixed
- * elements are in shot. Most frames hold fewer, so `designRefBudget` hands the
- * unclaimed fixed slots back rather than wasting them.
+ * MAX_DESIGN_REFS is therefore the WORST case: what is left when three always-on
+ * references AND five fixed elements are all in shot. Most frames hold fewer of
+ * each, so `designRefBudget` hands both kinds of unclaimed slot back rather than
+ * wasting them — a reception-deck angle carries no floor swatch and gets 13.
+ *
+ * PLAN-05 C1 moved this from 2 always-on / 8 design to 3 / 7. The total did not
+ * move and cannot: the arithmetic below is written so that
+ * `1 + alwaysOnUsed + fixedUsed + designRefBudget(fixedUsed, alwaysOnUsed)`
+ * is 16 for EVERY pair of inputs, which is what compose.test.ts asserts.
  *
  * The model that will actually be used was named "GPT IMAGE 2.0", which could
  * not be verified to exist; when the real target is settled, MAX_INPUT_IMAGES is
@@ -37,27 +45,34 @@ import { editableSlotsOf, type CatalogEntry } from '../catalog/types'
 export const MAX_INPUT_IMAGES = 16
 /** the capture itself */
 const CAPTURE_SLOTS = 1
-/** HALL_MATERIAL_REF + BACKGROUND_REF, both present on every angle */
-const ALWAYS_ON_SLOTS = 2
+/** HALL_MATERIAL_REF + BACKGROUND_REF + HALL_FLOOR_REF, the last on hall angles only */
+export const ALWAYS_ON_MAX = 3
 /** §26: how many of the hall's own fittings may be illustrated */
 export const MAX_FIXED_REFS = 5
-/** 16 − 1 capture − 1 materials − 1 background − 5 fixed = 8 */
-export const MAX_DESIGN_REFS =
-  MAX_INPUT_IMAGES - CAPTURE_SLOTS - ALWAYS_ON_SLOTS - MAX_FIXED_REFS
+/** 16 − 1 capture − 3 always-on − 5 fixed = 7 */
+export const MAX_DESIGN_REFS = MAX_INPUT_IMAGES - CAPTURE_SLOTS - ALWAYS_ON_MAX - MAX_FIXED_REFS
+
+/** Whole number inside [lo, hi]; anything unusable reads as lo. */
+function clampInt(n: number, lo: number, hi: number): number {
+  return Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), lo), hi) : lo
+}
 
 /**
- * How many design references fit alongside `fixedCount` fixed ones — the floor
- * above plus every fixed slot nobody took. Fewer than five fixed elements in
- * frame must not cost the design list its pictures.
+ * How many design references fit alongside `fixedCount` fixed ones and
+ * `alwaysOnCount` building ones — the floor above plus every slot of either kind
+ * that nobody took. A frame with fewer than five fittings, or an angle that
+ * carries no floor swatch, must not cost the design list its pictures.
+ *
+ * `alwaysOnCount` defaults to the MAXIMUM, so an un-parameterised call returns
+ * the smallest (safest) budget and can never over-fill the request.
  *
  * Total images are `1 + refs.length`, and this function is what keeps that at or
- * under MAX_INPUT_IMAGES for any fixed count at all (compose.test.ts pins it).
+ * under MAX_INPUT_IMAGES for any pair of counts at all (compose.test.ts pins it).
  */
-export function designRefBudget(fixedCount: number): number {
-  const used = Number.isFinite(fixedCount)
-    ? Math.min(Math.max(Math.trunc(fixedCount), 0), MAX_FIXED_REFS)
-    : 0
-  return MAX_DESIGN_REFS + (MAX_FIXED_REFS - used)
+export function designRefBudget(fixedCount: number, alwaysOnCount: number = ALWAYS_ON_MAX): number {
+  const fixedUsed = clampInt(fixedCount, 0, MAX_FIXED_REFS)
+  const alwaysOnUsed = clampInt(alwaysOnCount, 0, ALWAYS_ON_MAX)
+  return MAX_DESIGN_REFS + (MAX_FIXED_REFS - fixedUsed) + (ALWAYS_ON_MAX - alwaysOnUsed)
 }
 
 /**

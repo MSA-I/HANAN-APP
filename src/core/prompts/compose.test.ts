@@ -1,10 +1,22 @@
 import { describe, expect, it } from 'vitest'
+/**
+ * PLAN-05 C1. The dev-server plugin keeps its own copy of the reference role
+ * list and of `refFileName`, and IT is the copy that writes the output folder —
+ * so the only way to prove the two agree is to import both and run them side by
+ * side. Importable under vitest's node environment because everything the plugin
+ * pulls in is either a `node:` builtin or a type-only `vite` import.
+ */
+import {
+  REF_ROLES as PLUGIN_REF_ROLES,
+  refFileName as pluginRefFileName,
+} from '../../../tools/capture-plugin'
 import { listCatalog } from '../catalog/registry'
 import { createDefaultScene, createObject } from '../model/factory'
 import { DEFAULT_LIGHTING, type SceneObject, type SceneState, type Vec2 } from '../model/types'
 import { getVenuePack, type SealedCamera } from '../venuePacks'
-import { composeExport } from './compose'
+import { composeExport, manifestOf, refFileName } from './compose'
 import {
+  ALWAYS_ON_MAX,
   colorPhrase,
   designRefBudget,
   hexToColorName,
@@ -14,13 +26,17 @@ import {
   pluralize,
   quantityWord,
 } from './fragments'
+import { resolveRefPath } from './refPaths'
 import {
   BACKGROUND_REF,
+  floorRefFor,
+  HALL_FLOOR_REF,
   HALL_MATERIAL_REF,
   HALL_MATERIAL_REF_ELEVATED,
   isElevatedAngle,
   materialRefFor,
   objectsInFrame,
+  REF_ROLE_NAMES,
   selectRefs,
 } from './refs'
 import {
@@ -239,13 +255,15 @@ describe('the image budget', () => {
   it('cuts the design list to its budget and says what was cut', () => {
     // one of every table-decor product, all standing mid-hall in s1's view
     const decor = everyCentrepiece()
-    const budget = designRefBudget(0) // nothing fixed in frame, so the slack comes back
+    // nothing fixed in frame, so that slack comes back; s1 is a hall angle, so
+    // all three always-on references are spent and none of THAT slack does
+    const budget = designRefBudget(0, 3)
     expect(decor.length).toBeGreaterThan(budget)
 
     const { refs, groups, warnings } = selectRefs(sceneWith(...decor), cam('s1'))
     expect(groups.length).toBe(decor.length)
     expect(refs.filter((r) => r.role === 'design')).toHaveLength(budget)
-    expect(refs).toHaveLength(budget + 2) // + the hall material shot and the landscape
+    expect(refs).toHaveLength(budget + 3) // + hall materials, the landscape and the floor
     expect(warnings.join(' ')).toContain(`${budget} references included`)
   })
 
@@ -265,14 +283,22 @@ describe('the image budget', () => {
    * makes the request fail outright if it is wrong, so it is asserted on the
    * arithmetic AND on real scenes.
    */
-  it('never sends more than MAX_INPUT_IMAGES, for any number of fixed elements', () => {
-    for (let fixedCount = 0; fixedCount <= 10; fixedCount++) {
-      const capture = 1
-      const alwaysOn = 2 // materials + background
-      const used = Math.min(fixedCount, MAX_FIXED_REFS)
-      expect(capture + alwaysOn + used + designRefBudget(fixedCount)).toBeLessThanOrEqual(
-        MAX_INPUT_IMAGES,
-      )
+  it('never sends more than MAX_INPUT_IMAGES, for any pair of counts', () => {
+    // alwaysOn is 2 on a reception-deck angle (materials + background) and 3 in
+    // the hall, where the floor swatch joins them — PLAN-05 C1
+    for (const alwaysOn of [2, 3]) {
+      for (let fixedCount = 0; fixedCount <= 10; fixedCount++) {
+        const capture = 1
+        const used = Math.min(fixedCount, MAX_FIXED_REFS)
+        const total = capture + alwaysOn + used + designRefBudget(fixedCount, alwaysOn)
+        expect(total, `alwaysOn=${alwaysOn} fixed=${fixedCount}`).toBeLessThanOrEqual(
+          MAX_INPUT_IMAGES,
+        )
+        // and it does not merely stay under: an unspent slot is a wasted picture
+        if (fixedCount <= MAX_FIXED_REFS) {
+          expect(total, `alwaysOn=${alwaysOn} fixed=${fixedCount}`).toBe(MAX_INPUT_IMAGES)
+        }
+      }
     }
   })
 
@@ -292,10 +318,22 @@ describe('the image budget', () => {
     }
   })
 
-  it('spends the worst case exactly: five fixed elements leave MAX_DESIGN_REFS', () => {
+  it('spends the worst case exactly: three always-on + five fixed leave MAX_DESIGN_REFS', () => {
     expect(designRefBudget(MAX_FIXED_REFS)).toBe(MAX_DESIGN_REFS)
-    expect(designRefBudget(99)).toBe(MAX_DESIGN_REFS)
-    expect(1 + 2 + MAX_FIXED_REFS + MAX_DESIGN_REFS).toBe(MAX_INPUT_IMAGES)
+    expect(designRefBudget(MAX_FIXED_REFS, ALWAYS_ON_MAX)).toBe(MAX_DESIGN_REFS)
+    expect(designRefBudget(99, 99)).toBe(MAX_DESIGN_REFS)
+    expect(1 + ALWAYS_ON_MAX + MAX_FIXED_REFS + MAX_DESIGN_REFS).toBe(MAX_INPUT_IMAGES)
+    expect([ALWAYS_ON_MAX, MAX_FIXED_REFS, MAX_DESIGN_REFS]).toEqual([3, 5, 7])
+  })
+
+  it('hands back the always-on slot a deck angle does not spend', () => {
+    // k1/k2 stand on the reception deck, whose floor is bare slab and whose
+    // templates refuse the hall's stone outright — so no floor swatch, and the
+    // slot goes to the design list rather than being wasted
+    expect(designRefBudget(0, 2)).toBe(designRefBudget(0, 3) + 1)
+    const deck = selectRefs(sceneWith(...everyCentrepiece(2400)), cam('k1'))
+    expect(deck.refs.some((r) => r.role === 'floor')).toBe(false)
+    expect(1 + deck.refs.length).toBeLessThanOrEqual(MAX_INPUT_IMAGES)
   })
 })
 
@@ -321,7 +359,7 @@ describe('fixed hall elements are illustrated before the design cut (§26)', () 
     expect(fixed).toEqual([shotOf('bar.resort-left'), shotOf('dj.booth'), shotOf('plant.potted-2')])
 
     // …and the design list is what gave up the slots
-    expect(refs.filter((r) => r.role === 'design')).toHaveLength(designRefBudget(3))
+    expect(refs.filter((r) => r.role === 'design')).toHaveLength(designRefBudget(3, 3))
     const cut = warnings.join(' ')
     expect(cut).toContain('design items in frame')
     for (const id of ['bar.resort-left', 'dj.booth', 'plant.potted-2']) {
@@ -330,10 +368,10 @@ describe('fixed hall elements are illustrated before the design cut (§26)', () 
     expect(1 + refs.length).toBeLessThanOrEqual(MAX_INPUT_IMAGES)
   })
 
-  it('orders them materials, background, fixed, design', () => {
+  it('orders them materials, background, floor, fixed, design', () => {
     const scene = sceneWith(bar(), planter(), createObject('table.round', MIDDLE, venue))
     const roles = selectRefs(scene, cam('s1')).refs.map((r) => r.role)
-    expect(roles).toEqual(['materials', 'background', 'fixed', 'fixed', 'design'])
+    expect(roles).toEqual(['materials', 'background', 'floor', 'fixed', 'fixed', 'design'])
   })
 
   it('counts a baked venue fixture as fixed without anything being placed', () => {
@@ -531,7 +569,8 @@ describe('composeExport', () => {
     const pkg = composeExport(sceneWith(createObject('table.round', MIDDLE, venue)), 's1')
     expect(pkg.prompt).toContain('MATERIALS: match reference image 1')
     expect(pkg.prompt).toContain('BACKGROUND: reference image 2')
-    expect(pkg.prompt).toContain('DESIGN ELEMENTS: match reference image 3.')
+    expect(pkg.prompt).toContain('FLOOR: reference image 3')
+    expect(pkg.prompt).toContain('DESIGN ELEMENTS: match reference image 4.')
   })
 
   it('renumbers when fixed elements take slots ahead of the design list', () => {
@@ -541,10 +580,10 @@ describe('composeExport', () => {
       createObject('table.round', MIDDLE, venue),
     )
     const pkg = composeExport(scene, 's1')
-    // 1 materials · 2 background · 3-4 the bar and the DJ booth · 5 the table
-    expect(pkg.prompt).toContain('VENUE FIXTURES: reference images 3-4')
+    // 1 materials · 2 background · 3 floor · 4-5 the bar and the DJ booth · 6 the table
+    expect(pkg.prompt).toContain('VENUE FIXTURES: reference images 4-5')
     expect(pkg.prompt).toContain("this building's OWN bar")
-    expect(pkg.prompt).toContain('DESIGN ELEMENTS: match reference image 5.')
+    expect(pkg.prompt).toContain('DESIGN ELEMENTS: match reference image 6.')
   })
 
   it('leaves out the instruction for a role that sent no image', () => {
@@ -627,5 +666,147 @@ describe('the shadows toggle reaches the prompt (C2)', () => {
   it('never asks the model for a shadowless picture', () => {
     const prompt = composeExport(withShadows(false), 's1').prompt
     expect(prompt).not.toMatch(/no shadows|without shadows|shadowless/i)
+  })
+})
+
+/**
+ * PLAN-05 C1 — "צריך לערוך ולשדרג את הפרומפטים הריצוף לא יוצר טוב צריך לצרף גם
+ * את התמונה של הריצוף".
+ *
+ * Three things had to agree and did not: the reference photographs (plain honed
+ * marble in an orthogonal grid), the capture (a SketchUp chevron working
+ * texture) and the prose (which demanded the chevron). The swatch is the fourth
+ * input, and these tests hold all four to the same story.
+ */
+describe('the floor close-up (C1)', () => {
+  const HALL = ['s1', 's2', 's3', 's4', 's5']
+  const DECK = ['k1', 'k2']
+
+  it.each(HALL)('%s stands on the hall floor, so it carries the swatch — third', (id) => {
+    const refs = composeExport(sceneWith(), id).refs
+    expect(refs[2]).toEqual(HALL_FLOOR_REF)
+    expect(refs.filter((r) => r.role === 'floor')).toHaveLength(1)
+  })
+
+  it.each(DECK)('%s stands on the reception deck, so it carries none', (id) => {
+    const refs = composeExport(sceneWith(), id).refs
+    expect(refs.some((r) => r.role === 'floor')).toBe(false)
+    // and the two that are always there are untouched
+    expect(refs[0].role).toBe('materials')
+    expect(refs[1]).toEqual(BACKGROUND_REF)
+  })
+
+  it('splits the seven cameras by zone, not by a list of ids', () => {
+    expect([...HALL, ...DECK].sort()).toEqual(cameras.map((c) => c.id).sort())
+    for (const id of HALL) expect(cam(id).zone, id).toBeUndefined()
+    for (const id of DECK) expect(cam(id).zone, id).toBeTruthy()
+    for (const id of HALL) expect(floorRefFor(cam(id))).toEqual(HALL_FLOOR_REF)
+    for (const id of DECK) expect(floorRefFor(cam(id))).toBeNull()
+  })
+
+  it('falls back to sending it when there is no sealed camera to judge', () => {
+    // an extra reference is the better way to be wrong than a missing one
+    expect(floorRefFor(null)).toEqual(HALL_FLOOR_REF)
+  })
+
+  it('reads from a root the dev server is already allowed to open', () => {
+    expect(HALL_FLOOR_REF.path.startsWith('HANAN-APP-DOCS/')).toBe(true)
+    // …and stays inside it once resolved — the trust boundary, not a spelling test
+    expect(resolveRefPath(HALL_FLOOR_REF.path, { 'HANAN-APP-DOCS': '/docs' })).toBeTruthy()
+  })
+
+  it('gives the prompt the FLOOR instruction, on a hall angle only', () => {
+    const hall = composeExport(sceneWith(), 's1').prompt
+    expect(hall).toContain('FLOOR: reference image 3')
+    // the sentence that is the actual repair: the one licensed departure from
+    // the capture. Without it the model copies the chevron with the swatch in hand
+    expect(hall).toContain('The floor in the supplied capture is a placeholder texture')
+    expect(composeExport(sceneWith(), 'k1').prompt).not.toContain('FLOOR:')
+  })
+
+  /**
+   * The word "chevron" is gone outright; "inlaid" and "banding" survive only in
+   * the NEGATIVE ("no border, band or inlaid pattern of any kind", "There is no
+   * inlaid pattern to draw"), which is the plan's own wording and the same
+   * device SHARED_NEGATIVE is built on — in these models a refusal carries
+   * further than the matching positive. So the assertion is not "the words are
+   * absent" but "no angle asks for the pattern".
+   */
+  it('takes the chevron out of every angle that used to demand it', () => {
+    for (const camera of cameras) {
+      const prompt = composeExport(sceneWith(), camera.id).prompt
+      expect(prompt, camera.id).not.toMatch(/chevron/i)
+      expect(prompt, camera.id).not.toMatch(/geometric inlay/i)
+      // every surviving mention is preceded by a refusal — including the two
+      // deck angles, whose "it is not the hall's inlaid stone" predates C1
+      for (const m of prompt.matchAll(/inlaid|banding/gi)) {
+        const before = prompt.slice(Math.max(0, m.index - 60), m.index)
+        expect(before, `${camera.id}: unnegated "${m[0]}"`).toMatch(/\bno\b|\bnot\b|\bnever\b/i)
+      }
+    }
+  })
+
+  it('still says what the floor IS, so removing the pattern removed nothing else', () => {
+    const s4 = composeExport(sceneWith(), 's4').prompt // the top-down angle
+    expect(s4).toContain('orthogonal')
+    expect(s4).toContain('joint')
+    expect(s4).toContain('veining')
+  })
+
+  it('never asks two references for the sheen when only one of them has it', () => {
+    // the swatch is lit flat; the polish lives in the materials photograph
+    expect(HALL_FLOOR_REF.caption).toContain('lit flat')
+    expect(HALL_FLOOR_REF.caption).not.toMatch(/satin sheen|polish(ed)? sheen/i)
+  })
+})
+
+/**
+ * PLAN-05 C1's highest-severity trap. `tools/capture-plugin.ts` keeps its OWN
+ * copy of the role list and its own copy of `refFileName`, and it is the copy
+ * that actually writes the folder. A role missing from its list is downgraded to
+ * `design` with no error at all — wrong name in manifest.json, wrong name on
+ * disk. The only defence is a test that calls both implementations.
+ */
+describe('the browser and the dev server agree about references', () => {
+  it('knows the same roles', () => {
+    expect([...PLUGIN_REF_ROLES].sort()).toEqual([...REF_ROLE_NAMES].sort())
+    expect(PLUGIN_REF_ROLES.has('floor')).toBe(true)
+  })
+
+  it('builds the same file name for every role, at every index', () => {
+    const sample: Record<string, string> = {
+      materials: 'HANAN-APP-DOCS/טסטים/זווית מקורית.png',
+      background: BACKGROUND_REF.path,
+      floor: HALL_FLOOR_REF.path,
+      fixed: shotOf('bar.resort-left'),
+      design: shotOf('table.round'),
+    }
+    for (const role of REF_ROLE_NAMES) {
+      for (const index of [0, 1, 2, 3, 9]) {
+        const ref = { path: sample[role], role, caption: '' }
+        expect(pluginRefFileName(ref, index), `${role}@${index}`).toBe(refFileName(ref, index))
+      }
+    }
+  })
+
+  it('names the floor swatch by its role, not by its Hebrew file name', () => {
+    const ref = { path: HALL_FLOOR_REF.path, role: 'floor' as const, caption: '' }
+    expect(refFileName(ref, 2)).toBe('03-floor-detail.png')
+    expect(pluginRefFileName(ref, 2)).toBe('03-floor-detail.png')
+  })
+
+  it('lands the whole hall package with the names the manifest promises', () => {
+    const scene = sceneWith(
+      createObject('bar.resort-left', at(1900, 850), venue),
+      createObject('table.round', MIDDLE, venue),
+    )
+    const pkg = composeExport(scene, 's1')
+    expect(manifestOf(pkg, '2026-08-02T00:00:00.000Z').refs.map((r) => r.file)).toEqual([
+      '01-materials-hall.png',
+      '02-background-landscape.png',
+      '03-floor-detail.png',
+      '04-fixed-bar-resort-left.webp',
+      '05-table-round.webp',
+    ])
   })
 })

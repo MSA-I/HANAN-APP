@@ -12,7 +12,7 @@ import { EquirectangularReflectionMapping, SRGBColorSpace, Vector3, type Perspec
 import { Box, Camera, Check, Download, Eye, Grid2x2, Images, RotateCcw } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { composeExport, exportableAngles } from '../core/prompts/compose'
-import { BACKGROUND_REF, CAPTURE_SIZE } from '../core/prompts/refs'
+import { BACKGROUND_REF, CAPTURE_SIZE, HALL_FLOOR_REF } from '../core/prompts/refs'
 import { getVenuePack } from '../core/venuePacks'
 import { useOverlayStore } from '../editor2d/overlayStore'
 import { exportPromptPackage, type PromptExportOutcome, type PromptExportStatus } from '../persistence/export'
@@ -343,7 +343,9 @@ function PresetBar({ controlsRef }: { controlsRef: React.RefObject<CameraControl
           : strings.promptExport.failed
     // deduped: exporting all seven angles repeats the same warning seven times
     const warnings = [...new Set(outcomes.flatMap((o) => o.warnings))].map((w) =>
-      w.replaceAll(BACKGROUND_REF.path, strings.promptExport.backgroundRef),
+      w
+        .replaceAll(BACKGROUND_REF.path, strings.promptExport.backgroundRef)
+        .replaceAll(HALL_FLOOR_REF.path, strings.promptExport.floorRef),
     )
     // one notice, one line: the rest are in manifest.json, which is the record
     const shown = warnings.slice(0, 2)

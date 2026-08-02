@@ -23,7 +23,19 @@ import { colorPhrase, designRefBudget, MAX_FIXED_REFS } from './fragments'
 /** The frame the capture is taken at (Scene3D `doCapture`), so the frustum matches it. */
 export const CAPTURE_SIZE = { width: 1536, height: 1024 }
 
-export type RefRole = 'materials' | 'background' | 'fixed' | 'design'
+/**
+ * Every role a reference can carry, IN LIST ORDER — `selectRefs` emits them in
+ * exactly this sequence and `refPhrase` (compose.ts) relies on each role being
+ * contiguous, so this array is the order as much as it is the set.
+ *
+ * A runtime array rather than a bare union because `tools/capture-plugin.ts`
+ * keeps its own copy of this list (`REF_ROLES`) and downgrades anything missing
+ * from it to `design` SILENTLY — wrong role in manifest.json, wrong file name on
+ * disk, no error. Exporting the names is what lets a test hold the two together.
+ */
+export const REF_ROLE_NAMES = ['materials', 'background', 'floor', 'fixed', 'design'] as const
+
+export type RefRole = (typeof REF_ROLE_NAMES)[number]
 
 export interface ExportRef {
   /** `<root>/<rest>` — resolved and bounds-checked server side, see refPaths.ts */
@@ -51,14 +63,27 @@ export const HALL_MATERIAL_REF: ExportRef = {
     'Do not copy furniture or decor from this image.',
 }
 
-/** The same reference for an overhead angle: shot from above, so the floor reads. */
+/**
+ * The same reference for an overhead angle: shot from above, so the floor reads.
+ *
+ * ⚠ PLAN-05 C1 rewrote this caption because it described the wrong picture. It
+ * used to say "the stone floor and its geometric inlay … take the floor pattern
+ * and its proportions from this image", and this photograph is the single best
+ * proof that there IS no inlay: it is the top-down view, the one an inlay could
+ * not hide from, and it shows nothing but a plain orthogonal grid of metre-square
+ * veined marble. A caption asking for a pattern its own image does not contain is
+ * a contradictory input in the same package as the corrected prose — which is
+ * precisely the failure this item exists to remove.
+ */
 export const HALL_MATERIAL_REF_ELEVATED: ExportRef = {
   path: 'HANAN-APP-DOCS/טסטים/מבט על מקורית.png',
   role: 'materials',
   caption:
-    'Reference for building materials only, photographed from above: the stone floor and its ' +
-    'geometric inlay, plus ceilings, metalwork and walls. Take the floor pattern and its ' +
-    'proportions from this image. Do not copy furniture or decor from it.',
+    'Reference for building materials only, photographed from above: the stone floor, plus ' +
+    'ceilings, metalwork and walls. Take the floor from this image — plain square tiles in a ' +
+    'simple orthogonal grid, thin joints, cloudy veining, and no inlaid pattern of any kind — ' +
+    'along with its tile proportions and the way the daylight sits on it. Do not copy furniture ' +
+    'or decor from it.',
 }
 
 /**
@@ -87,12 +112,73 @@ export function isElevatedAngle(camera: SealedCamera | null): boolean {
  * The one materials photograph this angle should carry.
  *
  * An overhead frame is mostly floor, and the eye-level photograph shows the floor
- * at a grazing angle where the chevron inlay is barely legible; the top-down one
- * shows the pattern flat. With no sealed camera there is no angle to judge, so
- * the eye-level shot stands as the default.
+ * at a grazing angle where the tile grid foreshortens to almost nothing; the
+ * top-down one shows the grid square and the veining flat. With no sealed camera
+ * there is no angle to judge, so the eye-level shot stands as the default.
+ *
+ * (This comment used to say "the chevron inlay". There is no chevron inlay —
+ * see HALL_MATERIAL_REF_ELEVATED above and PLAN-05 C1.)
  */
 export function materialRefFor(camera: SealedCamera | null): ExportRef {
   return isElevatedAngle(camera) ? HALL_MATERIAL_REF_ELEVATED : HALL_MATERIAL_REF
+}
+
+/**
+ * PLAN-05 C1, the user's "צריך לצרף גם את התמונה של הריצוף".
+ *
+ * The two materials shots are photographs of a ROOM: they give ceiling, metal,
+ * walls and the floor at a distance. This is the stone itself — the tile module,
+ * the joint line and the veining — which is the one thing a room shot cannot
+ * carry and the one thing the complaint was about. It is an ADDITION, not a
+ * swap; see `floorRefFor` for the single angle class that does not get it.
+ *
+ * ⚠ PROVENANCE, and it is not what the file name suggests. This is a material
+ * -INTENT swatch generated in ChatGPT on 2026-07-21, not a photograph of the
+ * floor that is in the hall. It earns the slot because it agrees with both real
+ * reference photographs — pale warm grey-beige stone, plain orthogonal grid of
+ * roughly metre-square tiles, thin slightly darker joints, cloudy veining that
+ * differs tile to tile, and no band, border or inlay anywhere. When the real
+ * floor is finally photographed it REPLACES this file at the same path, and
+ * nothing in this repository changes. That is why the path is a plain one under
+ * a root that is already open (tools/capture-plugin.ts REF_ROOTS) rather than
+ * the swatch's own generated name, which carries spaces and commas.
+ *
+ * ⚠ And it is lit FLAT. The swatch has no highlights in it at all, so its
+ * caption must not ask for the polish — the materials photograph is where the
+ * sheen actually is, and asking two references for the same property when only
+ * one has it is the contradictory-input failure this whole item exists to fix.
+ *
+ * Missing from disk degrades gracefully: capture-plugin.ts:205-207 warns and
+ * writes the package without it.
+ */
+export const HALL_FLOOR_REF: ExportRef = {
+  path: 'HANAN-APP-DOCS/טסטים/ריצוף.png',
+  role: 'floor',
+  caption:
+    'Close-up material swatch for the FLOOR ONLY: the exact stone, its colour, its soft cloudy ' +
+    'veining, its square tile module and its thin joint lines. The floor throughout the render is ' +
+    'this stone, laid in this plain orthogonal grid, at this tile size. This swatch is lit flat ' +
+    'and deliberately shows no reflections — take the floor\'s polish and its broad soft ' +
+    'highlights from the materials photograph instead. Take nothing else from this image.',
+}
+
+/**
+ * The floor close-up, but only for an angle that stands on THAT floor.
+ *
+ * Geometric and data-driven rather than a list of ids, in the same spirit as
+ * `ELEVATED_EYE_DROP_M` above: `camera.zone` (venuePacks.ts) is the working area
+ * an angle belongs to, and an angle with a zone stands on a surface of its own —
+ * the raised reception deck — whose floor is bare slab. Both deck templates
+ * describe a plain unpatterned deck and both explicitly REFUSE the hall's stone
+ * (templates.ts, k1/k2 `negative`), so sending them this swatch would spend a
+ * slot to contradict the prompt it travels with.
+ *
+ * With no sealed camera there is nothing to judge, and an extra reference is the
+ * better way to be wrong here than a missing one — the same rule objectsInFrame
+ * is written to.
+ */
+export function floorRefFor(camera: SealedCamera | null): ExportRef | null {
+  return camera && camera.zone ? null : HALL_FLOOR_REF
 }
 
 /**
@@ -297,11 +383,20 @@ function productRef(group: DesignGroup, role: 'fixed' | 'design'): ExportRef {
 }
 
 /**
- * The two fixed shots — hall materials, then the site's landscape — then the
- * hall's own fittings, then the event's design items, each in priority order.
+ * The fixed shots — hall materials, the site's landscape, and on a hall angle
+ * the floor close-up — then the hall's own fittings, then the event's design
+ * items, each in priority order.
  *
  * The materials shot is whichever of the two suits this angle (`materialRefFor`);
  * it is one slot either way, so the sixteen-image budget is untouched.
+ *
+ * The floor swatch is THIRD, after the background and before the fittings
+ * (PLAN-05 C1 §3.2). Third keeps every index the existing tests pin (`refs[0]`
+ * materials, `refs[1]` background), keeps each role contiguous the way
+ * `refPhrase` requires, and reads in the order the prompt argues in: the
+ * materials, then the place, then the ground, then the structure, then the
+ * event. It costs one design slot on a hall angle and none on the deck, where
+ * `designRefBudget` hands the unused always-on slot straight back.
  *
  * §26's defect was one of PRIORITY, not of framing: `objectsInFrame` already
  * honours "as long as they appear in the same view", but CATEGORY_PRIORITY ranks
@@ -325,8 +420,12 @@ export function selectRefs(scene: SceneState, camera: SealedCamera | null): RefS
   const cutFixed = fixedGroups.slice(MAX_FIXED_REFS)
   const fixedRefs = keptFixed.filter((g) => g.entry.thumbnail).map((g) => productRef(g, 'fixed'))
 
-  // the slots the fixed elements did NOT take go back to the design list
-  const budget = designRefBudget(fixedRefs.length)
+  // materials + background, and the floor swatch on a hall angle but not on the deck
+  const floorRef = floorRefFor(camera)
+  const alwaysOn = floorRef ? 3 : 2
+
+  // every always-on and fixed slot NOBODY took goes back to the design list
+  const budget = designRefBudget(fixedRefs.length, alwaysOn)
   const keptDesign = designGroups.slice(0, budget)
   const cutDesign = designGroups.slice(budget)
   const designRefs = keptDesign.filter((g) => g.entry.thumbnail).map((g) => productRef(g, 'design'))
@@ -351,7 +450,13 @@ export function selectRefs(scene: SceneState, camera: SealedCamera | null): RefS
   }
 
   return {
-    refs: [materialRefFor(camera), BACKGROUND_REF, ...fixedRefs, ...designRefs],
+    refs: [
+      materialRefFor(camera),
+      BACKGROUND_REF,
+      ...(floorRef ? [floorRef] : []),
+      ...fixedRefs,
+      ...designRefs,
+    ],
     groups,
     warnings,
   }

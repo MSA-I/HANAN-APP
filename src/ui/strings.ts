@@ -110,6 +110,14 @@ export const strings = {
      * the English caption that travels INTO the prompt belongs in prompts/refs.ts.
      */
     backgroundRef: 'רפרנס רקע',
+    /**
+     * PLAN-05 C1's floor close-up, same job as `backgroundRef` above: a "not on
+     * disk" warning otherwise reaches the user as a raw path. It matters more
+     * here than for the other two — this one is a stand-in swatch that is meant
+     * to be replaced by a real photograph of the hall's floor, and the day it is
+     * swapped out is a day the warning can appear.
+     */
+    floorRef: 'רפרנס ריצוף',
   },
   status: {
     saved: 'נשמר',
