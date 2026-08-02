@@ -166,21 +166,34 @@ interface NumberFieldProps {
   step?: number
   min?: number
   max?: number
+  /**
+   * The selection disagrees about this number, so there is nothing true to show.
+   *
+   * The field goes EMPTY with a `—` placeholder rather than showing an average,
+   * the first item's value or a 0 — each of which is a number the user did not
+   * type and would be entitled to believe. Typing into it still commits to the
+   * whole selection, which is what the control is for.
+   *
+   * Optional, so the eight existing call sites keep their behaviour byte for byte
+   * — the rule `onGestureStart`/`onGestureEnd` on `SliderField` already follows.
+   */
+  mixed?: boolean
   onCommit: (modelValue: number) => void
 }
 
 /** Numeric input: LTR digits inside RTL layout, commit on Enter/blur. */
-export function NumberField({ label, value, unit = 'm', step, min, max, onCommit }: NumberFieldProps) {
-  const [text, setText] = useState(() => toDisplay(value, unit))
+export function NumberField({ label, value, unit = 'm', step, min, max, mixed, onCommit }: NumberFieldProps) {
+  const [text, setText] = useState(() => (mixed ? '' : toDisplay(value, unit)))
 
   useEffect(() => {
-    setText(toDisplay(value, unit))
-  }, [value, unit])
+    setText(mixed ? '' : toDisplay(value, unit))
+  }, [value, unit, mixed])
 
   const commit = () => {
     const parsed = parseFloat(text)
     if (Number.isNaN(parsed)) {
-      setText(toDisplay(value, unit))
+      // an emptied mixed field goes back to being empty, not to a value nobody chose
+      setText(mixed ? '' : toDisplay(value, unit))
       return
     }
     let model = fromDisplay(parsed, unit)
@@ -196,6 +209,7 @@ export function NumberField({ label, value, unit = 'm', step, min, max, onCommit
         dir="ltr"
         type="number"
         step={step ?? (unit === 'm' ? 0.1 : 1)}
+        placeholder={mixed ? strings.inspector.mixedValue : undefined}
         className="min-h-9 w-24 rounded-md border border-line bg-panel px-2 py-1.5 text-end font-mono text-[14px] focus:border-accent focus:outline-none"
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -303,11 +317,18 @@ interface ColorFieldProps {
    * may reopen it.
    */
   allowCustom?: boolean
+  /**
+   * The selection wears more than one colour here. NOTHING is ringed — neither a
+   * swatch nor the free picker — because every ring would be a claim about items
+   * that do not wear it. A click still writes to all of them, which is how the
+   * user resolves the conflict.
+   */
+  mixed?: boolean
 }
 
-export function ColorField({ label, value, onChange, allowCustom }: ColorFieldProps) {
-  const current = value.toLowerCase()
-  const offPalette = !EVENT_SWATCHES.includes(current)
+export function ColorField({ label, value, onChange, allowCustom, mixed }: ColorFieldProps) {
+  const current = mixed ? '' : value.toLowerCase()
+  const offPalette = !mixed && !EVENT_SWATCHES.includes(current)
   return (
     <div>
       <div className="mb-1.5 text-[14px] text-ink-soft">{label}</div>
@@ -362,6 +383,12 @@ interface TextureFieldProps {
   /** the id in force — the user's pick or the slot default — or null for "no texture" */
   value: string | null
   noneLabel: string
+  /**
+   * ⚠ A SEPARATE FLAG AND NOT `value === null`, because `null` is already a real
+   * answer here ("no texture"). Without it a selection of six different weaves
+   * would light up the "none" tile — the one state it is definitely not in.
+   */
+  mixed?: boolean
   onChange: (textureId: string | null) => void
 }
 
@@ -385,9 +412,10 @@ interface TextureFieldProps {
  * RTL: `flex-wrap` + `gap` only. No `ml-`/`mr-`/`left-`/`right-` anywhere, so the
  * grid flows from the right in Hebrew without a mirrored stylesheet.
  */
-export function TextureField({ label, options, value, noneLabel, onChange }: TextureFieldProps) {
+export function TextureField({ label, options, value, noneLabel, mixed, onChange }: TextureFieldProps) {
   const tile = 'h-7 w-7 shrink-0 overflow-hidden rounded-md border transition-colors'
   const state = (on: boolean) => (on ? 'border-accent ring-1 ring-accent' : 'border-line')
+  const picked = (id: string | null) => !mixed && value === id
   return (
     <div>
       <div className="mb-1.5 text-[14px] text-ink-soft">{label}</div>
@@ -396,9 +424,9 @@ export function TextureField({ label, options, value, noneLabel, onChange }: Tex
           type="button"
           title={noneLabel}
           aria-label={noneLabel}
-          aria-pressed={value === null}
+          aria-pressed={picked(null)}
           onClick={() => onChange(null)}
-          className={`${tile} ${state(value === null)} relative bg-panel`}
+          className={`${tile} ${state(picked(null))} relative bg-panel`}
         >
           {/* the rule is drawn corner to corner in the button's own box, so it
               scales with the tile instead of being a fixed-size glyph */}
@@ -414,9 +442,9 @@ export function TextureField({ label, options, value, noneLabel, onChange }: Tex
             type="button"
             title={id}
             aria-label={id}
-            aria-pressed={value === id}
+            aria-pressed={picked(id)}
             onClick={() => onChange(id)}
-            className={`${tile} ${state(value === id)}`}
+            className={`${tile} ${state(picked(id))}`}
           >
             {/* 22 swatches at ~300KB each: `loading="lazy"` keeps the ones below
                 the panel's fold off the wire until the section is scrolled to.

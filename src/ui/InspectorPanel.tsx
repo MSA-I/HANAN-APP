@@ -7,12 +7,17 @@ import {
   AlignStartHorizontal,
   AlignStartVertical,
   AlignVerticalSpaceBetween,
+  Copy,
   Filter,
+  FlipHorizontal2,
   Lock,
+  Minus,
+  Plus,
   RefreshCw,
   Trash2,
+  Unlock,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   CATEGORY_ORDER,
   getCatalogEntry,
@@ -29,18 +34,28 @@ import { displayName } from '../editor2d/ObjectNode'
 import { overlay, useOverlayStore } from '../editor2d/overlayStore'
 import { getVenuePack } from '../core/venuePacks'
 import { hangRange } from '../core/layout/beams'
+import { ROTATION_SNAP_DEG } from '../core/rotation'
 import {
   addSeatItemsToTable,
+  addSeatItemsToTables,
+  addSeatsBy,
   alignObjects,
   distributeObjects,
+  duplicateObjects,
+  mirrorCopyObjects,
+  mirrorObjects,
   removeObjects,
   removeSeatItems,
+  removeSeatItemsFrom,
+  rotateObjectsBy,
   seatItems,
   select,
   setAppearance,
+  setChairModel,
   setElevation,
   setLocked,
   setLighting,
+  setObjectsRotation,
   setPosition,
   setProjectName,
   setRotation,
@@ -49,7 +64,16 @@ import {
   setSize,
   setSlotTexture,
 } from '../state/actions'
-import { categoryOf, isEffectivelyLocked, isFrozen, lightingOf, seatBounds } from '../state/selectors'
+import {
+  categoryOf,
+  isEffectivelyLocked,
+  isFrozen,
+  lightingOf,
+  seatBounds,
+  selectionEditing,
+  type SelectionEditing,
+  type SelectionSlot,
+} from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { useShallow } from 'zustand/react/shallow'
 import { LIGHTING_MODES } from '../viewer3d/lightingModes'
@@ -71,6 +95,7 @@ import {
   HallDesignBlock,
   HallLayoutsSection,
   LightingLayoutsBlock,
+  MultiTableDesignBlock,
   SaveSelectionSection,
   TableDesignBlock,
   TableDesignHintSection,
@@ -887,7 +912,286 @@ function SelectionFilter({ ids }: { ids: string[] }) {
   )
 }
 
+/**
+ * Round 5 — the multi-selection inspector. The report, in the user's words: *"גם
+ * בעורך הדו מימד כשאני בוחר מספר פריטים התפריט השמאלי לא מאפשר לי לערוך אותם, אין
+ * לי אפשרות להחיל על מה שנבחר עיצובים או החלפת עיצובים סיבוב וכל שאר הפעולות"*.
+ *
+ * THE ONE RULE THE WHOLE GROUP OBEYS: a section renders when it has something to
+ * act on, and states in its own heading HOW MANY of the selection that is. On a
+ * mixed selection — six tables, three chairs and a plant — most controls address a
+ * subset, and which subset has to be answerable BEFORE the click, not after it.
+ *
+ * `SelectionFilter` is not the answer to that and stays exactly as it is: it
+ * CHANGES the selection (`select(kept)`), which is how one arrives at a
+ * homogeneous set. Ctrl+A followed by "turn everything" is a legitimate gesture
+ * and the panel has to behave on a heterogeneous selection without the user being
+ * narrowed down first. The two are complements — the filter reshapes the
+ * selection, these counts describe it.
+ *
+ * ⚠ WHAT IS DELIBERATELY ABSENT, so nobody "completes" it later by accident:
+ *
+ *  · ABSOLUTE X/Y — `setPosition` over eight ids is eight tables on one point.
+ *    "Position, for many" already exists above as align and distribute.
+ *  · SIZE — `resizable`, `linkWidthDepth` and the min/max pair are per catalog
+ *    entry, and `setSize` can refuse; one field over mixed entries either trims
+ *    silently or half-applies.
+ *  · REPLACE — `overlay.setReplaceTarget` holds ONE id and `menuCapabilities`
+ *    already defines `canReplace` as `ids.length === 1`. Group replacement is a
+ *    feature with its own questions (what happens to the dressing), not a widening.
+ *  · CHAIR SPACING — capacity is a step function of the gap with narrow steps
+ *    (the 160 square seats 12 at gap 8 and 8 at gap 9), so one shared field is
+ *    the exact gesture that deletes four chairs from eight tables behind a single
+ *    undo. `seatBounds.gapMax` exists because of it.
+ *  · A SHARED HANGING SLIDER — `hangRange` depends on each fixture's own height,
+ *    so one track over mixed fixtures offers heights `clampHang` discards for
+ *    most of them (`HallDesignBlock` argues the same point at hall scale).
+ */
+function MultiTransformSection({ edit }: { edit: SelectionEditing }) {
+  const ids = edit.editableIds
+  const turn = (deg: number) => rotateObjectsBy(ids, deg)
+  const step = ROTATION_SNAP_DEG
+  // −90 · −45 · +45 · +90 — 45 is the app's own snap (core/rotation.ts) and 90 is
+  // what the ⋯ menu already offers, so the panel introduces no third vocabulary
+  const turns = [-90, -step, step, 90]
+  return (
+    <Section title={T.rotationSection}>
+      {edit.canRotate && (
+        <>
+          <div className="flex gap-1">
+            {turns.map((deg) => (
+              <button
+                key={deg}
+                title={T.rotateBy(deg)}
+                className="ltr-nums min-h-9 flex-1 rounded-md border border-line px-1 py-1.5 text-[14px] text-ink-soft hover:border-accent hover:text-accent"
+                onClick={() => turn(deg)}
+              >
+                {deg > 0 ? `+${deg}°` : `${deg}°`}
+              </button>
+            ))}
+          </div>
+          {/* The absolute field is SECONDARY and the relative buttons come first,
+              because "turn them all a notch" is the common gesture and needs no
+              agreed starting angle. This one answers "make them all face 45°",
+              which relative turns cannot express. Empty when they disagree — see
+              `NumberField.mixed`. */}
+          <NumberField
+            label={T.rotation}
+            value={edit.sharedRotation ?? 0}
+            mixed={edit.sharedRotation === null}
+            unit="deg"
+            onCommit={(v) => setObjectsRotation(ids, v)}
+          />
+          <p className="text-[13px] text-ink-soft">{T.rotateHint}</p>
+        </>
+      )}
+      <div className="flex gap-1.5">
+        <button
+          className={multiButton}
+          disabled={!edit.canMirror}
+          onClick={() => mirrorObjects(ids)}
+        >
+          <FlipHorizontal2 size={14} />
+          {T.mirrorSelected}
+        </button>
+        <button
+          className={multiButton}
+          disabled={!edit.canDuplicate}
+          onClick={() => mirrorCopyObjects(edit.ids)}
+        >
+          <FlipHorizontal2 size={14} />
+          {T.mirrorCopySelected}
+        </button>
+      </div>
+      <button
+        className={multiButton}
+        disabled={!edit.canDuplicate}
+        onClick={() => duplicateObjects(edit.ids)}
+      >
+        <Copy size={14} />
+        {T.duplicateSelected}
+      </button>
+    </Section>
+  )
+}
+
+/** The dressing controls, scoped to the tables in the selection and saying so. */
+function MultiTableSection({ edit }: { edit: SelectionEditing }) {
+  const targets = edit.editableTableIds
+  return (
+    <Section title={T.tableStyling}>
+      <p className="text-[13px] text-ink-soft">{T.scopeTables(edit.tableIds.length)}</p>
+      {targets.length === 0 ? (
+        <p className="text-[13px] text-warning">{strings.presets.designLocked}</p>
+      ) : (
+        <>
+          <SubHeading>{T.chairModel}</SubHeading>
+          <FieldRow label={T.chairType}>
+            <select
+              className="min-h-9 w-36 rounded-md border border-line bg-panel px-2 py-1.5 text-[14px] focus:border-accent focus:outline-none"
+              // '' shows an empty option when the tables disagree, rather than
+              // claiming they all wear whichever chair happens to be first
+              value={edit.sharedChairCatalogId ?? ''}
+              onChange={(e) => setChairModel(targets, e.target.value)}
+            >
+              {edit.sharedChairCatalogId === null && <option value="">{T.mixedValue}</option>}
+              {listByCategory('seating').map((c) => (
+                <option key={c.id} value={c.id}>
+                  {strings.catalog.items[c.labelKey as keyof typeof strings.catalog.items]}
+                </option>
+              ))}
+            </select>
+          </FieldRow>
+          {/* Relative, and only relative. `seatBounds` is a fact about ONE table's
+              geometry — the ⌀180 tops out where the ⌀380 has room to spare — so a
+              shared "seats = 12" would hand four tables something other than what
+              it says. ± means the same thing on every table and clamps per table. */}
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[14px] text-ink-soft">{T.seatsStep}</span>
+            <div className="flex items-center gap-1">
+              <button
+                className="rounded-md border border-line p-1.5 hover:border-accent hover:text-accent"
+                title={T.seatsRemove}
+                aria-label={T.seatsRemove}
+                onClick={() => addSeatsBy(targets, -1)}
+              >
+                <Minus size={15} />
+              </button>
+              <button
+                className="rounded-md border border-line p-1.5 hover:border-accent hover:text-accent"
+                title={T.seatsAdd}
+                aria-label={T.seatsAdd}
+                onClick={() => addSeatsBy(targets, 1)}
+              >
+                <Plus size={15} />
+              </button>
+            </div>
+          </div>
+          <p className="text-[13px] text-ink-soft">{T.seatsHint}</p>
+          <SubHeading>{strings.presets.placeSettings}</SubHeading>
+          <MultiPlaceSettingsBlock tableIds={targets} />
+          <SubHeading>{strings.presets.tableDesign}</SubHeading>
+          <MultiTableDesignBlock tableIds={targets} />
+        </>
+      )}
+    </Section>
+  )
+}
+
+/**
+ * Lay (or clear) the covers on every selected table at once — `PlaceSettingsBlock`
+ * one scope up. The single-table block's `laid מתוך seats` line is a sentence
+ * about ONE table and is replaced by a count of tables; everything else is the
+ * same two controls, driving the same actions.
+ */
+function MultiPlaceSettingsBlock({ tableIds }: { tableIds: string[] }) {
+  const entries = seatItemEntries()
+  const [catalogId, setCatalogId] = useState(entries[0]?.id ?? '')
+  const laidOn = useEditorStore(
+    (s) => tableIds.filter((id) => seatItems(s.scene, id).length > 0).length,
+  )
+  const P = strings.presets
+  if (!entries.length) return null
+
+  return (
+    <>
+      <p className="text-[13px] text-ink-soft">
+        {laidOn > 0 ? P.placeSettingsOnTables(laidOn) : P.placeSettingsOff}
+      </p>
+      {entries.length > 1 && (
+        <FieldRow label={P.placeSettingsType}>
+          <select
+            className="min-h-9 w-36 rounded-md border border-line bg-panel px-2 py-1.5 text-[14px] focus:border-accent focus:outline-none"
+            value={catalogId}
+            onChange={(e) => setCatalogId(e.target.value)}
+          >
+            {entries.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {strings.catalog.items[entry.labelKey as keyof typeof strings.catalog.items]}
+              </option>
+            ))}
+          </select>
+        </FieldRow>
+      )}
+      <div className="flex gap-1.5">
+        <button
+          className="min-h-9 flex-1 rounded-md border border-line px-3 py-1.5 text-[14px] font-medium text-ink hover:border-accent hover:text-accent"
+          onClick={() => addSeatItemsToTables(catalogId, tableIds)}
+        >
+          {P.placeSettingsAdd}
+        </button>
+        {laidOn > 0 && (
+          <button
+            className="min-h-9 flex-1 rounded-md border border-line px-3 py-1.5 text-[14px] text-ink-soft hover:border-danger hover:text-danger"
+            onClick={() => removeSeatItemsFrom(tableIds)}
+          >
+            {P.placeSettingsRemove}
+          </button>
+        )}
+      </div>
+    </>
+  )
+}
+
+/**
+ * Appearance over a selection: the UNION of the restyleable slots, each row
+ * labelled with how many items wear it.
+ *
+ * Union rather than intersection, and that is the whole point — on six tables
+ * plus three chairs the intersection is empty, which IS the complaint. A row
+ * writes only to `slot.ids`, and `setAppearance` re-checks `isEditableSlot` per
+ * object, so a row can never reach an item that does not have the slot.
+ *
+ * When the selection disagrees NOTHING is marked (no ring on a swatch, no pressed
+ * tile) rather than the first item's value being shown as if it were everyone's.
+ */
+function MultiAppearanceSection({ slots }: { slots: SelectionSlot[] }) {
+  return (
+    <Section title={T.appearance}>
+      {slots.map((row) => {
+        const label =
+          strings.catalog.slots[row.labelKey as keyof typeof strings.catalog.slots] ?? row.slot
+        return (
+          <div key={row.slot} className="flex flex-col gap-2.5">
+            <ColorField
+              label={`${label} ${T.scopeItems(row.ids.length)}`}
+              value={row.sharedColor ?? ''}
+              mixed={row.sharedColor === null}
+              allowCustom={row.allowCustomColor}
+              onChange={(c) => setAppearance(row.ids, row.slot, c)}
+            />
+            {row.texture && (
+              <TextureField
+                label={T.texture}
+                options={FABRIC_TEXTURE_IDS}
+                value={row.sharedTextureId}
+                mixed={row.mixedTexture}
+                noneLabel={T.textureNone}
+                onChange={(id) => setSlotTexture(row.ids, row.slot, id)}
+              />
+            )}
+          </div>
+        )
+      })}
+    </Section>
+  )
+}
+
+const multiButton =
+  'flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[14px] text-ink-soft transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line disabled:hover:text-ink-soft'
+
 function MultiInspector({ ids }: { ids: string[] }) {
+  /**
+   * ⚠ SELECT THE SLICES, THEN COMPUTE. `selectionEditing` builds fresh arrays on
+   * every call, and a store selector whose snapshot changes identity every time
+   * never settles under `useSyncExternalStore` — React re-renders, re-selects and
+   * bails out with a WHITE SCREEN. That already shipped once in this app, on the
+   * 3D `⋯` menu, and the fix there is the pattern copied here. `scene` and
+   * `selection` are Immer-stable, so this recomputes only on a real change.
+   */
+  const scene = useEditorStore((s) => s.scene)
+  const selection = useEditorStore((s) => s.selection)
+  const edit = useMemo(() => selectionEditing(scene, selection), [scene, selection])
   const alignButtons = [
     { title: T.alignStart, icon: <AlignStartVertical size={15} />, run: () => alignObjects(ids, 'start') },
     { title: T.alignCenterX, icon: <AlignCenterVertical size={15} />, run: () => alignObjects(ids, 'centerX') },
@@ -899,6 +1203,25 @@ function MultiInspector({ ids }: { ids: string[] }) {
   return (
     <>
       <Section title={T.selectedCount(ids.length)}>
+        {/* ONE line for the whole selection, not N warnings. Without it, "delete
+            the selected" on ten items of which four are locked removes six in
+            silence — every action filters through `editable()` anyway, so the
+            panel's job is to say so once, up front. */}
+        {edit.lockedCount > 0 && (
+          <div className="flex items-center justify-between gap-2 rounded-md bg-warning/10 px-2 py-1.5 text-[14px] text-warning">
+            <span className="flex items-center gap-1">
+              <Lock size={12} /> {T.someLocked(edit.lockedCount)}
+            </span>
+            {edit.unlockableIds.length > 0 && (
+              <button
+                className="font-semibold hover:underline"
+                onClick={() => setLocked(edit.unlockableIds, false)}
+              >
+                {T.unlock}
+              </button>
+            )}
+          </div>
+        )}
         <div>
           <span className="mb-1.5 block text-[14px] text-ink-soft">{T.align}</span>
           <div className="flex gap-1">
@@ -935,16 +1258,39 @@ function MultiInspector({ ids }: { ids: string[] }) {
             </button>
           </div>
         </div>
-        <button
-          className="mt-1 flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-danger/40 px-3 py-1.5 text-[14px] text-danger hover:bg-danger/10"
-          onClick={() => removeObjects(ids)}
-        >
-          <Trash2 size={13} />
-          {T.deleteSelected}
-        </button>
+        <div className="flex gap-1.5">
+          <button
+            className={multiButton}
+            disabled={!edit.canLock}
+            onClick={() => setLocked(edit.ids, !edit.anyLocked)}
+          >
+            {edit.anyLocked ? <Unlock size={14} /> : <Lock size={14} />}
+            {edit.anyLocked ? T.unlockSelected : T.lockSelected}
+          </button>
+          <button
+            className="flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-md border border-danger/40 px-3 py-1.5 text-[14px] text-danger transition-colors hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+            disabled={!edit.canDelete}
+            onClick={() => removeObjects(ids)}
+          >
+            <Trash2 size={13} />
+            {T.deleteSelected}
+          </button>
+        </div>
       </Section>
-      {/* AFTER the count, not before it: the count is the context and the filter
-          is a tool applied to that context. Keyed off the selection so a narrowed
+      <MultiTransformSection edit={edit} />
+      {/* Keyed off the tables it addresses: both blocks below hold a picked design
+          / cover type in local state, and a pick remembered from the PREVIOUS
+          selection would be applied to this one. Same remount trick, same reason,
+          as `SelectionFilter` below. */}
+      {edit.tableIds.length > 0 && (
+        <MultiTableSection key={edit.tableIds.join(',')} edit={edit} />
+      )}
+      {edit.slots.length > 0 && <MultiAppearanceSection slots={edit.slots} />}
+      {/* LAST, and it moved down one place to get there. The reasoning it was
+          given — "the count is the context and the filter is a tool applied to
+          that context" — is unchanged; what that note could not foresee is five
+          editing sections growing between the two, with a selection-reshaping
+          tool sitting in the middle of them. Keyed off the selection so a narrowed
           (or otherwise changed) selection remounts it, which resets the ticked
           set for free. */}
       <SelectionFilter key={ids.join(',')} ids={ids} />
