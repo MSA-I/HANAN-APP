@@ -286,6 +286,21 @@ export const serpentineTable: CatalogEntry = {
   maxSize: {},
   materialSlots: [CLOTH, LEGS],
   editableSlots: [{ slot: 'cloth', texture: true }],
+  /**
+   * The user's number, chosen 2026-08-02 from the PLAN-07 §2 measurement.
+   *
+   * The serpentine is a curved band, so neither of the two words source doc §37-38
+   * uses fits it, and the 170 it used to inherit came from its `outline: rect` —
+   * a shape it declares for snapping and hit-testing, not because anybody decided
+   * its aisle. What the measurement showed is that the aisle the RULE measures and
+   * the aisle a guest WALKS DOWN are different numbers here: the chairs stand
+   * 250.5 cm from the centre while the drape reaches only ~211. At 170 the real
+   * chair-back-to-chair-back walkway beside a ⌀180 was 31.5 cm; at 160 it is 20.5,
+   * against the 18.0 the app already allows between two ⌀180 round tables. Below
+   * 140 the walkway goes negative and chair-to-chair collision refuses anyway, so
+   * anything at or under ~87 cm could not change a single placement.
+   */
+  clearance: 160,
   footprint: (s) => {
     const band = serpentineBounds()
     return {

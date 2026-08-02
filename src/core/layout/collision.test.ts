@@ -422,6 +422,8 @@ describe('slideToLegal', () => {
 describe('the serpentine is judged by its band (§15b)', () => {
   const ORIGIN = { x: 1600, y: 1500 }
   const ROUND = getCatalogEntry('table.round').defaultSize.width / 2
+  /** Read, never written down: the serpentine states its own aisle (PLAN-07 §4.1). */
+  const SERP_AISLE = getCatalogEntry('table.serpentine').clearance!
 
   /** Edge-to-edge gap between the ⌀180 at this offset and the real band. */
   const gapToBand = (dx: number, dy: number) => -serpentineBandDepth({ x: dx, y: dy }) - ROUND
@@ -449,7 +451,8 @@ describe('the serpentine is judged by its band (§15b)', () => {
   it('names the real aisle when it does refuse on spacing', () => {
     place()
     const v = checkPlacement(scene(), roundAt(106, -106))
-    expect(v[0]).toMatchObject({ kind: 'spacing', required: TABLE_CLEARANCE.rect })
+    // the entry's own aisle, not the one its rect outline would have implied
+    expect(v[0]).toMatchObject({ kind: 'spacing', required: SERP_AISLE })
     // and the distance it reports is the distance to the BAND, not to the box —
     // within the tiling's own ≤5.3 cm outward over-claim
     if (v[0].kind !== 'spacing') throw new Error('expected a spacing violation')
@@ -458,18 +461,22 @@ describe('the serpentine is judged by its band (§15b)', () => {
 
   /**
    * The clearest single number in the whole change. Due east of the origin the
-   * band's own edge is far short of the box's, so the box put the first legal
-   * ⌀180 centre at 211 + 90 + 170 = 471 cm. It is now 422.5 — 48.5 cm of floor
-   * given back on one axis, and the aisle is still a full 170 cm of it.
+   * band's own edge is far short of the box's, so measuring off the box would put
+   * the first legal ⌀180 centre at 211 + 90 + aisle. It is much nearer than that,
+   * and the aisle it lands on is still a full one measured to the drape.
+   *
+   * Two separate rounds moved this number and both are pinned here on purpose:
+   * R4 §15b tiled the band (471 → 422.5 at the inherited 170 cm aisle), and R5
+   * PLAN-07 replaced that inherited aisle with the 160 the user chose (→ 411.5).
    */
-  it('moves the first legal centre due east from 471 to 422.5', () => {
+  it('measures the aisle from the band, not from the box the band sits in', () => {
     place()
     const outline = getCatalogEntry('table.serpentine').footprint(
       getCatalogEntry('table.serpentine').defaultSize,
     ).outline
     if (outline.kind !== 'rect') throw new Error('the serpentine declares a rect outline')
-    const byTheBox = outline.w / 2 + ROUND + TABLE_CLEARANCE.rect
-    expect(byTheBox).toBeCloseTo(471, 0)
+    const byTheBox = outline.w / 2 + ROUND + SERP_AISLE
+    expect(byTheBox).toBeCloseTo(461, 0)
 
     let first = Infinity
     for (let x = 300; x < byTheBox + 1; x += 0.5) {
@@ -478,10 +485,10 @@ describe('the serpentine is judged by its band (§15b)', () => {
         break
       }
     }
-    expect(first).toBeCloseTo(422.5, 1)
+    expect(first).toBeCloseTo(411.5, 1)
     expect(byTheBox - first).toBeGreaterThan(40)
-    // it is still a real 170 cm aisle, measured to the drape
-    expect(gapToBand(first, 0)).toBeGreaterThanOrEqual(TABLE_CLEARANCE.rect)
+    // and it is still a real aisle of the full declared width, measured to the drape
+    expect(gapToBand(first, 0)).toBeGreaterThanOrEqual(SERP_AISLE)
   })
 
   /** The chairs are still part of the footprint, and they are not tiled away. */
@@ -740,13 +747,16 @@ describe('the serpentine in the real hall (E1/§2)', () => {
   })
 
   /**
-   * The measurement the clearance decision is made from (§2.2), in one assertion.
+   * The measurement the clearance decision was made from (§2.2), and now the
+   * decision itself, in one assertion.
    *
    * The band-to-band aisle the rule measures and the aisle a guest can actually
    * walk down are NOT the same number, because the serpentine's chairs stand
-   * 250.5 cm from its centre while its drape reaches only ~211. At today's 170 the
-   * real chair-back-to-chair-back walkway beside a ⌀180 is 31.5 cm — against the
-   * 18.0 cm the app already considers normal between two ⌀180 round tables.
+   * 250.5 cm from its centre while its drape reaches only ~211. That gap is why
+   * the number is chosen and not inherited: at the old 170 the real
+   * chair-back-to-chair-back walkway beside a ⌀180 was 31.5 cm, and at the 160 the
+   * user picked it is 20.5 — against the 18.0 cm the app already considers normal
+   * between two ⌀180 round tables, which is the line below.
    */
   it('records the aisle the clearance rule buys, and the one it does not', () => {
     const serp = addObject(SERP, ORIGIN)
@@ -762,8 +772,8 @@ describe('the serpentine in the real hall (E1/§2)', () => {
         break
       }
     }
-    expect(firstLegal).toBe(423)
-    expect(firstLegal - (judged.maxX - ORIGIN.x) - half).toBeCloseTo(31.5, 1)
+    expect(firstLegal).toBe(412)
+    expect(firstLegal - (judged.maxX - ORIGIN.x) - half).toBeCloseTo(20.5, 1)
 
     // the house norm the number above has to be judged against
     let roundToRound = Infinity
@@ -807,9 +817,9 @@ describe('the serpentine in the real hall (E1/§2)', () => {
 /**
  * PLAN-07 §4.1 — an entry may state its own service aisle.
  *
- * Nothing in the catalog sets `clearance` today (the number for the serpentine is
- * the user's to choose from the §2 measurement), so the fallback is the only branch
- * a scene can reach and this is the only thing that exercises the other one.
+ * Exactly one entry sets `clearance` (the serpentine, at the 160 the user chose
+ * from the §2 measurement), so the fallback is still the branch almost every scene
+ * reaches and this is the only thing holding both of them open.
  */
 describe('clearanceOf (E1/§4.1)', () => {
   const entryFor = (catalogId: string) => getCatalogEntry(catalogId)
@@ -823,12 +833,17 @@ describe('clearanceOf (E1/§4.1)', () => {
       .toBe(TABLE_CLEARANCE.rect)
     expect(clearanceOf(entryFor('table.round'), outlineFor('table.round')))
       .toBe(TABLE_CLEARANCE.circle)
-    // the serpentine declares a rect outline and therefore still inherits 170 —
-    // deliberately unchanged until the number is chosen
+  })
+
+  it('lets the serpentine override the aisle its rect outline would have given it', () => {
+    // it still declares `rect`, and nine other consumers still need that box —
+    // the override is the whole point: the aisle no longer follows from the box
     expect(outlineFor('table.serpentine').kind).toBe('rect')
+    expect(entryFor('table.serpentine').clearance).toBe(160)
     expect(clearanceOf(entryFor('table.serpentine'), outlineFor('table.serpentine')))
-      .toBe(TABLE_CLEARANCE.rect)
-    expect(entryFor('table.serpentine').clearance).toBeUndefined()
+      .toBe(160)
+    expect(clearanceOf(entryFor('table.serpentine'), outlineFor('table.serpentine')))
+      .not.toBe(TABLE_CLEARANCE.rect)
   })
 
   it('honours an explicit number over EITHER outline shape', () => {
@@ -844,9 +859,12 @@ describe('clearanceOf (E1/§4.1)', () => {
     expect(clearanceOf(entry, outlineFor('table.square'))).toBe(0)
   })
 
-  it('leaves nothing in the catalog carrying the field yet', () => {
-    // the guard on §4.1's ⛔: the mechanism landed, the number did not
-    for (const entry of listCatalog()) expect(entry.clearance).toBeUndefined()
+  it('leaves the serpentine as the only entry carrying the field', () => {
+    // `clearance` is an override for a shape the two source-doc words do not
+    // describe, not a knob to start tuning table by table. A second entry setting
+    // it is a decision, and this is where it gets noticed.
+    const set = listCatalog().filter((e) => e.clearance !== undefined).map((e) => e.id)
+    expect(set).toEqual(['table.serpentine'])
   })
 })
 

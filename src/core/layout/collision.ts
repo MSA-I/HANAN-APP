@@ -111,13 +111,12 @@ export const TABLE_CLEARANCE: Record<string, number> = {
 
 /**
  * An entry may state its own aisle; otherwise it is read off the outline shape,
- * which is what every entry did before the field existed and what every entry
- * still does today (`CatalogEntry.clearance` is set nowhere — see its note).
+ * which is what every entry did before the field existed and what every entry but
+ * `table.serpentine` still does today (see `CatalogEntry.clearance`).
  *
- * Exported for the same reason `TABLE_CLEARANCE` beside it is: with no entry
- * carrying the field, the fallback is the ONLY branch any scene can reach, and a
- * rule nothing exercises is a rule that has quietly stopped working by the time
- * somebody finally sets a number.
+ * Exported for the same reason `TABLE_CLEARANCE` beside it is: only one entry
+ * reaches the first branch, so a test has to hold both open or the unused one
+ * quietly stops working before anybody sets a second number.
  */
 export function clearanceOf(entry: CatalogEntry, outline: Outline): number {
   return entry.clearance ?? (outline.kind === 'rect' ? TABLE_CLEARANCE.rect : TABLE_CLEARANCE.circle)

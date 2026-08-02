@@ -310,9 +310,10 @@ export interface CatalogEntry {
    * and inheriting the rect aisle from that box is an accident of that choice
    * rather than a decision anybody made about the table.
    *
-   * ⚠ Deliberately UNSET everywhere today. The field is the mechanism; the number
-   * for the serpentine is the user's to pick from a measurement (PLAN-07 §2), and
-   * until he picks one the fallback below keeps behaviour byte-identical.
+   * ⚠ Set on exactly ONE entry: `table.serpentine`, at 160, chosen by the user on
+   * 2026-08-02 from the PLAN-07 §2 measurement (the reasoning lives next to the
+   * number, in entries/tables.ts). Every other entry leaves it unset and reads its
+   * aisle off the outline exactly as before.
    */
   clearance?: number
   /**
