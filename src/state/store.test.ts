@@ -351,14 +351,29 @@ describe('appearance permissions', () => {
   })
 
   it('allows body on the three napkins and rejects every other item and slot', () => {
-    // The napkin() wrapper is what grants the free picker, so the catalog decides
-    // who is on the list — a fourth napkin has to appear here rather than slip in.
-    // decor.napkin-folded joined the other two in this round (source doc §14).
-    const napkins = listCatalog()
+    // The napkin() and candles() wrappers are what grant the free picker, so the
+    // catalog decides who is on the list — a fourth napkin, or a sixth candle
+    // holder, has to appear here rather than slip in.
+    // decor.napkin-folded joined the other two in round 4 (source doc §14); the
+    // five candle holders joined in round 5, once split-candles.mjs could separate
+    // their wax from their metal. The other five candle props are NOT here, and
+    // that is measured rather than forgotten — catalog/candles.test.ts records why.
+    const freePicker = listCatalog()
       .filter((e) => e.materialSlots.some((s) => s.allowCustomColor))
       .map((e) => e.id)
-    expect(napkins).toEqual(['decor.fabric-folded', 'decor.napkin-folded', 'decor.napkin-white'])
+      .sort()
+    expect(freePicker).toEqual([
+      'decor.candelabrum-gold',
+      'decor.candelabrum-golden',
+      'decor.candleholders-wood',
+      'decor.candlestick-brass',
+      'decor.candlestick-wood',
+      'decor.fabric-folded',
+      'decor.napkin-folded',
+      'decor.napkin-white',
+    ])
 
+    const napkins = ['decor.fabric-folded', 'decor.napkin-folded', 'decor.napkin-white']
     const tableId = addObject('table.round', { x: 500, y: 500 })
     for (const catalogId of napkins) {
       expect(getCatalogEntry(catalogId).editableSlots?.map((s) => s.slot)).toEqual(['body'])
@@ -367,6 +382,18 @@ describe('appearance permissions', () => {
       setAppearance([id], 'cloth', '#ffffff')
       expect(scene().objects[id].appearance).toEqual({ body: { color: '#7a2e3f' } })
     }
+
+    // A split candle holder takes `candle` and refuses `body` — the whole point of
+    // the split is that recolouring the wax leaves the wood alone.
+    const holderId = addObjectToSurface('decor.candleholders-wood', tableId, { x: 500, y: 500 })!
+    setAppearance([holderId], 'candle', '#c62828')
+    setAppearance([holderId], 'body', '#000000')
+    expect(scene().objects[holderId].appearance).toEqual({ candle: { color: '#c62828' } })
+
+    // …and one the splitter refused takes neither
+    const goldId = addObjectToSurface('decor.candlestick-gold', tableId, { x: 500, y: 500 })!
+    setAppearance([goldId], 'candle', '#c62828')
+    expect(scene().objects[goldId].appearance).toEqual({})
 
     const chairId = attachedChairs(scene(), tableId)[0].id
     const plantId = addObject('plant.potted', { x: 900, y: 500 })

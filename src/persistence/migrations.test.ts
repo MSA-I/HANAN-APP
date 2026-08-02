@@ -1144,6 +1144,26 @@ describe('migrateAndValidate', () => {
     })
   })
 
+  /**
+   * PLAN-02/R5 added a slot named `candle`, and NO schema line with it. That is
+   * meant to be free: `appearance` is a `z.record` (core/migrations/index.ts), so an
+   * unknown slot key survives a load untouched. The test exists to catch the day
+   * somebody tightens that record into a fixed shape — which is exactly the change
+   * that once ate `stackedOn`. It should never need editing; if it starts failing,
+   * the schema moved, not this file.
+   */
+  it('keeps an appearance override for a slot the schema never names (v13)', () => {
+    const file = validFile()
+    ;(file.project.scene.objects as Record<string, unknown>).c1 = {
+      ...storedObject('c1', 'decor.candleholders-wood', { width: 5.3, depth: 21.1, height: 25 }),
+      appearance: { candle: { color: '#c62828' } },
+    }
+    file.project.scene.objectOrder.push('c1')
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(file)))
+    expect(revived.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(revived.project.scene.objects.c1.appearance).toEqual({ candle: { color: '#c62828' } })
+  })
+
   it('rejects garbage', () => {
     expect(() => migrateAndValidate({ nope: true })).toThrow()
     expect(() => migrateAndValidate(null)).toThrow()
