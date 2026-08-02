@@ -109,8 +109,18 @@ export const TABLE_CLEARANCE: Record<string, number> = {
   ring: 120,
 }
 
-function clearanceOf(outline: Outline): number {
-  return outline.kind === 'rect' ? TABLE_CLEARANCE.rect : TABLE_CLEARANCE.circle
+/**
+ * An entry may state its own aisle; otherwise it is read off the outline shape,
+ * which is what every entry did before the field existed and what every entry
+ * still does today (`CatalogEntry.clearance` is set nowhere — see its note).
+ *
+ * Exported for the same reason `TABLE_CLEARANCE` beside it is: with no entry
+ * carrying the field, the fallback is the ONLY branch any scene can reach, and a
+ * rule nothing exercises is a rule that has quietly stopped working by the time
+ * somebody finally sets a number.
+ */
+export function clearanceOf(entry: CatalogEntry, outline: Outline): number {
+  return entry.clearance ?? (outline.kind === 'rect' ? TABLE_CLEARANCE.rect : TABLE_CLEARANCE.circle)
 }
 
 // ---------------------------------------------------------------------------
@@ -179,14 +189,30 @@ function shapeOf(world: Transform2D, outline: Outline): Shape {
     : rectShape(x, y, outline.w, outline.h, world.rotation)
 }
 
-/** Carry an object-LOCAL shape into world space. Rotation through space.ts. */
+/**
+ * Carry an object-LOCAL shape into world space. Rotation through space.ts.
+ *
+ * ⚠ THE MIRROR IS NOT COSMETIC HERE. `composeTransform` (core/space.ts:47-59)
+ * already reflects a table's CHAIRS, and both renderers reflect the drape
+ * (editor2d/ObjectNode.tsx `<Group scaleX={-1}>`, viewer3d/ObjectGroup.tsx
+ * `scale={[-1,1,1]}`) — this function was the one path that did not, so a mirrored
+ * serpentine was judged against a band up to 2.9 m from the one on screen
+ * (measured: 25 of its 30 tiles land further than 40 cm from where they are drawn).
+ * Every other entry is symmetric about its own origin, so for them this is a no-op.
+ *
+ * The semantics are `composeTransform`'s to the letter and for the same reason:
+ * reflect the local x BEFORE turning, and negate any angle measured inside the
+ * reflection, because `R·Rot(ρ)·R⁻¹ = Rot(−ρ)`. Two implementations of one
+ * reflection is what would drift.
+ */
 function placeShape(world: Transform2D, s: Shape): Shape {
-  const p = rotateVec({ x: s.x, y: s.y }, world.rotation)
+  const local = world.mirrored ? { x: -s.x, y: s.y } : { x: s.x, y: s.y }
+  const p = rotateVec(local, world.rotation)
   const x = world.position.x + p.x
   const y = world.position.y + p.y
   return s.kind === 'circle'
     ? { kind: 'circle', x, y, r: s.r }
-    : rectShape(x, y, s.w, s.h, s.rot + world.rotation)
+    : rectShape(x, y, s.w, s.h, (world.mirrored ? -s.rot : s.rot) + world.rotation)
 }
 
 /**
@@ -535,7 +561,7 @@ function buildIndex(scene: SceneState): Index {
       // arrivals in 'tables' are surface children, so they never reach it. Asked
       // the same way as everywhere else so the rule reads once (catalog/types.ts)
       isTable: isFloorTable(entry),
-      clearance: clearanceOf(outline),
+      clearance: clearanceOf(entry, outline),
     })
   }
 
@@ -898,7 +924,7 @@ function check(index: Index, candidate: PlacementCandidate): Violation[] {
   // defensive, same reason as `allowedOnDeck` above: the surface branch returned
   // ~60 lines up, so a v13 ring centrepiece never reaches the clearance loop
   const isTable = isFloorTable(entry)
-  const clearance = clearanceOf(outline)
+  const clearance = clearanceOf(entry, outline)
   for (const other of index.occupants) {
     if (excluded.has(other.id)) continue
     const required = isTable && other.isTable ? Math.max(clearance, other.clearance) : 0

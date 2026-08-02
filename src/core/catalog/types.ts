@@ -299,6 +299,23 @@ export interface CatalogEntry {
   /** The item must stand against a wall: at most N cm from the venue contour. */
   nearWall?: number
   /**
+   * The service aisle this item demands of another item in the same family, in cm,
+   * edge to edge. Absent → derived from `outline.kind` through `TABLE_CLEARANCE`
+   * exactly as it always was (core/layout/collision.ts `clearanceOf`).
+   *
+   * It exists because the two words source doc §37-38 uses — "square" gets 1.7 m,
+   * "round" gets 1.2 m — do not between them describe every table in the catalog.
+   * The serpentine is a CURVED BAND: it declares `outline: rect` because nine
+   * other consumers need a box (snapping, hit-testing, hall fill, the transformer),
+   * and inheriting the rect aisle from that box is an accident of that choice
+   * rather than a decision anybody made about the table.
+   *
+   * ⚠ Deliberately UNSET everywhere today. The field is the mechanism; the number
+   * for the serpentine is the user's to pick from a measurement (PLAN-07 §2), and
+   * until he picks one the fallback below keeps behaviour byte-identical.
+   */
+  clearance?: number
+  /**
    * This item answers to NO placement rule: it may stand in a restricted zone, on
    * top of other furniture, and off the venue floor entirely. Source doc §17, in
    * the user's words: "it can be placed anywhere, including places other elements
