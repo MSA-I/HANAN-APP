@@ -1,12 +1,16 @@
 /**
- * The acrylic guest chair (PLAN-04). Three of the things below can break in
+ * The acrylic guest chair (PLAN-04). Four of the things below can break in
  * complete silence, and each has its own assertion:
  *
- *  - `defaultSize` taken from glb-prep's printed "final bounds" instead of the
- *    real geometry. That line transforms the PRE-rotation AABB, so at this
- *    model's −153.08° yaw it says 83.0 × 83.4 for a chair that is 46.35 × 53.90 —
- *    a footprint 53 % too large, every centimetre of which the engine then
- *    demands as clearance from every neighbour.
+ *  - `defaultSize` taken from a bounding box the chair does not fill. The chair
+ *    sits in its file at −153.08°, and the box AROUND that rotated box is
+ *    83.0 × 83.4 for a chair that is 46.35 × 53.90 — a footprint 53 % too large,
+ *    every centimetre of which the engine then demands as clearance from every
+ *    neighbour. `glb-prep` printed exactly that number until 2026-08-02.
+ *  - the model sitting OFF CENTRE inside its own file, which is the same mistake
+ *    one step later: a box's centre survives a rotation, the geometry inside it
+ *    does not. It shipped 2.28 cm back and 0.23 cm left of centre, so the 3D chair
+ *    stood behind the rectangle the 2D plan drew for it, and nothing failed.
  *  - the material marking erased by a re-run of `glb-prep` (README:71). The chair
  *    then renders as dark rough metal and nothing fails.
  *  - the entry landing in `seating`, where it would offer itself as the chair
@@ -47,6 +51,9 @@ function glbJson(path: string): {
 
 const file = glbJson(GLB)
 const nodeNamed = (name: string) => file.nodes.find((n) => n.name === name)!
+const manifest = JSON.parse(readFileSync('public/plan/manifest.json', 'utf8')) as {
+  items: Record<string, { cmW: number; cmD: number }>
+}
 /** cm per model unit, from `prep_scale` — glb-prep writes cm→m as a node scale. */
 const SCALE_CM = nodeNamed('prep_scale').scale![0] * 100
 const box = file.accessors.find((a) => a.min && a.max)!
@@ -80,11 +87,12 @@ describe('the shipped GLB', () => {
 
   /**
    * The trap itself. The raw file's box is 61.50 × 62.31 and the yaw turns THAT
-   * box into 83.0 × 83.4 — which is what glb-prep prints and what a hurried
-   * reading would have catalogued. The published footprint has to be well under
-   * both, because the chair inside the box is neither.
+   * box into 83.0 × 83.4 — the number a hurried reading would have catalogued,
+   * and the number glb-prep itself printed until its bounds were fixed to walk the
+   * vertices. The published footprint has to be well under both, because the chair
+   * inside the box is neither.
    */
-  it('is NOT catalogued from the rotated bounding box glb-prep prints', () => {
+  it('is NOT catalogued from the rotated bounding box', () => {
     const rawW = (box.max![0] - box.min![0]) * SCALE_CM
     const rawD = (box.max![2] - box.min![2]) * SCALE_CM
     expect(rawW).toBeCloseTo(61.5, 1)
@@ -96,6 +104,32 @@ describe('the shipped GLB', () => {
     expect(chairChuppahGuest.defaultSize.width).toBeCloseTo(46.35, 2)
     expect(chairChuppahGuest.defaultSize.depth).toBeCloseTo(53.9, 2)
     expect(chairChuppahGuest.defaultSize.width).toBeLessThan(inflatedW * 0.6)
+  })
+
+  /**
+   * ⭐ THE CHAIR IS CENTRED IN ITS OWN FILE — asserted through the plan image,
+   * because that is where it is both provable without a Draco decoder and where
+   * being off centre actually hurt.
+   *
+   * `tools/topdown-prep.mjs` frames every prop symmetrically about the MODEL
+   * ORIGIN and not about its bounding box (:185-201, deliberately: the origin is
+   * what ObjectNode positions and rotates around), then pads by `PAD` (:46). So
+   * the manifest's span is `(size + 2·|offset|) × (1 + PAD)` and the offset falls
+   * straight out of it. Off centre by 2.28 cm in Z, the chair published a 59.63 cm
+   * plan image for a 53.90 cm chair, and the 3D model stood 2.28 cm behind the
+   * rectangle the 2D editor drew — a disagreement no test could see and no error
+   * could report.
+   *
+   * The bound is 0.5 mm. What shipped was 22.8 mm and 2.3 mm.
+   */
+  it('⭐ is centred in its own file, and the plan image is where that shows', () => {
+    const PAD = 1.02
+    const item = manifest.items['/props/chair-chuppah-guest.glb']
+    expect(item).toBeTruthy()
+    const offsetX = (item.cmW / PAD - chairChuppahGuest.defaultSize.width) / 2
+    const offsetZ = (item.cmD / PAD - chairChuppahGuest.defaultSize.depth) / 2
+    expect(Math.abs(offsetX)).toBeLessThan(0.05)
+    expect(Math.abs(offsetZ)).toBeLessThan(0.05)
   })
 
   it('points at files that are actually there', () => {

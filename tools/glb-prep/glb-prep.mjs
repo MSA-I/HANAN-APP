@@ -74,7 +74,15 @@ function parseArgs(argv) {
 }
 
 /** World-space AABB of the whole document, via each mesh primitive's POSITION min/max
- *  transformed by its node's world matrix. Version-proof (no reliance on a helper name). */
+ *  transformed by its node's world matrix. Version-proof (no reliance on a helper name).
+ *
+ *  ⚠ This is the box around the primitive's LOCAL box, put through the matrix — so it
+ *  is exact only while every world matrix is axis-aligned (no rotation, or a multiple
+ *  of 90°). Under any other rotation it is inflated, and its centre is R·c, the rotated
+ *  centre of the box, not the centre of the rotated geometry. That is fine for what the
+ *  scale stages ask of it (see step 4: they measure the model in ITS OWN axes, before
+ *  any yaw) and wrong for anything that has to know where the geometry actually is —
+ *  use `exactWorldBounds` there. */
 function worldBounds(doc) {
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
@@ -101,6 +109,46 @@ function worldBounds(doc) {
             if (wy < min[1]) min[1] = wy; if (wy > max[1]) max[1] = wy;
             if (wz < min[2]) min[2] = wz; if (wz > max[2]) max[2] = wz;
           }
+    }
+  }
+  return { min, max, size: [max[0] - min[0], max[1] - min[1], max[2] - min[2]] };
+}
+
+/** World-space AABB of the GEOMETRY: every vertex through its node's world matrix,
+ *  rather than the eight corners of a box the geometry merely sits inside.
+ *
+ *  ⛔ THE CENTRING MUST USE THIS ONE. Centring on `worldBounds` centres the ROTATED
+ *  BOX, and a box's centre survives a rotation while the geometry inside it does not:
+ *  the model lands off by R·c − c. Measured on the acrylic guest chair (`--yaw
+ *  -153.08`, the library's steepest): x −0.229 cm, z +2.283 cm off centre, which
+ *  `tools/topdown-prep.mjs` — it frames symmetrically about the origin, deliberately,
+ *  so the plan image and the 2D footprint share a centre — turned into a plan image
+ *  59.63 cm deep for a chair 53.90 cm deep. `--merge` (flatten) is off by default, so
+ *  the world matrices are real and this cannot be skipped.
+ *
+ *  Cost is one pass over the positions — 68k vertices on that chair, 1.5M on the
+ *  resort venue. Nothing next to Draco encoding, which runs on the same data. */
+function exactWorldBounds(doc) {
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  const p = [0, 0, 0];
+  for (const node of doc.getRoot().listNodes()) {
+    const mesh = node.getMesh();
+    if (!mesh) continue;
+    const m = node.getWorldMatrix(); // 16, column-major
+    for (const prim of mesh.listPrimitives()) {
+      const pos = prim.getAttribute('POSITION');
+      if (!pos) continue;
+      const count = pos.getCount();
+      for (let i = 0; i < count; i++) {
+        pos.getElement(i, p); // getElement, not getArray: it denormalises for us
+        const wx = m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12];
+        const wy = m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13];
+        const wz = m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14];
+        if (wx < min[0]) min[0] = wx; if (wx > max[0]) max[0] = wx;
+        if (wy < min[1]) min[1] = wy; if (wy > max[1]) max[1] = wy;
+        if (wz < min[2]) min[2] = wz; if (wz > max[2]) max[2] = wz;
+      }
     }
   }
   return { min, max, size: [max[0] - min[0], max[1] - min[1], max[2] - min[2]] };
@@ -185,24 +233,28 @@ async function processOne(io, inPath, outPath, a) {
   }
 
   // 4b. yaw about Y — AFTER scaling, so `--footprint` meant the model's own W×D.
+  // The line printed here is the REAL size of the yawed model, so it can be read
+  // straight into a catalog entry; the scale above deliberately did not use it.
   if (a.yaw) {
     const h = (a.yaw * Math.PI) / 360; // half-angle, degrees→radians
     wrapper.setRotation([0, Math.sin(h), 0, Math.cos(h)]);
-    b = worldBounds(doc);
-    console.log(`  bounds (m) after yaw ${a.yaw}°: size ${fmtV(b.size)}`);
+    console.log(`  bounds (m) after yaw ${a.yaw}°: size ${fmtV(exactWorldBounds(doc).size)}`);
   }
 
   // 5. recentre. prop: base to Y=0, centre X/Z. venue: only if --recenter (trusts placement otherwise).
+  // ⛔ MEASURED EXACTLY, not from `b`: `b` is the model-axis box the scale stages
+  // needed, and after a yaw that is not a multiple of 90° its centre is not the
+  // model's centre. See `exactWorldBounds`.
   if (a.mode === 'prop' || a.recenter) {
-    const cx = (b.min[0] + b.max[0]) / 2;
-    const cz = (b.min[2] + b.max[2]) / 2;
+    const e = exactWorldBounds(doc);
+    const cx = (e.min[0] + e.max[0]) / 2;
+    const cz = (e.min[2] + e.max[2]) / 2;
     const t = wrapper.getTranslation();
     if (a.mode === 'prop') {
-      wrapper.setTranslation([t[0] - cx, t[1] - b.min[1], t[2] - cz]); // centre X/Z, base→0
+      wrapper.setTranslation([t[0] - cx, t[1] - e.min[1], t[2] - cz]); // centre X/Z, base→0
     } else {
-      wrapper.setTranslation([t[0] - b.min[0], t[1] - b.min[1], t[2] - b.min[2]]); // corner→0
+      wrapper.setTranslation([t[0] - e.min[0], t[1] - e.min[1], t[2] - e.min[2]]); // corner→0
     }
-    b = worldBounds(doc);
   }
 
   // 6. optimise. dedup/prune/weld are safe. flatten()+join() cut draw calls but
@@ -232,7 +284,9 @@ async function processOne(io, inPath, outPath, a) {
   await io.write(outPath, doc);
 
   const afterBytes = statSync(outPath).size;
-  const fb = worldBounds(await io.read(outPath));
+  // read back and measure the GEOMETRY — this line is what gets catalogued, and the
+  // corner box lies about a yawed model (it said 83.0 × 83.4 for a 46.3 × 53.9 chair).
+  const fb = exactWorldBounds(await io.read(outPath));
   const mb = (n) => (n / 1048576).toFixed(1);
   console.log(`  size: ${mb(beforeBytes)}MB → ${mb(afterBytes)}MB  (${Math.round((1 - afterBytes / beforeBytes) * 100)}% smaller)`);
   console.log(`  final bounds (m): size ${fmtV(fb.size)}  min ${fmtV(fb.min)}  max ${fmtV(fb.max)}`);

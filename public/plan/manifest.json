@@ -636,11 +636,11 @@
     },
     "/props/chair-chuppah-guest.glb": {
       "file": "chair-chuppah-guest.webp",
-      "cmW": 47.74,
-      "cmD": 59.63,
-      "pxPerCm": 4.0007,
-      "w": 191,
-      "h": 239
+      "cmW": 47.27,
+      "cmD": 54.98,
+      "pxPerCm": 3.998,
+      "w": 189,
+      "h": 220
     }
   },
   "failed": []

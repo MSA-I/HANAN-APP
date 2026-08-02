@@ -42,10 +42,12 @@ export const chairChuppahGuest: CatalogEntry = {
   promptFragment: 'a clear acrylic ghost chair with an oval medallion back',
   keywords: ['כסא', 'כיסא', 'חופה', 'אורח', 'שקוף', 'אקריל', 'טקס'],
   /**
-   * gltf-transform `getBounds` on public/props/chair-chuppah-guest.glb, 2026-08-02
-   * (46.35 × 97.94 × 53.90 cm, W × H × D). NOT glb-prep's own "final bounds" line:
-   * that one transforms the pre-rotation AABB and so reports 83.0 × 83.4 for this
-   * −153.08° yaw — the inflation its own comment (glb-prep.mjs:144-147) warns about.
+   * The vertices of public/props/chair-chuppah-guest.glb, 2026-08-02:
+   * 46.347 × 97.940 × 53.898 cm (W × H × D). Derived by hand at first, because
+   * glb-prep's own "final bounds" line transformed the pre-rotation AABB and
+   * reported 83.0 × 83.4 for this −153.08° yaw. Since the same day the tool walks
+   * the vertices and prints these numbers itself — it is no longer a line to
+   * distrust, and the same fix is what put the chair in the middle of its own file.
    */
   defaultSize: { width: 46.35, depth: 53.9, height: 97.94 },
   resizable: [],
