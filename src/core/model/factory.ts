@@ -48,7 +48,23 @@ export function createDefaultScene(
     venue,
     objects,
     objectOrder,
-    settings: { gridSize: 10, snapEnabled: true, showGrid: true, showLabels: true, layers: {} },
+    settings: {
+      gridSize: 10,
+      snapEnabled: true,
+      showGrid: true,
+      showLabels: true,
+      layers: {},
+      // Materialized here for the same reason `layers: {}` is, plus a measured
+      // one. `chuppahLocationOf` DERIVES the answer when the field is absent, and
+      // that derivation is a pass over every object — which inside `clampToVenue`
+      // means reading them back through immer's proxies once per drag frame
+      // (measured: 2.8-3.2 ms vs 1.8-2.1 ms per frame on a 350-object resort).
+      // A new project has no canopy, so the derivation could only ever say
+      // 'hall'; writing it down costs nothing and skips the pass. Old files still
+      // arrive WITHOUT the field and still derive — which is the whole point of
+      // the derivation, and why the migration deliberately does not fill it in.
+      chuppahLocation: 'hall',
+    },
   }
 }
 

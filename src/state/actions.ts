@@ -8,6 +8,7 @@ import { isTextureId } from '../core/catalog/textures'
 import { createObject, createProject, newId, type NewProjectOptions } from '../core/model/factory'
 import { reconcileSeats } from '../core/model/seatingReconciler'
 import type {
+  ChuppahLocation,
   Id,
   LightingSettings,
   Project,
@@ -40,7 +41,8 @@ import {
   tableCellSize,
 } from '../core/layout/fillHall'
 import { beamGrid, clampHang, snapToBeam } from '../core/layout/beams'
-import { isZoneInside } from '../core/layout/zoneOccupancy'
+import { chuppahLocationOf, chuppahOnDeck, effectiveZones } from '../core/layout/venueZones'
+import { isPointInZone, isZoneInside } from '../core/layout/zoneOccupancy'
 import { seatItemTransforms } from '../core/layout/seatItemLayout'
 import { seatItemSeatsForEntry } from '../core/layout/seatLayout'
 import { serpentineCentre, serpentineSeats } from '../core/layout/serpentine'
@@ -413,7 +415,10 @@ type ClampMode = 'strict' | 'legacy'
 function clampToVenue(scene: SceneState, ids: Iterable<Id>, mode: ClampMode = 'strict'): void {
   const { width, depth } = scene.venue.size
   const pack = getVenuePack(scene.venue.venuePackId)
-  const zones = pack?.restricted ?? []
+  // The project's list, not the pack's — the other half of the same rule
+  // collision.ts's `buildIndex` reads. See core/layout/venueZones.ts.
+  const zones = effectiveZones(scene)
+  const chuppahUpstairs = chuppahOnDeck(zones)
   const done = new Set<Id>()
   const shift = (obj: SceneObject, box: AABB, d: Vec2): AABB => {
     obj.transform.position.x += d.x
@@ -468,7 +473,7 @@ function clampToVenue(scene: SceneState, ids: Iterable<Id>, mode: ClampMode = 's
       reception &&
       !stationOnDeck &&
       overlapsZone(box, reception) &&
-      allowedOnDeck(getCatalogEntry(obj.catalogId))
+      allowedOnDeck(getCatalogEntry(obj.catalogId), chuppahUpstairs)
     ) {
       d = zoneShift(box, reception)
       if (d.x || d.y) shift(obj, box, d)
@@ -979,7 +984,38 @@ export function addObject(catalogId: string, position: Vec2, seating?: Partial<S
     clampToVenue(scene, [obj.id], 'legacy')
   })
   select([obj.id])
+  announceCeremonySnap(catalogId, position)
   return obj.id
+}
+
+/**
+ * The 28 m the canopy can travel on one drop, said out loud.
+ *
+ * `zoneKind` TELEPORTS — `clampToVenue` snaps a fixed station into its home from
+ * anywhere, and `ruled()` (:198) exempts it from the placement gate entirely, so
+ * there is no red ghost and no refusal on the way. With one ceremony pad live
+ * instead of two, the two homes are 2802.5 cm apart (venuePacks.ts:204 vs :246),
+ * and a drop in the west of the hall while "חופה למעלה" is on lands on the deck
+ * in silence. The teleport is the documented contract of `zoneKind` and stays;
+ * what was missing is the sentence saying where the piece went.
+ *
+ * Only `addObject` asks. A drag cannot produce this: the canopy is clamped inside
+ * its own pad on every frame, so it never leaves and the release point is always
+ * already there — a per-frame notice would be noise for an event that cannot happen.
+ */
+function announceCeremonySnap(catalogId: string, at: Vec2): void {
+  if (getCatalogEntry(catalogId).zoneKind !== 'chuppah') return
+  const scene = get().scene
+  const zones = effectiveZones(scene)
+  const pad = zones.find((z) => z.kind === 'chuppah')
+  if (!pad || isPointInZone(at, pad)) return
+  const onDeck = chuppahOnDeck(zones)
+  notify(
+    strings.notice.chuppahSnapped(
+      onDeck ? strings.toolbar.kabalatPanim : strings.toolbar.hall,
+    ),
+    { tone: 'info' },
+  )
 }
 
 /**
@@ -1308,7 +1344,7 @@ export function fillHallWithTables(presetId: string): Id[] {
 
   const slots = fillHallSlots({
     areas: pack?.floorAreas ?? [rectRing(0, 0, venue.size.width, venue.size.depth)],
-    zones: pack?.restricted ?? [],
+    zones: effectiveZones(scene0),
     cell,
     aisle: DEFAULT_AISLE,
     occupied,
@@ -1586,11 +1622,12 @@ export function hasHallDesign(scene: SceneState): boolean {
 export function applyHallDesign(designId: string): Id[] {
   const design = getHallDesign(designId)
   if (!design) return []
-  const { venue } = get().scene
+  const scene0 = get().scene
+  const { venue } = scene0
   const entry = getCatalogEntry(design.catalogId)
   const side = Math.max(entry.defaultSize.width, entry.defaultSize.depth) + 2 * CEILING_INSET
   const slots = fillHallSlots({
-    areas: ceilingAreas(getVenuePack(venue.venuePackId), venue),
+    areas: ceilingAreas(getVenuePack(venue.venuePackId), venue, effectiveZones(scene0)),
     zones: [],
     cell: { width: side, depth: side },
     aisle: Math.max(0, design.spacing - side),
@@ -2692,6 +2729,73 @@ export function updateSettings(patch: Partial<SceneSettings>): void {
   mutateScene((scene) => {
     Object.assign(scene.settings, patch)
   })
+}
+
+/**
+ * Move the ceremony between the hall pad and the reception deck's pad.
+ *
+ * ONE `mutateScene`, and that is the whole design: the switch, the canopy's
+ * journey and its decorations' journey are a single undo entry, so one Ctrl+Z
+ * puts the plan back exactly as it was rather than unpicking three of them.
+ *
+ * ## What travels, and why the decorations do
+ *
+ * The canopy has `zoneKind: 'chuppah'`, so `clampToVenue` re-homes it on its own
+ * the moment the list underneath it changes. The decorations do NOT: they are
+ * `ignoresZones: true` (entries/chuppahDecor.ts:108), which is deliberate — the
+ * aisle rectangle read as a permission and behaved as a leash, and removing it is
+ * a documented scar. So nothing would carry them, and the user's ruling
+ * (2026-08-02) is that they must travel anyway. They are therefore moved
+ * ACTIVELY, here.
+ *
+ * ⚠ By the canopy's OWN DELTA, not "into the new zone". A wreath standing at the
+ * corner of the chuppah has to arrive at the corner of the chuppah; snapping each
+ * decoration to the new pad would pile them all on its centre. The relative
+ * geometry the user arranged is the thing being preserved.
+ */
+export function setChuppahLocation(location: ChuppahLocation): void {
+  const scene0 = get().scene
+  if (chuppahLocationOf(scene0) === location && scene0.settings.chuppahLocation === location) return
+  const canopyId =
+    scene0.objectOrder.find(
+      (id) =>
+        !scene0.objects[id]?.parentId &&
+        getCatalogEntry(scene0.objects[id].catalogId).zoneKind === 'chuppah',
+    ) ?? null
+  const decorIds = scene0.objectOrder.filter(
+    (id) =>
+      !scene0.objects[id]?.parentId &&
+      getCatalogEntry(scene0.objects[id].catalogId).category === 'chuppahDecor',
+  )
+
+  let carried = 0
+  mutateScene((scene) => {
+    scene.settings.chuppahLocation = location
+    if (!canopyId) return
+    const canopy = scene.objects[canopyId]
+    if (!canopy) return
+    const before = { ...canopy.transform.position }
+    // 'legacy': this is not a drag the user asked to be judged, it is the rules
+    // moving under a piece that was standing still — the same case `addObject`
+    // and `applySavedLayout` are in.
+    clampToVenue(scene, [canopyId], 'legacy')
+    const delta = {
+      x: canopy.transform.position.x - before.x,
+      y: canopy.transform.position.y - before.y,
+    }
+    if (!delta.x && !delta.y) return
+    for (const id of decorIds) {
+      const decor = scene.objects[id]
+      if (!decor || isEffectivelyLocked(scene, decor)) continue
+      decor.transform.position.x += delta.x
+      decor.transform.position.y += delta.y
+      carried++
+    }
+    // they ignore zones, so `legacy` here re-seats them on the floor and pushes
+    // them out of nothing — see the `ignoresZones` line at the end of clampToVenue
+    clampToVenue(scene, decorIds, 'legacy')
+  })
+  if (canopyId) notify(strings.notice.chuppahMoved(carried), { tone: 'info', undo: true })
 }
 
 /** Patch outdoor lighting, materializing the default on first touch. */

@@ -3,6 +3,7 @@ import { getCatalogEntry } from '../catalog/registry'
 import { getTablePreset, presetSeating } from '../presets'
 import { getVenuePack } from '../venuePacks'
 import { aabbIntersects, pointInPolygon, type AABB } from './bounds'
+import { zonesFor } from './venueZones'
 import {
   DEFAULT_AISLE,
   ceilingAreas,
@@ -163,29 +164,62 @@ describe('fillHallSlots', () => {
 })
 
 describe('ceilingAreas', () => {
-  it('adds the covered zones to the free floor but never the pool or corridor', () => {
-    const rings = ceilingAreas(resort, { size: resort.size })
-    // One ring per COVERED zone, counted off the pack. `CEILING_OVER` is private
-    // to fillHall.ts, so the kinds are still pinned here — but the COUNT must not
-    // be: a re-import can add a rectangle to any of them, and 2026-07-29 added a
-    // second chuppah on the reception deck. The frozen `+ 3` this replaces turned
-    // that venue change into what read as a ceilingAreas bug.
-    const COVERED = ['dancefloor', 'bar', 'chuppah']
-    const covered = resort.restricted!.filter((z) => COVERED.includes(z.kind ?? ''))
-    expect(rings.length).toBe(resort.floorAreas!.length + covered.length)
+  it.each(['hall', 'reception'] as const)(
+    'adds the covered zones to the free floor but never the pool or corridor (%s)',
+    (location) => {
+      const zones = zonesFor('resort', location)
+      const rings = ceilingAreas(resort, { size: resort.size }, zones)
+      // One ring per COVERED zone, counted off the list ACTUALLY IN FORCE.
+      // `CEILING_OVER` is private to fillHall.ts, so the kinds are still pinned
+      // here — but the COUNT must not be: a re-import can add a rectangle to any
+      // of them, and 2026-07-29 added a second chuppah on the reception deck. The
+      // frozen `+ 3` this replaces turned that venue change into what read as a
+      // ceilingAreas bug.
+      //
+      // ⚠ PLAN-03: this is now ONE FEWER than the pack carries, in BOTH modes,
+      // and that is the point — exactly one ceremony pad is live at a time, so a
+      // chandelier ring is never spread over the rectangle the project switched
+      // off, 28 m from where the ceremony actually is.
+      const COVERED = ['dancefloor', 'bar', 'chuppah']
+      const covered = zones.filter((z) => COVERED.includes(z.kind ?? ''))
+      expect(covered.length).toBe(
+        resort.restricted!.filter((z) => COVERED.includes(z.kind ?? '')).length - 1,
+      )
+      expect(rings.length).toBe(resort.floorAreas!.length + covered.length)
 
-    // Open water. NB the chuppah and DJ rectangles sit INSIDE the pool rectangle
-    // in this pack (a chuppah over the water), so a pool point must be sampled
-    // clear of them — the pool centre is under the chuppah.
-    expect(rings.some((r) => pointInPolygon({ x: 1000, y: 2000 }, r))).toBe(false)
+      // Open water. NB the chuppah and DJ rectangles sit INSIDE the pool rectangle
+      // in this pack (a chuppah over the water), so a pool point must be sampled
+      // clear of them — the pool centre is under the chuppah.
+      expect(rings.some((r) => pointInPolygon({ x: 1000, y: 2000 }, r))).toBe(false)
 
-    const floor = resort.restricted!.find((z) => z.kind === 'dancefloor')!
-    const floorCentre = { x: floor.x + floor.width / 2, y: floor.y + floor.depth / 2 }
-    expect(rings.some((r) => pointInPolygon(floorCentre, r))).toBe(true)
+      const floor = resort.restricted!.find((z) => z.kind === 'dancefloor')!
+      const floorCentre = { x: floor.x + floor.width / 2, y: floor.y + floor.depth / 2 }
+      expect(rings.some((r) => pointInPolygon(floorCentre, r))).toBe(true)
+    },
+  )
+
+  it('hangs over the hall pad in `hall` and over the deck pad in `reception`', () => {
+    const pads = resort.restricted!.filter((z) => z.kind === 'chuppah')
+    const centre = (z: (typeof pads)[number]) => ({
+      x: z.x + z.width / 2,
+      y: z.y + z.depth / 2,
+    })
+    // the deck's pad is the one appended last (venuePacks.ts:246)
+    const [hallPad, deckPad] = pads
+    const covers = (location: 'hall' | 'reception', p: { x: number; y: number }) =>
+      ceilingAreas(resort, { size: resort.size }, zonesFor('resort', location)).some((r) =>
+        pointInPolygon(p, r),
+      )
+    expect(covers('hall', centre(hallPad))).toBe(true)
+    expect(covers('reception', centre(hallPad))).toBe(false)
+    // the deck itself is not floor, so the only ring that can reach its pad is the
+    // pad's own — which is exactly what makes this the sharp half of the assertion
+    expect(covers('reception', centre(deckPad))).toBe(true)
+    expect(covers('hall', centre(deckPad))).toBe(false)
   })
 
   it('falls back to the whole room when there is no pack', () => {
-    expect(ceilingAreas(undefined, { size: { width: 2400, depth: 1600 } })).toEqual([
+    expect(ceilingAreas(undefined, { size: { width: 2400, depth: 1600 } }, [])).toEqual([
       rectRing(0, 0, 2400, 1600),
     ])
   })

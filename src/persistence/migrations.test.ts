@@ -1167,6 +1167,36 @@ describe('migrateAndValidate', () => {
     expect(revived.project.scene.settings.lighting?.shadowsEnabled).toBe(false)
   })
 
+  /**
+   * PLAN-03, and the SAME highest-severity risk one level up: `sceneSettings`
+   * itself is a plain `z.object`. Without its own line, `chuppahLocation` would
+   * be stripped on every load — the ceremony toggle would work for the session
+   * and the plan would come back with the other rectangle drawn on it, in
+   * silence. There is no type-level guard for this; only this test.
+   */
+  it('round-trips chuppahLocation — the key zod would otherwise strip', () => {
+    for (const location of ['hall', 'reception'] as const) {
+      const file = validFile()
+      file.project.scene.settings.chuppahLocation = location
+      const revived = migrateAndValidate(JSON.parse(JSON.stringify(file)))
+      expect(revived.project.scene.settings.chuppahLocation).toBe(location)
+      // additive and optional, so the version does NOT move with it
+      expect(revived.project.schemaVersion).toBe(SCHEMA_VERSION)
+    }
+  })
+
+  it('loads a file written before the ceremony toggle existed, field and all absent', () => {
+    const file = validFile()
+    // the factory writes it for new projects; a file older than the feature has
+    // no such key, and THAT is the shape being tested here
+    delete file.project.scene.settings.chuppahLocation
+    expect('chuppahLocation' in file.project.scene.settings).toBe(false)
+    const revived = migrateAndValidate(JSON.parse(JSON.stringify(file)))
+    expect(revived.project.scene.settings.chuppahLocation).toBeUndefined()
+    expect('chuppahLocation' in revived.project.scene.settings).toBe(false)
+    expect(revived.project.schemaVersion).toBe(SCHEMA_VERSION)
+  })
+
   it('leaves a project that never touched the toggle without the field', () => {
     const file = validFile()
     file.project.scene.settings.lighting = {

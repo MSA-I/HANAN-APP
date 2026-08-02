@@ -88,6 +88,18 @@ export const strings = {
      */
     kabalatPanimOff: 'מעבר לקבלת פנים',
     kabalatPanimOn: 'חזרה לאולם',
+    /**
+     * PLAN-03. The ceremony toggle, and the SAME convention as the two lines
+     * above: each string is the button's label in one state and says what
+     * PRESSING it does, not where the ceremony is now. `chuppahUp` shows while
+     * the hall's pad is live, `chuppahDown` while the deck's is. `active` on the
+     * chip is what is true right now — the ceremony being upstairs.
+     *
+     * The user's own words, and the reason the labels are these two and not
+     * "אולם"/"קבלת פנים": "להוסיף כפתור שאומר חופה למטה או למעלה".
+     */
+    chuppahUp: 'חופה למעלה',
+    chuppahDown: 'חופה למטה',
     /** the 2D lighting-planning mode: beam grid over a dimmed plan (source doc §33) */
     lightingPlan: 'תכנון תאורה',
   },
@@ -746,6 +758,27 @@ export const strings = {
     /** the capture reads the 2D canvas, which full-3D does not render */
     exportPngFailed: 'ייצוא התוכנית אפשרי מתצוגת 2D או מפוצל בלבד',
     importFailed: 'ייבוא הקובץ נכשל — הקובץ אינו קובץ פרויקט תקין',
+    /**
+     * PLAN-03 §3.4. Flipping the ceremony switch MOVES what is standing there,
+     * so it says so — and it counts the decorations because they were the one
+     * thing that would not have followed on its own (they are `ignoresZones`),
+     * and the user ruled that they must. Silence here would leave a wreath 28 m
+     * from the canopy with nothing to explain it.
+     */
+    chuppahMoved: (decor: number) =>
+      decor === 0
+        ? 'החופה הועברה לאזור הטקס החדש'
+        : decor === 1
+          ? 'החופה הועברה לאזור הטקס החדש יחד עם קישוט אחד'
+          : `החופה הועברה לאזור הטקס החדש יחד עם ${decor} קישוטים`,
+    /**
+     * PLAN-03 §3.5. `zoneKind` teleports, by contract, and with one pad live the
+     * jump can be the full 28 m between the hall's rectangle and the deck's. The
+     * teleport stays; what it owes the user is a sentence naming where it landed.
+     * `{zone}` is `toolbar.hall` / `toolbar.kabalatPanim`, never the rectangle's
+     * own label — both are 'חופה' and would say nothing.
+     */
+    chuppahSnapped: (zone: string) => `החופה הונחה באזור הטקס: ${zone}`,
   },
   help: {
     title: 'קיצורי מקלדת',

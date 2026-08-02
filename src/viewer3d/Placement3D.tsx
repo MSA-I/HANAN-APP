@@ -9,9 +9,10 @@ import { checkPlacement } from '../core/layout/collision'
 import { beamGrid, snapToBeam } from '../core/layout/beams'
 import { snapValue } from '../core/layout/snapping'
 import { standingHeightAt } from '../core/layout/groundHeight'
+import { effectiveZones } from '../core/layout/venueZones'
 import type { Id, SceneState, Vec2 } from '../core/model/types'
 import { cmToM, degToRad, threeToPlan } from '../core/space'
-import { getVenuePack, type RestrictedZone } from '../core/venuePacks'
+import { getVenuePack } from '../core/venuePacks'
 import { overlay, useOverlayStore } from '../editor2d/overlayStore'
 import { attachesToTable, pickLevelsCm } from './placementTargets'
 import {
@@ -169,9 +170,6 @@ export function Placement3D() {
   )
 }
 
-/** Nothing raised in this pack — a stable reference, so the meshes are not rebuilt. */
-const NO_ZONES: RestrictedZone[] = []
-
 /**
  * The surfaces the placement ray may land on: ONE PER DECLARED LEVEL, nearest wins.
  *
@@ -204,10 +202,10 @@ function PickSurfaces({ placing }: { placing: string }) {
     const pack = getVenuePack(s.scene.venue.venuePackId)
     return pack?.hangHeight ?? s.scene.venue.wallHeight
   })
-  // a stable selector, or every frame of a drag would rebuild four meshes
-  const zones = useEditorStore(
-    useShallow((s) => getVenuePack(s.scene.venue.venuePackId)?.restricted ?? NO_ZONES),
-  )
+  // a stable selector, or every frame of a drag would rebuild four meshes. The
+  // project's list, not the pack's: with "חופה למטה" the deck's +5.20 pad is not a
+  // surface to catch a drop on (core/layout/venueZones.ts).
+  const zones = useEditorStore(useShallow((s) => effectiveZones(s.scene)))
   const ceiling = getCatalogEntry(placing).placement === 'ceiling'
   const levels = useMemo(
     () => (ceiling ? [] : pickLevelsCm({ restricted: zones }, { width, depth })),
@@ -288,7 +286,7 @@ function PickPlane({
  * ObjectGroup's `baseElevation` are the same core function over the same zone list.
  */
 function groundElevation(scene: SceneState, entry: CatalogEntry, at: Vec2): number {
-  return standingHeightAt(entry, at, getVenuePack(scene.venue.venuePackId)?.restricted ?? [])
+  return standingHeightAt(entry, at, effectiveZones(scene))
 }
 
 function ghostElevation(scene: SceneState, entry: CatalogEntry, point: Vec2): number {

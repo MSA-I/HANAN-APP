@@ -13,6 +13,7 @@ import {
   PartyPopper,
   Redo2,
   Tag,
+  Tent,
   Trash2,
   Undo2,
 } from 'lucide-react'
@@ -21,11 +22,12 @@ import { useStore } from 'zustand'
 import { indexedDbRepository } from '../persistence/indexedDbRepository'
 import { makeProjectFile, saveNow } from '../persistence/autosave'
 import { downloadProjectJson, exportFloorPlanPng, importProjectJson } from '../persistence/export'
-import { clearAllObjects, closeProject, loadProject, redo, setActiveZone, setMode, setProjectName, undo, updateSettings } from '../state/actions'
+import { clearAllObjects, closeProject, loadProject, redo, setActiveZone, setChuppahLocation, setMode, setProjectName, undo, updateSettings } from '../state/actions'
 import { notify } from '../state/notice'
 import { userObjectCount } from '../state/selectors'
 import { temporalStore, useEditorStore, type ViewMode } from '../state/store'
 import { chordFor } from '../core/shortcuts'
+import { chuppahLocationOf } from '../core/layout/venueZones'
 import { getVenuePack } from '../core/venuePacks'
 import { isLightingPlanOn, overlay, useOverlayStore } from '../editor2d/overlayStore'
 import { Tooltip } from './Tooltip'
@@ -131,6 +133,17 @@ export function Toolbar() {
   const hasKabalatPanim = useEditorStore((s) =>
     (getVenuePack(s.scene.venue.venuePackId)?.restricted ?? []).some((z) => z.kind === 'kabalatPanim'),
   )
+  // ⚠ the PACK's list, not the project's: the question is whether this venue
+  // OFFERS a choice, and `effectiveZones` has by then already made it — it always
+  // leaves exactly one pad, so asking it here would hide the toggle on the one
+  // venue that needs it.
+  const hasTwoChuppot = useEditorStore(
+    (s) =>
+      (getVenuePack(s.scene.venue.venuePackId)?.restricted ?? []).filter(
+        (z) => z.kind === 'chuppah',
+      ).length >= 2,
+  )
+  const chuppahUp = useEditorStore((s) => chuppahLocationOf(s.scene) === 'reception')
 
   const modes: Array<{ id: ViewMode; label: string }> = [
     { id: '2d', label: strings.viewMode.d2 },
@@ -263,6 +276,20 @@ export function Toolbar() {
             icon={<PartyPopper size={16} />}
             active={activeZone === 'kabalatPanim'}
             onClick={() => setActiveZone(activeZone === 'kabalatPanim' ? 'hall' : 'kabalatPanim')}
+          />
+        )}
+        {hasTwoChuppot && (
+          // Next to the work-zone toggle and NOT wired to it: `activeZone` is
+          // "what am I looking at", this is "where is the ceremony", and a plan
+          // for a deck ceremony is drawn while looking at the hall all the time
+          // (PLAN-03 §3.1). Same label convention as the chip above — the text is
+          // what pressing DOES.
+          <ToggleChip
+            data-chuppah-toggle
+            label={chuppahUp ? strings.toolbar.chuppahDown : strings.toolbar.chuppahUp}
+            icon={<Tent size={16} />}
+            active={chuppahUp}
+            onClick={() => setChuppahLocation(chuppahUp ? 'hall' : 'reception')}
           />
         )}
         {/* The one visible way in to the help panel. Until now `/` opened it and

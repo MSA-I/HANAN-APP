@@ -107,8 +107,8 @@ function countAlong(span: number, size: number, aisle: number): number {
 export interface FillRequest {
   /** placeable polygons, plan cm */
   areas: [number, number][][]
-  /** no-go rectangles a cell may not touch */
-  zones: RestrictedZone[]
+  /** no-go rectangles a cell may not touch — the project's list (venueZones.ts) */
+  zones: readonly RestrictedZone[]
   cell: { width: number; depth: number }
   aisle: number
   /** footprints already in the scene — a fill never lands on existing furniture */
@@ -162,15 +162,24 @@ export function fillHallSlots(req: FillRequest): Vec2[] {
   return out
 }
 
-/** Polygons a ceiling fixture may hang over: the free floor plus the covered zones. */
+/**
+ * Polygons a ceiling fixture may hang over: the free floor plus the covered zones.
+ *
+ * ⚠ `zones` is passed in and is NOT read off the pack, because `CEILING_OVER`
+ * contains `'chuppah'` and the pack carries two of those. Reading `pack.restricted`
+ * here would hang a chandelier over whichever ceremony pad the project switched
+ * OFF — a ring of fixtures over an empty rectangle 28 m from the ceremony. This is
+ * the consumer PLAN-03 §2.2 marks as the easiest of the fourteen to miss.
+ */
 export function ceilingAreas(
   pack: VenuePack | undefined,
   venue: Pick<Venue, 'size'>,
+  zones: readonly RestrictedZone[],
 ): [number, number][][] {
   const whole = rectRing(0, 0, venue.size.width, venue.size.depth)
   if (!pack) return [whole]
   const rings: [number, number][][] = [...(pack.floorAreas ?? [whole])]
-  for (const z of pack.restricted ?? []) {
+  for (const z of zones) {
     if (z.kind && CEILING_OVER.has(z.kind)) rings.push(rectRing(z.x, z.y, z.width, z.depth))
   }
   return rings

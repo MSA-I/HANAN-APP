@@ -843,6 +843,13 @@ const sceneSettings = z.object({
       shadowsEnabled: z.boolean().optional(),
     })
     .optional(),
+  // PLAN-03, and the SAME trap a third time: which of the pack's two ceremony
+  // pads is live. It needs no schema bump — optional, so old files parse — but it
+  // absolutely needs this line. Without it the "חופה למעלה/למטה" toggle works for
+  // the session, is stripped by this object on the next load, and the plan comes
+  // back with the other rectangle drawn on it. Nothing throws; the field simply
+  // is not there any more.
+  chuppahLocation: z.enum(['hall', 'reception']).optional(),
 })
 
 const sceneState = z.object({

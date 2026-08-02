@@ -30,6 +30,7 @@ import {
 } from '../core/layout/beams'
 import { snapValue } from '../core/layout/snapping'
 import { standingHeightAt } from '../core/layout/groundHeight'
+import { effectiveZones } from '../core/layout/venueZones'
 import { attachedChairs } from '../core/model/seatingReconciler'
 import type { Id, SceneState, Size3D } from '../core/model/types'
 import { cmToM, relativeTransform, threeToPlan } from '../core/space'
@@ -238,7 +239,7 @@ export function ObjectGroup({ id }: { id: Id }) {
     return standingHeightAt(
       getCatalogEntry(obj.catalogId),
       obj.transform.position,
-      getVenuePack(s.scene.venue.venuePackId)?.restricted ?? [],
+      effectiveZones(s.scene),
     )
   })
   // a NUMBER selector, so it stays stable through the transient position writes

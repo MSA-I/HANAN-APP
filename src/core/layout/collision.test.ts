@@ -316,7 +316,10 @@ describe("the catalog's own siting rules", () => {
     })
 
     it('is on the deck whitelist, so the clamp settles it there instead of ejecting it', () => {
-      expect(allowedOnDeck(getCatalogEntry(FIGURE))).toBe(true)
+      // second argument: is the LIVE ceremony pad the deck's one? A default
+      // project is 'hall', so it is not — and for everything that is not a canopy
+      // the answer changes nothing. `venueZones.test.ts` owns the canopy's case.
+      expect(allowedOnDeck(getCatalogEntry(FIGURE), false)).toBe(true)
     })
   })
 
@@ -1434,7 +1437,7 @@ describe('zones an entry is allowed into (PLAN-06)', () => {
   })
 
   it('lets a guest table stand on the reception deck (§27)', () => {
-    expect(allowedOnDeck(getCatalogEntry('table.round'))).toBe(true)
+    expect(allowedOnDeck(getCatalogEntry('table.round'), false)).toBe(true)
     expect(checkPlacement(scene(), ghost('table.round', deckCentre))).toEqual([])
   })
 
@@ -1442,7 +1445,7 @@ describe('zones an entry is allowed into (PLAN-06)', () => {
     // `buffet.table` is filed with the service furniture, not the guest tables, so
     // the explicit id in `allowedOnDeck` is load-bearing rather than redundant.
     expect(getCatalogEntry('buffet.table').category).toBe('bars')
-    expect(allowedOnDeck(getCatalogEntry('buffet.table'))).toBe(true)
+    expect(allowedOnDeck(getCatalogEntry('buffet.table'), false)).toBe(true)
     expect(checkPlacement(scene(), ghost('buffet.table', deckCentre))).toEqual([])
   })
 
@@ -1453,8 +1456,8 @@ describe('zones an entry is allowed into (PLAN-06)', () => {
     // was `bar.straight` when this was written; that id retired at v10 and
     // getCatalogEntry now throws on it. Any of the three pieces that replaced it
     // makes the same point — a bar unit is not welcome on the deck.
-    expect(allowedOnDeck(getCatalogEntry('bar.resort-left'))).toBe(false)
-    expect(allowedOnDeck(getCatalogEntry('divider.screen'))).toBe(false)
+    expect(allowedOnDeck(getCatalogEntry('bar.resort-left'), false)).toBe(false)
+    expect(allowedOnDeck(getCatalogEntry('divider.screen'), false)).toBe(false)
     const v = checkPlacement(scene(), ghost('divider.screen', deckCentre))
     expect(kinds(v)).toEqual(['forbiddenZone'])
     expect(v[0]).toMatchObject({ zone: 'kabalatPanim' })
