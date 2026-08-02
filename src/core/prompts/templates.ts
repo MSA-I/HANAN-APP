@@ -95,6 +95,25 @@ export const SHARED_DIRECTION =
   'framing and perspective of the supplied capture; the capture defines the geometry and the layout, ' +
   'and your task is to render it as a real photograph of a dressed venue.'
 
+/**
+ * PLAN-05 C2 — appended only when the user turned the viewport's shadows OFF.
+ *
+ * It is the OPPOSITE of what the toggle's name suggests, and deliberately so.
+ * SHARED_DIRECTION tells the model "the capture defines the geometry", so a
+ * capture with no shadows anywhere is a strong cue for flat, shadowless light —
+ * which is the SketchUp look §25 (SHARED_NEGATIVE, above) exists to refuse. The
+ * toggle is about the INPUT the model is given, never about the output asked of
+ * it, so the prompt has to say which of the two the missing shadows belong to.
+ *
+ * Nothing is added when shadows are on: the capture then carries them, and a
+ * sentence about their absence would be a lie about the picture.
+ */
+export const CAPTURE_SHADOWS_OFF =
+  'Shadows were suppressed in the supplied capture so the geometry reads clearly. That is a ' +
+  'property of the capture, not of the scene: the render must still carry full, natural, ' +
+  'photographic shadows — cast shadows from the daylight and soft contact shadows under every ' +
+  'object that stands on the floor.'
+
 const TEMPLATES: AngleTemplate[] = [
   {
     cameraId: 's1',

@@ -11,7 +11,13 @@ import type { SceneState } from '../model/types'
 import { getVenuePack, type SealedCamera } from '../venuePacks'
 import { pluralize } from './fragments'
 import { selectRefs, type DesignGroup, type ExportRef, type RefRole } from './refs'
-import { SHARED_BACKGROUND, SHARED_DIRECTION, SHARED_NEGATIVE, templateFor } from './templates'
+import {
+  CAPTURE_SHADOWS_OFF,
+  SHARED_BACKGROUND,
+  SHARED_DIRECTION,
+  SHARED_NEGATIVE,
+  templateFor,
+} from './templates'
 
 export interface ExportPackage {
   angleId: string
@@ -153,6 +159,18 @@ export function composeExport(scene: SceneState, angleId: string): ExportPackage
     design && `DESIGN ELEMENTS: match ${design}.`,
   ].filter((s): s is string => !!s)
 
+  /**
+   * PLAN-05 C2. Read straight off the scene rather than through
+   * `state/selectors.lightingOf`: core/prompts is renderer- and state-free by
+   * design (refs.ts:180-182), and `composeExport` must stay a pure function of
+   * the scene it is handed.
+   *
+   * `=== false` and not `!(… ?? true)` — absent and `true` are the same state,
+   * and neither may put a sentence about missing shadows into the prompt of a
+   * project that never touched the toggle.
+   */
+  const shadowsOff = scene.settings.lighting?.shadowsEnabled === false
+
   const prompt = [
     template?.base,
     template?.emphasis.map((e) => `- ${e}`).join('\n'),
@@ -160,6 +178,7 @@ export function composeExport(scene: SceneState, angleId: string): ExportPackage
     refInstructions.join('\n'),
     background ? SHARED_BACKGROUND : null,
     SHARED_DIRECTION,
+    shadowsOff ? CAPTURE_SHADOWS_OFF : null,
     [SHARED_NEGATIVE, template?.negative].filter(Boolean).join(' '),
   ]
     .filter((part): part is string => !!part)

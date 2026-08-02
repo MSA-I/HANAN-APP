@@ -85,6 +85,11 @@ const SHADOW_MIN_HALF_M = 12
  * penumbra stays 3 texels wide, and a texel of the fitted box measures 3.32 cm
  * at 2048, 1.66 at 4096 and 0.83 at 8192 on the resort. That is exactly what a
  * "shadow sharpness" control ought to mean.
+ *
+ * ⚠ DEAD while `settings.lighting.shadowsEnabled` is false (PLAN-05 C2): with no
+ * light casting, three's shadow pass gets an empty caster list and returns
+ * before any of this is read. Same for SHADOW_BIAS and SHADOW_NORMAL_BIAS_TEXELS
+ * below. Nothing here needs a guard — they simply stop being consulted.
  */
 const SHADOW_RADIUS = 3
 
@@ -126,6 +131,20 @@ export function LightingRig() {
   const mode = LIGHTING_MODES[lighting.mode]
   const invalidate = useThree((s) => s.invalidate)
   const gl = useThree((s) => s.gl)
+
+  /**
+   * PLAN-05 C2. Absent means ON — the state every project was in before the
+   * toggle existed, so nothing that opens without the field changes.
+   *
+   * What is deliberately NOT switched: `<Canvas shadows="percentage">` in
+   * Scene3D (flipping `gl.shadowMap.enabled` recompiles every shader in the
+   * scene on each click), the per-mesh `castShadow`/`receiveShadow` flags (they
+   * are inert once no light casts, and rewriting them needs
+   * `material.needsUpdate` across the whole scene), and the shadow map's own
+   * ~67 MB allocation (freeing it needs a second dependency on `mapSize` to get
+   * it back; the memory is a knowingly accepted cost).
+   */
+  const shadowsEnabled = lighting.shadowsEnabled ?? true
 
   // Absent means 'medium', which is the size this rig has always used.
   // Clamped because three clamps mapSize to the same limit silently: asking for
@@ -248,7 +267,7 @@ export function LightingRig() {
         position={[sunX, sunY, sunZ]}
         color={mode.sun.color}
         intensity={lighting.sunIntensity}
-        castShadow
+        castShadow={shadowsEnabled}
         shadow-radius={SHADOW_RADIUS}
         shadow-bias={SHADOW_BIAS}
       />
@@ -264,16 +283,21 @@ export function LightingRig() {
           0.5 puts the taps 2 texels apart ⇒ ±0.48 m of penumbra on the long
           axis. Rule to keep: `(blur / 256) * resolution <= ~2`.
           Raising `resolution` cannot fix this — h is in UV, so the taps stay the
-          same world distance apart no matter how fine the target is. */}
-      <ContactShadows
-        position={[cx, 0.012, cz]}
-        scale={[W + 1, D + 1]}
-        far={cmToM(220)}
-        blur={0.5}
-        opacity={0.35}
-        resolution={1024}
-        color="#3a352f"
-      />
+          same world distance apart no matter how fine the target is.
+          Unmounted rather than made transparent when the toggle is off: this is
+          a separate pass with its own render target, so taking it out of the
+          tree is both the cheapest and the only complete way to remove it. */}
+      {shadowsEnabled && (
+        <ContactShadows
+          position={[cx, 0.012, cz]}
+          scale={[W + 1, D + 1]}
+          far={cmToM(220)}
+          blur={0.5}
+          opacity={0.35}
+          resolution={1024}
+          color="#3a352f"
+        />
+      )}
     </>
   )
 }

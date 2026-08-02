@@ -529,6 +529,10 @@ export const strings = {
      * controls acne, not sharpness, and moving it reads as a bug.
      */
     shadows: 'צללים',
+    /** PLAN-05 C2 — "הצל לא עובד לטובתנו צריך לעשות כפתור שמכבה או מדליק את הצל" */
+    shadowsOn: 'צללים בתצוגה',
+    shadowsHint:
+      'כיבוי מבהיר את התצוגה ואת הצילום שנשלח למודל התמונה. הרינדור הסופי עדיין יכלול צללים טבעיים',
     shadowSharpness: 'חדות הצל',
     shadowSharpnessHint: 'מפת צל גדולה יותר — קצוות חדים יותר, ומעט יותר עומס על כרטיס המסך',
     shadowSharpnessLow: 'רכה',

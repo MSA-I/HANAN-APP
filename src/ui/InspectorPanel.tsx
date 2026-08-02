@@ -93,6 +93,43 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 const SHARPNESS_STEPS: ShadowSharpness[] = ['soft', 'medium', 'sharp']
 
 /**
+ * PLAN-05 C2 — "הצל לא עובד לטובתנו צריך לעשות כפתור שמכבה או מדליק את הצל".
+ *
+ * It carries `L.shadows` ('צללים') as its heading, which moved up here off
+ * `ShadowSharpnessField`: the two controls are one block about one subject, and
+ * a block wants one title. On/off comes first because sharpness is a refinement
+ * of a thing that has to exist.
+ *
+ * Same `<input type="checkbox" className="accent-accent">` inside a `<label>` as
+ * the selection filter further down this file — the panel's one checkbox idiom.
+ */
+function ShadowsToggleField({
+  value,
+  onChange,
+}: {
+  value: boolean
+  onChange: (v: boolean) => void
+}) {
+  const L = strings.lighting
+  return (
+    <div>
+      <span className="mb-1.5 block text-[14px] text-ink-soft">{L.shadows}</span>
+      <label className="flex min-h-9 cursor-pointer items-center gap-2 text-[14px] text-ink">
+        <input
+          type="checkbox"
+          data-testid="shadows-enabled"
+          className="accent-accent"
+          checked={value}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <span>{L.shadowsOn}</span>
+      </label>
+      <p className="mt-1 text-[13px] text-ink-soft">{L.shadowsHint}</p>
+    </div>
+  )
+}
+
+/**
  * Shadow sharpness — a three-stop slider, since each stop is one shadow-map size
  * (viewer3d/LightingRig SHADOW_MAP_SIZES) and nothing in between exists.
  *
@@ -101,12 +138,18 @@ const SHARPNESS_STEPS: ShadowSharpness[] = ['soft', 'medium', 'sharp']
  * which means nothing to the user. Same markup and classes as `SliderField`
  * apart from that one span, so it sits flush with the three sun sliders — minus
  * `ltr-nums`, which forces LTR + mono and would mangle a Hebrew word.
+ *
+ * ⚠ `disabled` is not decoration. With the shadows toggle off this slider steers
+ * the resolution of a map nothing samples, and a live control that changes
+ * nothing reads as a broken one. The heading now lives on `ShadowsToggleField`.
  */
 function ShadowSharpnessField({
   value,
+  disabled,
   onChange,
 }: {
   value: ShadowSharpness
+  disabled?: boolean
   onChange: (v: ShadowSharpness) => void
 }) {
   const L = strings.lighting
@@ -116,8 +159,7 @@ function ShadowSharpnessField({
     sharp: L.shadowSharpnessHigh,
   }
   return (
-    <div>
-      <span className="mb-1.5 block text-[14px] text-ink-soft">{L.shadows}</span>
+    <div className={disabled ? 'opacity-45' : undefined}>
       <div className="mb-1 flex items-center justify-between">
         <span className="text-[14px] text-ink-soft">{L.shadowSharpness}</span>
         <span className="text-[14px] font-medium text-ink">{stopLabels[value]}</span>
@@ -128,9 +170,10 @@ function ShadowSharpnessField({
         min={0}
         max={2}
         step={1}
+        disabled={disabled}
         value={SHARPNESS_STEPS.indexOf(value)}
         onChange={(e) => onChange(SHARPNESS_STEPS[Number(e.target.value)])}
-        className="w-full accent-accent"
+        className="w-full accent-accent disabled:cursor-not-allowed"
         aria-label={L.shadowSharpness}
       />
       <p className="mt-1 text-[13px] text-ink-soft">{L.shadowSharpnessHint}</p>
@@ -197,10 +240,16 @@ function LightingSection() {
         <SliderField label={L.sunElevation} value={lighting.sunElevation} min={10} max={90} unit="°" onChange={(v) => setLighting({ sunElevation: v })} />
         <SliderField label={L.sunIntensity} value={lighting.sunIntensity} min={0} max={2} step={0.05} onChange={(v) => setLighting({ sunIntensity: v })} />
         {/* Read with a fallback and never written on mount: absent already renders
-            as 'medium' (= the 4096 the rig always used), so materialising it here
-            would dirty every project that opens without changing a pixel. */}
+            as 'medium' (= the 4096 the rig always used) and as shadows-on, so
+            materialising either here would dirty every project that opens
+            without changing a pixel. */}
+        <ShadowsToggleField
+          value={lighting.shadowsEnabled ?? true}
+          onChange={(v) => setLighting({ shadowsEnabled: v })}
+        />
         <ShadowSharpnessField
           value={lighting.shadowSharpness ?? 'medium'}
+          disabled={!(lighting.shadowsEnabled ?? true)}
           onChange={(v) => setLighting({ shadowSharpness: v })}
         />
       </CollapsibleSection>

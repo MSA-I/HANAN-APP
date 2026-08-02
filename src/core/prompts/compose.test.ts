@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { listCatalog } from '../catalog/registry'
 import { createDefaultScene, createObject } from '../model/factory'
-import type { SceneObject, SceneState, Vec2 } from '../model/types'
+import { DEFAULT_LIGHTING, type SceneObject, type SceneState, type Vec2 } from '../model/types'
 import { getVenuePack, type SealedCamera } from '../venuePacks'
 import { composeExport } from './compose'
 import {
@@ -23,7 +23,13 @@ import {
   objectsInFrame,
   selectRefs,
 } from './refs'
-import { listAngleTemplates, templateFor } from './templates'
+import {
+  CAPTURE_SHADOWS_OFF,
+  listAngleTemplates,
+  SHARED_DIRECTION,
+  SHARED_NEGATIVE,
+  templateFor,
+} from './templates'
 
 const PACK = 'resort'
 const cameras = getVenuePack(PACK)!.cameras!
@@ -566,5 +572,60 @@ describe('english helpers', () => {
       'twelve 180cm round banquet tables under a floor-length tablecloth',
     )
     expect(pluralize('a white cross-back dining chair', 1)).toBe('a white cross-back dining chair')
+  })
+})
+
+/**
+ * PLAN-05 C2 — "הצל לא עובד לטובתנו צריך לעשות כפתור שמכבה או מדליק את הצל".
+ *
+ * The toggle's whole effect on the CAPTURE is free: CaptureRegistrar renders the
+ * live scene, so turning the light's shadow off is already visible in the PNG.
+ * What needs code, and what is asserted here, is the one sentence that stops the
+ * model from reading a shadowless capture as a request for shadowless light.
+ */
+describe('the shadows toggle reaches the prompt (C2)', () => {
+  const withShadows = (shadowsEnabled?: boolean): SceneState => {
+    const scene = sceneWith(createObject('table.round', MIDDLE, venue))
+    if (shadowsEnabled !== undefined) {
+      scene.settings.lighting = { ...DEFAULT_LIGHTING, shadowsEnabled }
+    }
+    return scene
+  }
+
+  it('says nothing at all when the project never touched the toggle', () => {
+    const scene = sceneWith(createObject('table.round', MIDDLE, venue))
+    expect(scene.settings.lighting?.shadowsEnabled).toBeUndefined()
+    expect(composeExport(scene, 's1').prompt).not.toContain('Shadows were suppressed')
+  })
+
+  it('says nothing when shadows are explicitly ON', () => {
+    expect(composeExport(withShadows(true), 's1').prompt).not.toContain('Shadows were suppressed')
+  })
+
+  it('adds the sentence when shadows are OFF', () => {
+    const prompt = composeExport(withShadows(false), 's1').prompt
+    expect(prompt).toContain('Shadows were suppressed in the supplied capture')
+    // the half that matters: the toggle is about the INPUT, not the output
+    expect(prompt).toContain('must still carry full, natural, photographic shadows')
+    expect(prompt).toContain(CAPTURE_SHADOWS_OFF)
+  })
+
+  it('adds to the shared text rather than replacing any of it', () => {
+    for (const state of [undefined, true, false] as const) {
+      const prompt = composeExport(withShadows(state), 's1').prompt
+      expect(prompt, `shadowsEnabled=${state}`).toContain(SHARED_NEGATIVE)
+      expect(prompt, `shadowsEnabled=${state}`).toContain(SHARED_DIRECTION)
+    }
+  })
+
+  it('sits after the rendering direction and before the negative', () => {
+    const prompt = composeExport(withShadows(false), 's1').prompt
+    expect(prompt.indexOf(SHARED_DIRECTION)).toBeLessThan(prompt.indexOf(CAPTURE_SHADOWS_OFF))
+    expect(prompt.indexOf(CAPTURE_SHADOWS_OFF)).toBeLessThan(prompt.indexOf(SHARED_NEGATIVE))
+  })
+
+  it('never asks the model for a shadowless picture', () => {
+    const prompt = composeExport(withShadows(false), 's1').prompt
+    expect(prompt).not.toMatch(/no shadows|without shadows|shadowless/i)
   })
 })
