@@ -458,21 +458,34 @@ export const tableDecorEntries: CatalogEntry[] = [
   // stable key that also names public/props/<id>.glb and public/thumbs/<id>.webp
   // (tools/thumbs-prep.mjs), so it cannot be Hebrew and cannot be re-spelt later.
   //
-  // The last argument is the napkin colour picker, and FOUR OF THE FIVE HAVE ONE.
-  // Each value is what `mark-napkin.mjs` measured on that file, and its absence on
-  // `-horizontal` is measured too — see that line.
+  // The last argument is the napkin colour picker, and every value is what
+  // `mark-napkin.mjs` measured on that very file.
   cover('decor.place-setting-diagonal', 'decorPlaceSettingDiagonal', 'a full place setting with a diagonally folded napkin: charger, plate, cutlery and two glasses', 'decor-place-setting-diagonal.glb', { width: 36, depth: 32.32, height: 15.92 }, { width: 45, depth: 40.4, height: 19.9 }, '#c6c2c3'),
-  // ⚠ NO NAPKIN SLOT, AND THAT IS A MEASUREMENT. Tripo welded this cover's napkin
-  // and its charger into ONE 46,162-triangle primitive — the other four exports put
-  // the napkin in a primitive of its own — so there is no material to rename and
-  // `mark-napkin.mjs` refuses the file with exit 1. Its connected components ARE
-  // bimodal by colour (a white family at saturation 0.012 against the woven charger
-  // at 0.146) but sixteen of them read 0.077…0.137 in between, and PLAN-01 §3.7
-  // forbids writing `match:'napkin'` on a reading that thin. Four covers that
-  // recolour beat five where one repaints the plate. The way to fix it is to
-  // re-export this cover with the napkin segmented, then re-run the tool — NOT to
-  // hand-write a part index here.
-  cover('decor.place-setting-horizontal', 'decorPlaceSettingHorizontal', 'a full place setting with a napkin folded across the plate: charger, plate, cutlery and two glasses', 'decor-place-setting-horizontal.glb', { width: 36, depth: 33.76, height: 15.68 }, { width: 45, depth: 42.2, height: 19.6 }),
+  // ⚠ THE ONE COVER THAT WAS RE-EXPORTED, on 2026-08-02, and both oddities on this
+  // line come from that. The first import welded this cover's napkin into its
+  // charger as ONE 46,162-triangle primitive, so there was no material to rename
+  // and no colour to pick; the user re-exported it segmented, and the napkin is now
+  // `tripo_part_1` — his own words for which layer it is.
+  //
+  // Because the geometry is a different export, the sizes moved: 45 × 39.7 × 19.3
+  // where the siblings' generation measured 45 × 42.2 × 19.6. They are NOT a typo
+  // against the other four.
+  //
+  // And its glasses are marked by NAME (`mark-material --only`), not by
+  // `mark-glass.mjs`: the finer segmentation shatters both vessels into 52 parts
+  // and the clustering rule bridges through the shards. handoff/FOUND-01-horizontal.md
+  // holds the containment measurement that chose those 52, and covers.test.ts reads
+  // the shipped file back so a re-run of `glb-prep` cannot erase either mark in
+  // silence.
+  // ⚠ Its napkin was marked by NAME too, and that is worth knowing before anyone
+  // reaches for `mark-napkin.mjs` here: the tool refuses this file, and its refusal
+  // MESSAGE is misleading. The napkin is not welded any more — the CHARGER is. This
+  // export splits the plate into two identical crescents either side of the napkin
+  // (299 cm² each, 1.00×), and the tool's rule wants the napkin to sit on ONE
+  // charger part. Overlap with either half is 0.31, well under the bar, so the rule
+  // is structurally inapplicable rather than merely unsatisfied. The colour signal
+  // it measured is fine: Δ 0.151 against the charger, above its own 0.120 threshold.
+  cover('decor.place-setting-horizontal', 'decorPlaceSettingHorizontal', 'a full place setting with a napkin folded across the plate: charger, plate, cutlery and two glasses', 'decor-place-setting-horizontal.glb', { width: 36, depth: 31.76, height: 15.44 }, { width: 45, depth: 39.7, height: 19.3 }, '#ada9a8'),
   cover('decor.place-setting-vertical', 'decorPlaceSettingVertical', 'a full place setting with a napkin folded lengthways down the plate: charger, plate, cutlery and two glasses', 'decor-place-setting-vertical.glb', { width: 36, depth: 31.52, height: 15.04 }, { width: 45, depth: 39.4, height: 18.8 }, '#b9b5b2'),
   // olive linen, and the one value here that is obviously not a white: the file
   // bakes rgb(121,125,108), which is why measuring it beats defaulting it

@@ -376,9 +376,10 @@ describe('appearance permissions', () => {
     // five candle holders joined in round 5, once split-candles.mjs could separate
     // their wax from their metal. The other five candle props are NOT here, and
     // that is measured rather than forgotten — catalog/candles.test.ts records why.
-    // FOUR of the five covers joined them later in round 5, once mark-napkin.mjs
-    // could name their linen; `decor.place-setting-horizontal` is missing for the
-    // same kind of measured reason — catalog/covers.test.ts records that one.
+    // All FIVE covers joined them later in round 5, once their linen could be named
+    // — four by mark-napkin.mjs and `-horizontal` by `mark-material --only` after
+    // the user re-exported it segmented. `decor.place-setting` itself is absent and
+    // always will be: it is the cover that ships without a fold.
     const freePicker = listCatalog()
       .filter((e) => e.materialSlots.some((s) => s.allowCustomColor))
       .map((e) => e.id)
@@ -394,6 +395,7 @@ describe('appearance permissions', () => {
       'decor.napkin-white',
       'decor.place-setting-diagonal',
       'decor.place-setting-folded',
+      'decor.place-setting-horizontal',
       'decor.place-setting-tied',
       'decor.place-setting-vertical',
     ])
@@ -427,12 +429,12 @@ describe('appearance permissions', () => {
     setAppearance([coverId], 'napkin', '#1a237e')
     setAppearance([coverId], 'body', '#000000')
     expect(scene().objects[coverId].appearance).toEqual({ napkin: { color: '#1a237e' } })
-    // …and the cover whose napkin the marker could not name takes neither, so the
-    // one thing that cannot happen is a picker that repaints the plate
-    const weldedId = addObjectToSurface('decor.place-setting-horizontal', coverTable, { x: 1400, y: 500 })!
-    setAppearance([weldedId], 'napkin', '#1a237e')
-    setAppearance([weldedId], 'body', '#000000')
-    expect(scene().objects[weldedId].appearance).toEqual({})
+    // …and the cover that ships WITHOUT a fold takes neither, so the one thing that
+    // cannot happen is a picker repainting the plate of a setting with no linen on it
+    const bareId = addObjectToSurface('decor.place-setting', coverTable, { x: 1400, y: 500 })!
+    setAppearance([bareId], 'napkin', '#1a237e')
+    setAppearance([bareId], 'body', '#000000')
+    expect(scene().objects[bareId].appearance).toEqual({})
 
     const chairId = attachedChairs(scene(), tableId)[0].id
     const plantId = addObject('plant.potted', { x: 900, y: 500 })
