@@ -36,6 +36,9 @@ const SECTIONS: Record<Category, string> = {
   tables: 'TABLES',
   seating: 'CHAIRS',
   bridalChair: 'BRIDAL SEAT',
+  // merged onto the chair heading rather than given one of its own: it is what the
+  // guests sit on at the ceremony, and a heading absent from SECTION_ORDER is dropped
+  chuppahChair: 'CHAIRS',
   bars: 'STATIONS',
   tableware: 'PLACE SETTINGS',
   tableDecor: 'CENTREPIECES',

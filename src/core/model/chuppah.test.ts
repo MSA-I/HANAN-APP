@@ -21,9 +21,18 @@ import { getCatalogEntry } from '../catalog/registry'
 import { chuppahEntries } from '../catalog/entries/chuppah'
 import { isZoneInside } from '../layout/zoneOccupancy'
 import { getVenuePack } from '../venuePacks'
-import { addObject, moveObjectsBy, newProject, rotateObjectsBy } from '../../state/actions'
+import {
+  addObject,
+  moveObjectsBy,
+  newProject,
+  rotateObjectsBy,
+  setChuppahLocation,
+  undo,
+} from '../../state/actions'
+import { clearNotice, useNoticeStore } from '../../state/notice'
 import { objectAABB } from '../../state/selectors'
-import { useEditorStore } from '../../state/store'
+import { temporalStore, useEditorStore } from '../../state/store'
+import { strings } from '../../ui/strings'
 
 const scene = () => useEditorStore.getState().scene
 const entries = chuppahEntries
@@ -222,6 +231,11 @@ describe('chuppah zone lock', () => {
    * one of them must come to rest on the pad.
    */
   it.each(ids)('%s lands on the deck PAD, not merely somewhere on the deck', (id) => {
+    // ⚠ PLAN-03: the deck's pad only EXISTS while the ceremony is upstairs. With
+    // the default 'hall' this whole scenario is unreachable by construction —
+    // that pad is not in the zone list, so nothing can settle on it — and the
+    // test has to say which of the two ceremonies it is about.
+    setChuppahLocation('reception')
     for (const drop of [
       { x: DECK.x + 60, y: DECK.y + 60 },
       { x: DECK.x + DECK.width - 60, y: DECK.y + 60 },
@@ -260,5 +274,119 @@ describe('chuppah zone lock', () => {
     newProject({ name: 'plain', venueWidth: 2400, venueDepth: 1600 })
     const objId = addObject(ids[0], { x: 700, y: 700 })
     expect(scene().objects[objId].transform.position).toEqual({ x: 700, y: 700 })
+  })
+})
+
+/**
+ * PLAN-03 — the switch, and what it drags behind it.
+ *
+ * The user's ruling of 2026-08-02 has two halves and the second is the one with
+ * teeth: the canopy moves (it would anyway, it has a `zoneKind`), AND its
+ * decorations move with it — which nothing would have done, because they are
+ * `ignoresZones: true` and therefore follow no rectangle at all. So they are
+ * moved by hand, by the canopy's own delta, and the whole thing is one undo entry.
+ */
+describe('חופה למעלה / חופה למטה', () => {
+  const centreOf = (z: { x: number; y: number; width: number; depth: number }) => ({
+    x: z.x + z.width / 2,
+    y: z.y + z.depth / 2,
+  })
+
+  it('moves a standing canopy to the pad that just came alive', () => {
+    const id = addObject('chuppah.draped-white', { x: 300, y: 300 })
+    expect(settledOnZone(id)).toBe(true)
+    setChuppahLocation('reception')
+    expect(settledIn(id, DECK_PAD)).toBe(true)
+    setChuppahLocation('hall')
+    expect(settledOnZone(id)).toBe(true)
+  })
+
+  it('carries the decorations by the canopy’s own delta, keeping the arrangement', () => {
+    const canopy = addObject('chuppah.draped-white', { x: 300, y: 300 })
+    const before = { ...scene().objects[canopy].transform.position }
+    // beside the canopy, not on top of it — the offset is the thing being preserved
+    const decor = addObject('chuppah.decor-1', { x: before.x + 180, y: before.y - 90 })
+    const decorBefore = { ...scene().objects[decor].transform.position }
+    const offset = {
+      x: decorBefore.x - before.x,
+      y: decorBefore.y - before.y,
+    }
+
+    setChuppahLocation('reception')
+
+    const after = scene().objects[canopy].transform.position
+    const decorAfter = scene().objects[decor].transform.position
+    expect(after).not.toEqual(before)
+    expect(decorAfter.x - after.x).toBeCloseTo(offset.x, 6)
+    expect(decorAfter.y - after.y).toBeCloseTo(offset.y, 6)
+    // and it really travelled — a wreath left in the hall is the failure this guards
+    expect(Math.hypot(decorAfter.x - decorBefore.x, decorAfter.y - decorBefore.y)).toBeGreaterThan(
+      1000,
+    )
+  })
+
+  it('says so, and counts what it carried', () => {
+    clearNotice()
+    const canopy = addObject('chuppah.draped-white', { x: 300, y: 300 })
+    const at = scene().objects[canopy].transform.position
+    addObject('chuppah.decor-1', { x: at.x + 180, y: at.y - 90 })
+    setChuppahLocation('reception')
+    expect(useNoticeStore.getState().message).toBe(strings.notice.chuppahMoved(1))
+  })
+
+  it('is ONE undo entry — the switch, the canopy and the decorations together', () => {
+    const canopy = addObject('chuppah.draped-white', { x: 300, y: 300 })
+    const at = { ...scene().objects[canopy].transform.position }
+    const decor = addObject('chuppah.decor-1', { x: at.x + 180, y: at.y - 90 })
+    const decorAt = { ...scene().objects[decor].transform.position }
+    const order = [...scene().objectOrder]
+    const depth = temporalStore.getState().pastStates.length
+
+    setChuppahLocation('reception')
+    expect(temporalStore.getState().pastStates.length).toBe(depth + 1)
+    expect(scene().objectOrder).toEqual(order)
+
+    undo()
+    expect(scene().settings.chuppahLocation).toBe('hall')
+    expect(scene().objects[canopy].transform.position).toEqual(at)
+    expect(scene().objects[decor].transform.position).toEqual(decorAt)
+  })
+
+  it('flips with nothing standing, and raises no notice about a canopy', () => {
+    clearNotice()
+    setChuppahLocation('reception')
+    expect(scene().settings.chuppahLocation).toBe('reception')
+    expect(useNoticeStore.getState().message).toBe('')
+  })
+
+  it('keeps `settledOnAHome` true in both modes, from every corner', () => {
+    for (const location of ['hall', 'reception'] as const) {
+      for (const [x, y] of CORNERS) {
+        newProject({ name: 'resort', venuePackId: 'resort' })
+        setChuppahLocation(location)
+        expect(settledOnAHome(addObject(ids[0], { x, y }))).toBe(true)
+      }
+    }
+  })
+
+  /**
+   * §3.5. `zoneKind` teleports by contract and `ruled()` exempts the canopy from
+   * the placement gate, so nothing turns the ghost red on the way — 28 m of
+   * travel with no feedback at all. The teleport stays; the sentence is new.
+   */
+  it('announces the jump when the drop point is not on the live pad', () => {
+    clearNotice()
+    setChuppahLocation('reception')
+    addObject('chuppah.draped-white', { x: 300, y: 300 })
+    expect(useNoticeStore.getState().message).toBe(
+      strings.notice.chuppahSnapped(strings.toolbar.kabalatPanim),
+    )
+  })
+
+  it('stays quiet when the canopy was dropped on the live pad already', () => {
+    setChuppahLocation('hall')
+    clearNotice()
+    addObject('chuppah.draped-white', centreOf(ZONE))
+    expect(useNoticeStore.getState().message).toBe('')
   })
 })

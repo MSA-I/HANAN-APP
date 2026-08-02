@@ -31,6 +31,7 @@ import {
   newProject,
   removeObjects,
   rotateObjectsBy,
+  setChuppahLocation,
   setPosition,
   stackedPosition,
 } from '../../state/actions'
@@ -316,7 +317,10 @@ describe("the catalog's own siting rules", () => {
     })
 
     it('is on the deck whitelist, so the clamp settles it there instead of ejecting it', () => {
-      expect(allowedOnDeck(getCatalogEntry(FIGURE))).toBe(true)
+      // second argument: is the LIVE ceremony pad the deck's one? A default
+      // project is 'hall', so it is not — and for everything that is not a canopy
+      // the answer changes nothing. `venueZones.test.ts` owns the canopy's case.
+      expect(allowedOnDeck(getCatalogEntry(FIGURE), false)).toBe(true)
     })
   })
 
@@ -1452,7 +1456,7 @@ describe('zones an entry is allowed into (PLAN-06)', () => {
   })
 
   it('lets a guest table stand on the reception deck (§27)', () => {
-    expect(allowedOnDeck(getCatalogEntry('table.round'))).toBe(true)
+    expect(allowedOnDeck(getCatalogEntry('table.round'), false)).toBe(true)
     expect(checkPlacement(scene(), ghost('table.round', deckCentre))).toEqual([])
   })
 
@@ -1460,7 +1464,7 @@ describe('zones an entry is allowed into (PLAN-06)', () => {
     // `buffet.table` is filed with the service furniture, not the guest tables, so
     // the explicit id in `allowedOnDeck` is load-bearing rather than redundant.
     expect(getCatalogEntry('buffet.table').category).toBe('bars')
-    expect(allowedOnDeck(getCatalogEntry('buffet.table'))).toBe(true)
+    expect(allowedOnDeck(getCatalogEntry('buffet.table'), false)).toBe(true)
     expect(checkPlacement(scene(), ghost('buffet.table', deckCentre))).toEqual([])
   })
 
@@ -1471,8 +1475,8 @@ describe('zones an entry is allowed into (PLAN-06)', () => {
     // was `bar.straight` when this was written; that id retired at v10 and
     // getCatalogEntry now throws on it. Any of the three pieces that replaced it
     // makes the same point — a bar unit is not welcome on the deck.
-    expect(allowedOnDeck(getCatalogEntry('bar.resort-left'))).toBe(false)
-    expect(allowedOnDeck(getCatalogEntry('divider.screen'))).toBe(false)
+    expect(allowedOnDeck(getCatalogEntry('bar.resort-left'), false)).toBe(false)
+    expect(allowedOnDeck(getCatalogEntry('divider.screen'), false)).toBe(false)
     const v = checkPlacement(scene(), ghost('divider.screen', deckCentre))
     expect(kinds(v)).toEqual(['forbiddenZone'])
     expect(v[0]).toMatchObject({ zone: 'kabalatPanim' })
@@ -1487,5 +1491,122 @@ describe('zones an entry is allowed into (PLAN-06)', () => {
     addObject('chuppah.draped-white', { x: 2000, y: 1800 })
     expect(kinds(checkPlacement(scene(), ghost('chuppah.round-beige', deckCentre)))).toEqual(['duplicate'])
     expect(kinds(checkPlacement(scene(), ghost('chuppah.round-beige', { x: 300, y: 300 })))).toEqual(['duplicate'])
+  })
+})
+
+/**
+ * כסא אורחים חופה (PLAN-04) — "the chair/s can only be placed on the dance floor
+ * and in the reception area."
+ *
+ * ⚠ EVERY case here needs `venuePackId: 'resort'`. The file's default project is a
+ * bare 4000×3000 room with NO zones at all, and in a room with no zones an
+ * `allowedZones` rule cannot fire in either direction — the whole group would pass
+ * while saying nothing.
+ */
+describe('כסא אורחים חופה', () => {
+  const CHAIR = 'chair.chuppah-guest'
+  const DANCE = pack.restricted!.find((z) => z.kind === 'dancefloor')!
+  const DECK2 = pack.restricted!.find((z) => z.kind === 'kabalatPanim')!
+  const DECK_PAD = pack.restricted!.find(
+    (z) => z.kind === 'chuppah' && z.x > DECK2.x && z.x < DECK2.x + DECK2.width,
+  )!
+  const POOL2 = pack.restricted!.find((z) => z.kind === 'pool')!
+  const mid = (z: { x: number; y: number; width: number; depth: number }) => ({
+    x: z.x + z.width / 2,
+    y: z.y + z.depth / 2,
+  })
+
+  beforeEach(() => {
+    newProject({ name: 'chuppah chair', venuePackId: 'resort' })
+  })
+
+  it('stands in the middle of the dance floor', () => {
+    expect(checkPlacement(scene(), ghost(CHAIR, mid(DANCE)))).toEqual([])
+  })
+
+  it('stands on the reception deck', () => {
+    expect(checkPlacement(scene(), ghost(CHAIR, mid(DECK2)))).toEqual([])
+  })
+
+  it('is refused on open hall floor, and told which zones it belongs to', () => {
+    const v = checkPlacement(scene(), ghost(CHAIR, { x: 500, y: 700 }))
+    expect(kinds(v)).toEqual(['wrongZone'])
+    expect(v[0]).toMatchObject({ allowed: ['dancefloor', 'kabalatPanim'] })
+  })
+
+  it('is refused in the pool for TWO separate reasons', () => {
+    // `allowedZones` opens the zones it names and nothing else: the pool still
+    // forbids, and the band rule still says the chair is not where it belongs
+    const v = checkPlacement(scene(), ghost(CHAIR, { x: 1200, y: 2000 }))
+    expect(kinds(v)).toContain('wrongZone')
+    expect(v).toContainEqual({ kind: 'forbiddenZone', zone: 'pool' })
+    expect(POOL2.x).toBeLessThan(1200)
+  })
+
+  /**
+   * The ceremony pad drawn on the deck blocks the chair too — being welcome on the
+   * deck is not being welcome on the pad, exactly as it is for a guest table
+   * (kabalatPanim.test.ts). ⚠ With "חופה למטה" that pad is not in the list at all,
+   * so the case has to name its ceremony (PLAN-03).
+   */
+  it('is refused on the deck ceremony pad while the ceremony is up there', () => {
+    setChuppahLocation('reception')
+    expect(checkPlacement(scene(), ghost(CHAIR, mid(DECK_PAD)))).toContainEqual({
+      kind: 'forbiddenZone',
+      zone: 'chuppah',
+    })
+  })
+
+  /**
+   * The half that lives in the CLAMP. Without the category on `allowedOnDeck`,
+   * `checkPlacement` says yes up here while `clampToVenue` declines to clamp the
+   * chair in — so one dropped on the deck's edge hangs over it and
+   * `standingHeightAt` flips it between 0 and 470 as its centre crosses the line.
+   */
+  it('is on the deck whitelist, and therefore clamped INTO the deck', () => {
+    expect(allowedOnDeck(getCatalogEntry(CHAIR), false)).toBe(true)
+    expect(allowedOnDeck(getCatalogEntry(CHAIR), true)).toBe(true)
+    const edge = { x: DECK2.x + 10, y: DECK2.y + 10 }
+    const id = addObject(CHAIR, edge)
+    const b = objectAABB(scene(), id)!
+    expect(b.minX).toBeGreaterThanOrEqual(DECK2.x - 0.01)
+    expect(b.minY).toBeGreaterThanOrEqual(DECK2.y - 0.01)
+    expect(b.maxX).toBeLessThanOrEqual(DECK2.x + DECK2.width + 0.01)
+    expect(b.maxY).toBeLessThanOrEqual(DECK2.y + DECK2.depth + 0.01)
+  })
+
+  /**
+   * ⭐ Touching is enough, and it is the user's ruling: a chair half over the dance
+   * floor's edge is allowed. `within: 0` says "touching or overlapping" because
+   * `shapeGap` is never negative (collision.ts:314) — so this is not a tolerance,
+   * it is the rule.
+   */
+  it('may hang half off the dance floor’s edge', () => {
+    const edge = { x: DANCE.x + DANCE.width, y: DANCE.y + DANCE.depth / 2 }
+    expect(checkPlacement(scene(), ghost(CHAIR, edge))).toEqual([])
+  })
+
+  /**
+   * STOPS ON THE BOUNDARY, does not freeze at the start of the gesture. No new
+   * code: `slideToLegal` bisects and hands back the legal part of the move.
+   */
+  it('slides to the edge when dragged out of the dance floor', () => {
+    const from = mid(DANCE)
+    const far = { x: DANCE.x - 600, y: from.y }
+    const stop = slideToLegal(scene(), { catalogId: CHAIR, transform: { position: far, rotation: 0, elevation: 0 }, size: getCatalogEntry(CHAIR).defaultSize }, from)
+    expect(stop).not.toBeNull()
+    expect(stop!.x).toBeLessThan(from.x)
+    expect(stop!.x).toBeGreaterThan(far.x)
+    expect(checkPlacement(scene(), ghost(CHAIR, stop!))).toEqual([])
+  })
+
+  /** Assertion 14: one chair, and the refusal says so. */
+  it('refuses a second one and hands back the first', () => {
+    const first = addObject(CHAIR, mid(DANCE))
+    const again = addObject(CHAIR, mid(DECK2))
+    expect(again).toBe(first)
+    expect(Object.values(scene().objects).filter((o) => o.catalogId === CHAIR)).toHaveLength(1)
+    expect(useEditorStore.getState().selection).toEqual([first])
+    expect(kinds(checkPlacement(scene(), ghost(CHAIR, mid(DECK2))))).toEqual(['duplicate'])
   })
 })

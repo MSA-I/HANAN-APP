@@ -30,6 +30,7 @@ import type { Id, SceneObject, SceneState, Size3D, Transform2D, Vec2 } from '../
 import { composeTransform, relativeTransform, rotateVec } from '../space'
 import { getVenuePack, type RestrictedZone } from '../venuePacks'
 import { aabbIntersects, holeRadius, pointInHole, type AABB } from './bounds'
+import { chuppahOnDeck, effectiveZones } from './venueZones'
 import { arcBandTiles } from './serpentine'
 
 /** Why a placement is refused — one per reason, in no particular order. */
@@ -463,7 +464,12 @@ interface Index {
    * below needs the same grouping anyway.
    */
   children: Map<Id, SceneObject[]>
-  zones: RestrictedZone[]
+  zones: readonly RestrictedZone[]
+  /**
+   * Which ceremony pad this project's zone list kept — read once here so the deck
+   * whitelist and the clamp ask it of the SAME derived list (venueZones.ts).
+   */
+  chuppahOnDeck: boolean
   /** venue contour in plan cm — the pack outline, or the size rectangle */
   contour: Vec2[]
   width: number
@@ -566,11 +572,17 @@ function buildIndex(scene: SceneState): Index {
 
   const pack = getVenuePack(scene.venue.venuePackId)
   const { width, depth } = scene.venue.size
+  // NOT `pack.restricted`: the pack carries both ceremony pads and this project
+  // has exactly one of them (PLAN-03 §3.2). Judging against the raw list is half
+  // a rollout — the rectangle vanishes from the drawing and stays alive in the
+  // rules, which is the fault collision.ts:577-585 exists to describe.
+  const zones = effectiveZones(scene)
   return {
     scene,
     occupants,
     children: childrenByParent,
-    zones: pack?.restricted ?? [],
+    zones,
+    chuppahOnDeck: chuppahOnDeck(zones),
     contour: (pack?.outline ?? [
       [0, 0],
       [width, 0],
@@ -608,8 +620,15 @@ function boxOverlapsZone(box: AABB, z: RestrictedZone): boolean {
  * `category: 'bars'` (entries/bars.ts:77), filed with the service furniture rather
  * than the guest tables. Deleting the id as redundant would drop the buffet off the
  * deck — the one piece §41 names explicitly.
+ *
+ * ⚠ `chuppahOnDeck` is the OTHER HALF of PLAN-03's switch and is not optional.
+ * The canopy is let up here because the deck has a ceremony pad of its own; with
+ * "חופה למטה" it has not, and an unconditional yes leaves a canopy dropped on the
+ * deck clamped INTO the deck (actions.ts, deck branch) and stranded there, on a
+ * deck that no longer has anywhere for it to stand. The caller passes the answer
+ * derived from the list it is judging against, so the two never disagree.
  */
-export function allowedOnDeck(entry: CatalogEntry): boolean {
+export function allowedOnDeck(entry: CatalogEntry, chuppahOnDeck: boolean): boolean {
   return (
     // "anywhere" includes up here, and saying so HERE is what carries the rule
     // into the clamp: state/actions.ts reads this same function, so a figure
@@ -623,8 +642,16 @@ export function allowedOnDeck(entry: CatalogEntry): boolean {
     // resort has a second ceremony pad up here, and a ceremony that may have its
     // canopy on the deck but not what dresses it is incoherent.
     entry.ignoresZones === true ||
-    entry.zoneKind === 'chuppah' ||
+    (entry.zoneKind === 'chuppah' && chuppahOnDeck) ||
     entry.category === 'seating' ||
+    // PLAN-04. The acrylic guest chair names `kabalatPanim` in its own
+    // `allowedZones`, which makes `check` stop refusing it up here — and that is
+    // only half the rule. Without this line `clampToVenue` would decline to clamp
+    // it INTO the deck, so a chair dropped on the deck's edge would hang over it
+    // and `standingHeightAt` would flip it between 0 and 470 as its centre crossed
+    // the boundary. It is `chuppahChair` and not `seating` precisely so it stays
+    // out of the table-chair dropdowns, so the line above does not cover it.
+    entry.category === 'chuppahChair' ||
     // Guest tables belong up there with the chairs. Round-2 corrections §27, in the
     // user's words: "when I try to place tables or a chuppah in the reception area,
     // even when it is switched on, it will not let me."
@@ -903,7 +930,7 @@ function check(index: Index, candidate: PlacementCandidate): Violation[] {
       // is not the zone the entry named.
       if (zone.kind && entry.allowedZones?.some((rule) => rule.kind === zone.kind)) continue
       if (zone.kind === 'kabalatPanim') {
-        if (!allowedOnDeck(entry)) out.push({ kind: 'forbiddenZone', zone: zone.kind })
+        if (!allowedOnDeck(entry, index.chuppahOnDeck)) out.push({ kind: 'forbiddenZone', zone: zone.kind })
         continue
       }
       out.push({ kind: 'forbiddenZone', zone: zone.kind ?? zone.label ?? '' })

@@ -9,7 +9,9 @@ import { slotColor } from '../core/catalog/types'
 import type { HallLayout } from '../core/hallLayouts'
 import { getTablePreset } from '../core/presets'
 import type { SavedLayout } from '../core/savedLayouts'
+import { chuppahLocationOf, zonesFor } from '../core/layout/venueZones'
 import { getVenuePack } from '../core/venuePacks'
+import { useEditorStore } from '../state/store'
 
 function ThumbnailFrame({
   width,
@@ -21,7 +23,7 @@ function ThumbnailFrame({
   width: number
   depth: number
   floorAreas?: [number, number][][]
-  restricted?: { x: number; y: number; width: number; depth: number }[]
+  restricted?: readonly { x: number; y: number; width: number; depth: number }[]
   children: (hairline: number) => React.ReactNode
 }) {
   const pad = Math.max(width, depth) * 0.02
@@ -53,12 +55,21 @@ function ThumbnailFrame({
 }
 
 export function LayoutThumbnail({ layout }: { layout: HallLayout }) {
+  // The switch is a property of the OPEN project, and this mini-map draws the
+  // venue the layout would be applied into — so it shows the pad that is live
+  // now, exactly as the plan behind it does.
+  const location = useEditorStore((s) => chuppahLocationOf(s.scene))
   const pack = getVenuePack(layout.venuePackId)
   if (!pack) return null
   const { width, depth } = pack.size
 
   return (
-    <ThumbnailFrame width={width} depth={depth} floorAreas={pack.floorAreas} restricted={pack.restricted}>
+    <ThumbnailFrame
+      width={width}
+      depth={depth}
+      floorAreas={pack.floorAreas}
+      restricted={zonesFor(layout.venuePackId, location)}
+    >
       {(hairline) => (
         <>
           {layout.placements.map((p, i) => {
@@ -95,6 +106,8 @@ export function LayoutThumbnail({ layout }: { layout: HallLayout }) {
 /** Vector preview for a user-saved selection, derived from the same snapshot
  * that will be instantiated. */
 export function SavedLayoutThumbnail({ layout }: { layout: SavedLayout }) {
+  // same reasoning as `LayoutThumbnail` above
+  const location = useEditorStore((s) => chuppahLocationOf(s.scene))
   const pack = layout.venue.kind === 'pack' ? getVenuePack(layout.venue.venuePackId) : undefined
   if (layout.venue.kind === 'pack' && !pack) return null
   const size = pack?.size ?? (layout.venue.kind === 'manual' ? layout.venue : null)
@@ -104,7 +117,7 @@ export function SavedLayoutThumbnail({ layout }: { layout: SavedLayout }) {
       width={size.width}
       depth={size.depth}
       floorAreas={pack?.floorAreas}
-      restricted={pack?.restricted}
+      restricted={pack && zonesFor(pack.id, location)}
     >
       {(hairline) => (
         <>

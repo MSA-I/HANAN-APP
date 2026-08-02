@@ -36,6 +36,8 @@ const EXPECTED: Record<Category, SubtitleMode> = {
   decor: 'size',
   // a chair is a chair — all six are the same 45×45
   seating: 'none',
+  // real stock with a product shot, exactly like the six above
+  chuppahChair: 'none',
   // table-top pieces, bought by look
   tableDecor: 'none',
   tableware: 'none',

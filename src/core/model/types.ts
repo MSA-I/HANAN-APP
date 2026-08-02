@@ -204,6 +204,14 @@ export const DEFAULT_LIGHTING: LightingSettings = {
   sunIntensity: 0.9,
 }
 
+/**
+ * Where the ceremony stands. The resort pack carries TWO `chuppah` rectangles —
+ * one in the hall at +0.50 and one on the reception deck at +5.20 — and this
+ * picks which of them is live. 'hall' is "חופה למטה", 'reception' is
+ * "חופה למעלה"; exactly one of the two exists at a time.
+ */
+export type ChuppahLocation = 'hall' | 'reception'
+
 export interface SceneSettings {
   /** cm */
   gridSize: number
@@ -214,6 +222,27 @@ export interface SceneSettings {
   layers?: Partial<Record<Category, LayerFlags>>
   /** outdoor lighting (schema v5); optional so pre-v5 data parses — read via lightingOf() */
   lighting?: LightingSettings
+  /**
+   * Which ceremony pad is live. A FACT ABOUT THE EVENT, not a view preference,
+   * which is why it lives here and not beside `activeZone` in the view store: it
+   * has to travel with the project, survive export/import and be undoable.
+   * `activeZone` answers "what am I looking at"; this answers "where is the
+   * ceremony". Read it through `core/layout/venueZones.ts` and never straight
+   * from here — the default is derived, see below.
+   *
+   * Optional, and absent does NOT flatly mean 'hall': `chuppahLocationOf` looks
+   * at the scene, so a project saved before this field existed with its canopy
+   * standing on the DECK's pad opens with the deck live, instead of having that
+   * canopy teleported 28 m west by the first edit that re-clamps it. Optional and
+   * additive, so SCHEMA_VERSION does not move — the same reasoning as
+   * `shadowSharpness`.
+   *
+   * ⚠ It DOES need its own line in the zod schema (core/migrations/index.ts).
+   * `sceneSettings` is a plain z.object, which strips every key it does not
+   * declare on every load, so without that line this toggle would work for the
+   * session and be gone at the next open, silently and with nothing failing.
+   */
+  chuppahLocation?: ChuppahLocation
 }
 
 export interface SceneState {

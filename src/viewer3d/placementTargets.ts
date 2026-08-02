@@ -69,7 +69,7 @@ export interface PickLevel {
  * illegal depending on where a toolbar toggle happens to be pointing.
  */
 export function pickLevelsCm(
-  pack: { restricted?: RestrictedZone[] } | undefined,
+  pack: { restricted?: readonly RestrictedZone[] } | undefined,
   venue: { width: number; depth: number },
 ): PickLevel[] {
   const hall = { x: 0, y: 0, width: venue.width, depth: venue.depth, elevationCm: 0 }

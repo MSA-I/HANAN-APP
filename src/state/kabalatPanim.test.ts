@@ -13,13 +13,20 @@
  *    numbers here are read from the pack.
  */
 import { beforeEach, describe, expect, it } from 'vitest'
-import { addObject, newProject, replaceObject, canReplaceObject, uniqueBlocker } from './actions'
+import {
+  addObject,
+  canReplaceObject,
+  newProject,
+  replaceObject,
+  setChuppahLocation,
+  uniqueBlocker,
+} from './actions'
 import { objectAABB } from './selectors'
 import { useEditorStore } from './store'
 import { getVenuePack } from '../core/venuePacks'
 import { getCatalogEntry } from '../core/catalog/registry'
 import { chuppahEntries } from '../core/catalog/entries/chuppah'
-import { checkPlacement } from '../core/layout/collision'
+import { allowedOnDeck, checkPlacement } from '../core/layout/collision'
 import { isZoneInside } from '../core/layout/zoneOccupancy'
 
 const scene = () => useEditorStore.getState().scene
@@ -79,8 +86,42 @@ describe('the reception deck exists in the plan at all', () => {
 
 describe('the whitelist — what may stand on the deck', () => {
   it('keeps a chuppah dropped on the deck there, instead of snapping it to the hall zone', () => {
+    // ⚠ PLAN-03 made this conditional, and that is the FIX and not a caveat: the
+    // canopy may stay up here because the deck has a ceremony pad of its own, and
+    // with "חופה למטה" it has not. See the pair below.
+    setChuppahLocation('reception')
     const id = addObject('chuppah.draped-white', centre)
     expect(insideDeck(id)).toBe(true)
+  })
+
+  /**
+   * §2.4 bug ב, and it is the one the switch would have left behind. Until
+   * PLAN-03 `allowedOnDeck` said `entry.zoneKind === 'chuppah'` unconditionally,
+   * so the deck branch of `clampToVenue` ran FIRST, clamped the canopy into the
+   * deck and `continue`d — the home snap was never reached. The result was a
+   * canopy stranded on a deck with no ceremony pad on it, which is the exact
+   * inverse of what "חופה למטה" asks for.
+   */
+  it('sends a chuppah dropped on the deck DOWN to the hall while the ceremony is there', () => {
+    setChuppahLocation('hall')
+    const id = addObject('chuppah.draped-white', centre)
+    expect(overlapsDeck(id)).toBe(false)
+    const hallPad = pack.restricted!.find((z) => z.kind === 'chuppah' && !isZoneInside(z, DECK))!
+    const b = objectAABB(scene(), id)!
+    expect(b.minX).toBeLessThan(hallPad.x + hallPad.width)
+    expect(b.maxX).toBeGreaterThan(hallPad.x)
+  })
+
+  it('is the whitelist itself that swings, not a special case downstream', () => {
+    const canopy = getCatalogEntry('chuppah.draped-white')
+    expect(allowedOnDeck(canopy, true)).toBe(true)
+    expect(allowedOnDeck(canopy, false)).toBe(false)
+    // and nothing else on the list moves with it
+    for (const id of ['table.round', 'buffet.table', 'chair.x-white']) {
+      expect(allowedOnDeck(getCatalogEntry(id), true)).toBe(
+        allowedOnDeck(getCatalogEntry(id), false),
+      )
+    }
   })
 
   it('keeps chairs on the deck', () => {
@@ -144,6 +185,9 @@ describe('the whitelist — what may stand on the deck', () => {
      * a red ghost carrying this violation — instead of a click that did nothing.
      */
     it('still refuses one that reaches the deck ceremony pad, and says which zone', () => {
+      // ⚠ PLAN-03 test 13: the pad has to BE there to refuse anything, so the
+      // scenario names its ceremony instead of inheriting it.
+      setChuppahLocation('reception')
       expect(deckPad.elevation).toBeGreaterThan(DECK.elevation!)
       expect(judge('table.round', padCentre)).toContainEqual({
         kind: 'forbiddenZone',
@@ -151,7 +195,19 @@ describe('the whitelist — what may stand on the deck', () => {
       })
     })
 
+    /**
+     * PLAN-03 test 12, and the whole feature in one assertion: with the ceremony
+     * downstairs that rectangle is not in the list at all, so the deck is plain
+     * deck there and a guest table is welcome on it. The refusal above and the
+     * green here are the same rule read at its two settings.
+     */
+    it('welcomes that same table on the same spot once the ceremony is downstairs', () => {
+      setChuppahLocation('hall')
+      expect(judge('table.round', padCentre)).toEqual([])
+    })
+
     it('lets the canopy itself stand on that pad', () => {
+      setChuppahLocation('reception')
       expect(judge('chuppah.draped-white', padCentre)).toEqual([])
     })
   })
@@ -182,6 +238,7 @@ describe('one chuppah per event (§43)', () => {
   })
 
   it('blocks the hall once the deck has the chuppah, and the other way round', () => {
+    setChuppahLocation('reception')
     const onDeck = addObject('chuppah.acrylic', centre)
     expect(insideDeck(onDeck)).toBe(true)
     expect(addObject('chuppah.draped-blush', { x: 300, y: 300 })).toBe(onDeck)
@@ -197,6 +254,7 @@ describe('one chuppah per event (§43)', () => {
    * changed nothing; only deleting the first chuppah does.
    */
   it('shows that `unique`, not the deck, is what refuses a chuppah there (§27)', () => {
+    setChuppahLocation('reception')
     const onDeck = addObject('chuppah.draped-white', centre)
     expect(insideDeck(onDeck)).toBe(true)
     expect(uniqueBlocker(scene(), 'chuppah.round-beige')?.id).toBe(onDeck)

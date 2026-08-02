@@ -64,6 +64,10 @@ export const tableDesignEntries: CatalogEntry[] = [
   // glb-prep drops KHR_materials_volume, so the transmission never survives the
   // prep (A1, handoff/02-a1-measurements.md §6) — long-standing pipeline
   // behaviour, not something this entry introduced.
+  // ⭐ And no longer unfixable: PLAN-04 rebuilds such materials in the renderer by
+  // material-NAME prefix (`BUILT_MATERIALS`, viewer3d/ObjectGroup.tsx). This model
+  // is mixed — rods plus collars, finials and a mirrored base — so what it still
+  // needs is a geometric marking rule of its own, not the mechanism.
   design('design.lamp-glass-rod', 'designLampGlassRod',
     'a cluster of six slim glass candle rods at staggered heights on one mirrored base',
     P('design-lamp-glass-rod.glb'), { width: 20.8, depth: 20, height: 70 }, '#b5b4b3', 'rect',

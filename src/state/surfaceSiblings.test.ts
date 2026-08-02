@@ -253,7 +253,8 @@ describe('the reception deck answers the same question twice (§27)', () => {
       const id = addObject(catalogId, deckCentre)
       expect([catalogId, overlapsDeck(id)]).toEqual([
         catalogId,
-        allowedOnDeck(getCatalogEntry(catalogId)),
+        // 'hall' is the default, so the deck's ceremony pad is not live
+        allowedOnDeck(getCatalogEntry(catalogId), false),
       ])
     }
   })

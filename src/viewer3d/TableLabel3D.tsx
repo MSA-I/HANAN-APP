@@ -36,8 +36,8 @@ import { Html } from '@react-three/drei'
 import { useThree } from '@react-three/fiber'
 import { getCatalogEntry } from '../core/catalog/registry'
 import { standingHeightAt } from '../core/layout/groundHeight'
+import { effectiveZones } from '../core/layout/venueZones'
 import { cmToM } from '../core/space'
-import { getVenuePack } from '../core/venuePacks'
 import { displayName } from '../editor2d/ObjectNode'
 import { useOverlayStore } from '../editor2d/overlayStore'
 import { selectedTable } from '../state/selectors'
@@ -76,7 +76,7 @@ export function TableLabel3D() {
     const ground = standingHeightAt(
       getCatalogEntry(obj.catalogId),
       obj.transform.position,
-      getVenuePack(s.scene.venue.venuePackId)?.restricted ?? [],
+      effectiveZones(s.scene),
     )
     return ground + obj.transform.elevation + obj.size.height
   })

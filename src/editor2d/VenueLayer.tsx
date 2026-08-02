@@ -17,6 +17,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { Circle, Group, Layer, Line, Rect, Shape, Text } from 'react-konva'
 import { useShallow } from 'zustand/react/shallow'
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
+import { effectiveZones } from '../core/layout/venueZones'
 import { isZoneInside, isZoneOccupied } from '../core/layout/zoneOccupancy'
 import {
   formatElevation,
@@ -317,7 +318,13 @@ export function VenueLayer() {
   // only, never written from here and never moved into `scene`.
   const activeZone = useEditorStore((s) => s.activeZone)
   const pack = getVenuePack(venuePackId)
-  const zones = pack?.restricted ?? []
+  // THE rectangle the user is asking about: with "חופה למטה" the deck's ceremony
+  // marker is not drawn, with "חופה למעלה" the hall's is not. One list, and it is
+  // the same one the rules judge against (core/layout/venueZones.ts).
+  // no `useShallow`: `effectiveZones` hands back a cached frozen array, so the
+  // reference itself is already stable across every store update that does not
+  // change the pack or the switch
+  const zones = useEditorStore((s) => effectiveZones(s.scene))
   const floorAreas = pack?.floorAreas ?? []
   const outline = venueOutline(pack)
   // The walls are a static asset of a static pack, so they are fetched once and
@@ -348,7 +355,7 @@ export function VenueLayer() {
   // does, and useShallow bails out on the unchanged array.
   const occupied = useEditorStore(
     useShallow((s) => {
-      const packZones = getVenuePack(s.scene.venue.venuePackId)?.restricted ?? []
+      const packZones = effectiveZones(s.scene)
       if (!packZones.length) return [] as string[]
       const centres: Vec2[] = []
       for (const id of s.scene.objectOrder) {
