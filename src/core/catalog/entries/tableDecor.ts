@@ -415,7 +415,15 @@ export const tableDecorEntries: CatalogEntry[] = [
   // stable key that also names public/props/<id>.glb and public/thumbs/<id>.webp
   // (tools/thumbs-prep.mjs), so it cannot be Hebrew and cannot be re-spelt later.
   cover('decor.place-setting-diagonal', 'decorPlaceSettingDiagonal', 'a full place setting with a diagonally folded napkin: charger, plate, cutlery and two glasses', 'decor-place-setting-diagonal.glb', { width: 36, depth: 32.32, height: 15.92 }, { width: 45, depth: 40.4, height: 19.9 }),
-  cover('decor.place-setting-horizontal', 'decorPlaceSettingHorizontal', 'a full place setting with a napkin folded across the plate: charger, plate, cutlery and two glasses', 'decor-place-setting-horizontal.glb', { width: 36, depth: 33.76, height: 15.68 }, { width: 45, depth: 42.2, height: 19.6 }),
+  // ⚠ -horizontal ALONE was re-exported on 2026-08-02, segmented, because its
+  // napkin was welded into the charger and so could not be coloured. The new file
+  // measures 45 × 39.7 × 19.3 where the first import measured 45 × 42.2 × 19.6 —
+  // the numbers below moved with the geometry and are NOT a typo against its four
+  // siblings. Its glasses are marked by NAME (`--only`), not by `mark-glass.mjs`:
+  // the finer segmentation shatters both vessels into 52 parts and the clustering
+  // rule bridges through the shards. handoff/FOUND-01-horizontal.md holds the
+  // measurement that chose the 52, and covers.test.ts reads the shipped file back.
+  cover('decor.place-setting-horizontal', 'decorPlaceSettingHorizontal', 'a full place setting with a napkin folded across the plate: charger, plate, cutlery and two glasses', 'decor-place-setting-horizontal.glb', { width: 36, depth: 31.76, height: 15.44 }, { width: 45, depth: 39.7, height: 19.3 }),
   cover('decor.place-setting-vertical', 'decorPlaceSettingVertical', 'a full place setting with a napkin folded lengthways down the plate: charger, plate, cutlery and two glasses', 'decor-place-setting-vertical.glb', { width: 36, depth: 31.52, height: 15.04 }, { width: 45, depth: 39.4, height: 18.8 }),
   cover('decor.place-setting-folded', 'decorPlaceSettingFolded', 'a full place setting with a squarely folded napkin: charger, plate, cutlery and two glasses', 'decor-place-setting-folded.glb', { width: 36, depth: 33.76, height: 14.08 }, { width: 45, depth: 42.2, height: 17.6 }),
   // "a napkin with a חבק", in the user's words — a ring, not a knot. The fragment

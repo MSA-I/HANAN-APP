@@ -613,10 +613,10 @@
     "/props/decor-place-setting-horizontal.glb": {
       "file": "decor-place-setting-horizontal.webp",
       "cmW": 45.9,
-      "cmD": 43.01,
+      "cmD": 40.52,
       "pxPerCm": 4.0087,
       "w": 184,
-      "h": 172
+      "h": 162
     },
     "/props/decor-place-setting-tied.glb": {
       "file": "decor-place-setting-tied.webp",
