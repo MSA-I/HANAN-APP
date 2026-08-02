@@ -155,16 +155,55 @@ function napkin(entry: CatalogEntry, defaultTexture: string): CatalogEntry {
   }
 }
 
+/**
+ * A candle holder whose WAX has been split off into its own GLB primitive, so the
+ * user can colour the candles to the event without touching the metal or the wood.
+ *
+ * The split is geometric and happens at prep time in tools/glb-prep/split-candles.mjs:
+ * every one of these models arrived from Tripo as ONE primitive with ONE baked
+ * texture, so there was no part to address until that tool cut the index buffer in
+ * two and gave the wax half a material called `candle`. `match: 'candle'` is the
+ * material-name prefix, exactly as `mark-fabric.mjs` + `divider-screen` already do.
+ *
+ * `waxColor` is NOT a taste choice: it is the mean texel the splitter measured over
+ * the wax components in the same run that wrote the file, so an untouched candle
+ * keeps looking like it did before the split. The tool prints it; the five values
+ * below were pasted from its output.
+ *
+ * `allowCustomColor` rides on the slot for the same reason it rides on `napkin()`:
+ * candles are matched to the event, not picked from the house palette.
+ *
+ * ⚠ ONE editable slot, and it HAS a `match`. `overrideForPart` is first-match-wins
+ * (viewer3d/appearance.ts:63-68), so a slot without a `match` would own every part
+ * of the model including the holder. If a second slot is ever added here it must
+ * come AFTER this one, and catalog/candles.test.ts fails if it does not.
+ */
+function candles(entry: CatalogEntry, waxColor: string): CatalogEntry {
+  return {
+    ...entry,
+    materialSlots: [
+      ...entry.materialSlots,
+      { name: 'candle', labelKey: 'candle', defaultColor: waxColor, allowCustomColor: true },
+    ],
+    editableSlots: [{ slot: 'candle', match: 'candle' }],
+  }
+}
+
 export const tableDecorEntries: CatalogEntry[] = [
-  surfaceProp('decor.candlestick-brass', 'decorCandlestickBrass', 'a brass candlestick', P('decor-candlestick-brass.glb'), { width: 21.4, depth: 21.4, height: 35 }, '#a8823f', 'round', ['נר', 'נרות', 'פמוט', 'פליז']),
+  candles(surfaceProp('decor.candlestick-brass', 'decorCandlestickBrass', 'a brass candlestick', P('decor-candlestick-brass.glb'), { width: 21.4, depth: 21.4, height: 35 }, '#a8823f', 'round', ['נר', 'נרות', 'פמוט', 'פליז']), '#bcb8b6'),
   surfaceProp('decor.vase-ceramic', 'decorVaseCeramic', 'a matte ceramic vase', P('decor-vase-ceramic.glb'), { width: 17.5, depth: 23.7, height: 35 }, '#b8afa3', 'round', ['ואזה', 'אגרטל', 'קרמיקה']),
   // NOT goblets: the Tripo model is a PAIR of cut-crystal vases (verified against
   // the product shot, 2026-07-19) — sized as vases, id kept to avoid churn
   surfaceProp('decor.goblet-crystal', 'decorGobletCrystal', 'a pair of cut-crystal vases', P('decor-goblet-crystal.glb'), { width: 35, depth: 18.7, height: 35 }, '#dbe4ea', 'rect', ['ואזה', 'אגרטל', 'קריסטל', 'זכוכית']),
+  // NO `candles()` slot: split-candles.mjs measures the wax and the crystal at the
+  // same saturation (group separation 0.051, needs 0.150), so a colour picker here
+  // would repaint the candelabra along with its candles.
   surfaceProp('decor.candelabra-crystal', 'decorCandelabraCrystal', 'a crystal candelabra', P('decor-candelabra-crystal.glb'), { width: 23.9, depth: 31.1, height: 55 }, '#cfd8e3', 'round', ['נר', 'נרות', 'פמוט', 'קנדלברה', 'קריסטל']),
   // a ROW of slim crystal holders (one mesh, seen end-on in renders)
+  // NO `candles()` slot: wax and glass are indistinguishable — separation 0.020 of 0.150.
   surfaceProp('decor.candleholder-crystal-a', 'decorCandleholderCrystalA', 'a row of slim crystal candle holders', P('decor-candleholder-crystal-a.glb'), { width: 9.5, depth: 28.8, height: 30 }, '#d8e0e8', 'rect', ['נר', 'נרות', 'פמוט', 'קריסטל']),
   // NOT a small holder: a full crystal candelabra with hanging prisms (verified)
+  // NO `candles()` slot: separation 0.072 of 0.150, and the rule claims 23.5% of the model.
   surfaceProp('decor.candleholder-crystal-b', 'decorCandleholderCrystalB', 'a crystal candelabra hung with cut prisms', P('decor-candleholder-crystal-b.glb'), { width: 20.3, depth: 22.6, height: 50 }, '#d8e0e8', 'round', ['נר', 'נרות', 'פמוט', 'קנדלברה', 'קריסטל']),
   surfaceProp('decor.vases-decorative', 'decorVasesDecorative', 'a cluster of decorative stoneware vases', P('decor-vases-decorative.glb'), { width: 29, depth: 31.6, height: 40 }, '#9b8e7e', 'round', ['ואזה', 'אגרטל']),
   surfaceProp('decor.vase-flowers-a', 'decorVaseFlowersA', 'a tall narrow vase of pink flowers', P('decor-vase-flowers-a.glb'), { width: 10.9, depth: 42, height: 45 }, '#c98ba0', 'rect', ['ואזה', 'אגרטל', 'פרחים', 'פרח', 'ורוד']),
@@ -211,11 +250,17 @@ export const tableDecorEntries: CatalogEntry[] = [
     // measured on the shipped GLB, 2026-07-29 (min [-6.1, 0, -15.39], max [6.1, 10, 15.39])
     modelSize: { width: 12.2, depth: 30.78, height: 10 },
   },
+  // NO `candles()` slot: separation 0.052 of 0.150, and the rule claims 30.2% of the
+  // model — a tealight holder may have no visible wax column to colour at all.
   surfaceProp('decor.candleholders-glass', 'decorCandleholdersGlass', 'a row of small glass tealight holders', P('decor-candleholders-glass.glb'), { width: 5.4, depth: 29.4, height: 20 }, '#ccd6da', 'rect', ['נר', 'נרות', 'פמוט', 'זכוכית']),
-  surfaceProp('decor.candelabrum-gold', 'decorCandelabrumGold', 'a gold candelabrum', P('decor-candelabrum-gold.glb'), { width: 30.3, depth: 36.8, height: 55 }, '#c9a86a', 'round', ['נר', 'נרות', 'פמוט', 'קנדלברה', 'זהב']),
+  candles(surfaceProp('decor.candelabrum-gold', 'decorCandelabrumGold', 'a gold candelabrum', P('decor-candelabrum-gold.glb'), { width: 30.3, depth: 36.8, height: 55 }, '#c9a86a', 'round', ['נר', 'נרות', 'פמוט', 'קנדלברה', 'זהב']), '#929190'),
+  // NO `candles()` slot: its ivory candle and its gilt stem are one warm tone —
+  // separation 0.088 of 0.150. Colour finds only the candle's tip (3 components,
+  // 1.5%), and the slenderness test that was meant to rescue it cannot tell the
+  // candle (rgb(191,169,134) sat 0.305) from 239 stem slivers (sat 0.32…0.39).
   surfaceProp('decor.candlestick-gold', 'decorCandlestickGold', 'a slim gold candlestick', P('decor-candlestick-gold.glb'), { width: 6.1, depth: 12.5, height: 40 }, '#c9a86a', 'round', ['נר', 'נרות', 'פמוט', 'זהב']),
   surfaceProp('decor.vases-gold-striped', 'decorVasesGoldStriped', 'a pair of gold-striped vases', P('decor-vases-gold-striped.glb'), { width: 10.3, depth: 22.4, height: 38 }, '#c2a25e', 'rect', ['ואזה', 'אגרטל', 'זהב']),
-  surfaceProp('decor.candelabrum-golden', 'decorCandelabrumGolden', 'a golden branched candelabrum', P('decor-candelabrum-golden.glb'), { width: 22.6, depth: 23.9, height: 55 }, '#c9a86a', 'round', ['נר', 'נרות', 'פמוט', 'קנדלברה', 'זהב']),
+  candles(surfaceProp('decor.candelabrum-golden', 'decorCandelabrumGolden', 'a golden branched candelabrum', P('decor-candelabrum-golden.glb'), { width: 22.6, depth: 23.9, height: 55 }, '#c9a86a', 'round', ['נר', 'נרות', 'פמוט', 'קנדלברה', 'זהב']), '#a0a2a2'),
   surfaceProp('decor.topiary-green', 'decorTopiaryGreen', 'a clipped green topiary ball in a pot', P('decor-topiary-green.glb'), { width: 32.7, depth: 30.9, height: 45 }, '#5f7f4f', 'round', ['צמח', 'צמחייה', 'ירוק', 'כדור']),
   surfaceProp('decor.vase-pampas', 'decorVasePampas', 'a tall vase of dried pampas grass', P('decor-vase-pampas.glb'), { width: 52.7, depth: 61.4, height: 70 }, '#cbb694', 'round', ['ואזה', 'אגרטל', 'צמח', 'פמפס', 'יבש']),
   surfaceProp('decor.tulips-pink', 'decorTulipsPink', 'an arrangement of pink tulips', P('decor-tulips-pink.glb'), { width: 38.7, depth: 39.1, height: 40 }, '#d78ba3', 'round', ['פרחים', 'פרח', 'זר', 'צבעונים', 'ורוד']),
@@ -224,8 +269,8 @@ export const tableDecorEntries: CatalogEntry[] = [
   surfaceProp('decor.vase-striped', 'decorVaseStriped', 'a striped stoneware vase', P('decor-vase-striped.glb'), { width: 17.9, depth: 18.9, height: 35 }, '#8f8a80', 'round', ['ואזה', 'אגרטל', 'פסים']),
   surfaceProp('decor.vases-white-ceramic', 'decorVasesWhiteCeramic', 'a group of white ceramic vases', P('decor-vases-white-ceramic.glb'), { width: 28.4, depth: 33.6, height: 35 }, '#e9e5dd', 'round', ['ואזה', 'אגרטל', 'קרמיקה', 'לבן']),
   napkin(surfaceProp('decor.napkin-white', 'decorNapkinWhite', 'a small folded napkin', P('decor-napkin-white.glb'), { width: 8.6, depth: 5.4, height: 8 }, '#f3f0ea', 'rect'), 'fabric-19'),
-  surfaceProp('decor.candleholders-wood', 'decorCandleholdersWood', 'a row of turned wooden candle holders', P('decor-candleholders-wood.glb'), { width: 5.3, depth: 21.1, height: 25 }, '#8a6b4f', 'rect', ['נר', 'נרות', 'פמוט', 'עץ']),
-  surfaceProp('decor.candlestick-wood', 'decorCandlestickWood', 'a turned wooden candlestick', P('decor-candlestick-wood.glb'), { width: 6.3, depth: 25.1, height: 30 }, '#8a6b4f', 'rect', ['נר', 'נרות', 'פמוט', 'עץ']),
+  candles(surfaceProp('decor.candleholders-wood', 'decorCandleholdersWood', 'a row of turned wooden candle holders', P('decor-candleholders-wood.glb'), { width: 5.3, depth: 21.1, height: 25 }, '#8a6b4f', 'rect', ['נר', 'נרות', 'פמוט', 'עץ']), '#f8f8f6'),
+  candles(surfaceProp('decor.candlestick-wood', 'decorCandlestickWood', 'a turned wooden candlestick', P('decor-candlestick-wood.glb'), { width: 6.3, depth: 25.1, height: 30 }, '#8a6b4f', 'rect', ['נר', 'נרות', 'פמוט', 'עץ']), '#d1ebf2'),
   // The only 'seat'-placement entry: dropping it on a table lays one out in front
   // of EVERY chair (see core/layout/seatItemLayout.ts) instead of one at the pointer.
   //

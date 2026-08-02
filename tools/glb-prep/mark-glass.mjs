@@ -41,9 +41,34 @@ if (!inPath) {
 const outPath = argv.includes('--out') ? argv[argv.indexOf('--out') + 1] : inPath
 const dry = argv.includes('--dry')
 
-/** m. A plate: wide and all but flat. Excluded before clustering — see the header. */
+/**
+ * m. What BRIDGES the setting: wide, and low enough to pass under the vessels.
+ * Excluded before clustering — see the header.
+ *
+ * ⚠ THE HEIGHT IS 0.06, NOT 0.03, AND THE REASON IS THE COARSER EXPORTS. In the
+ * 81-part file the plate arrives as five separate discs, none over 2.3 cm tall, so
+ * 0.03 caught them all. The five place settings that carry a folded napkin come out
+ * of Tripo at a much coarser granularity — 9 to 20 parts — where the charger is ONE
+ * part 2.4 to 5.6 cm tall. At 0.03 it stayed in, its 24×27 cm footprint touched
+ * everything else, the whole setting collapsed into one 28-34 cm cluster, COLUMN_MAX
+ * threw the cluster out and the wine glass went with it: glass-tall 0 on four of the
+ * five files.
+ *
+ * Raising it changes NOTHING on the shipped 81-part file — the only parts there that
+ * span 20 cm at all are the five discs already classified as plate, and the next
+ * widest is 14.8 cm — so the measured 38/32 split is unchanged. Verified with --dry
+ * before and after.
+ *
+ * A pure span test with no height limit gives the same answer on all six files, but
+ * it drops the one guard that stops a TALL wide part — a candelabra's canopy in some
+ * future export — from being pulled out. The height rail stays, just wider.
+ *
+ * ⚠ The count printed as `excluded` below is therefore not "plates": at 0.06 the
+ * long cutlery qualifies too. Being excluded only means a part keeps its own Tripo
+ * name, so this costs nothing.
+ */
 const PLATE_MIN_SPAN = 0.2
-const PLATE_MAX_TOP = 0.03
+const PLATE_MAX_TOP = 0.06
 /** m. Footprints this close count as touching. */
 const JOIN_GAP = 0.01
 /** m. A vessel cluster is narrower than this in BOTH horizontal axes. */
@@ -151,7 +176,7 @@ for (const c of clusters.values()) {
 
 console.log(inPath)
 console.log(
-  `  parts ${parts.length} · plates ${plates.length} · glass-tall ${tall} · glass-short ${short} · other ${
+  `  parts ${parts.length} · excluded ${plates.length} · glass-tall ${tall} · glass-short ${short} · other ${
     parts.length - plates.length - tall - short
   }`,
 )

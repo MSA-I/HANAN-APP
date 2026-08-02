@@ -352,6 +352,8 @@ export const strings = {
       metal: 'מתכת',
       /** PLAN-05 item 14: the texture set is "צבעי מפות ומפיות" — cloths and napkins */
       napkin: 'מפית',
+      /** PLAN-02/R5: the wax column the splitter separates from its holder (tools/glb-prep/split-candles.mjs) */
+      candle: 'נר',
     },
   },
   library: {
