@@ -9,3 +9,15 @@ cad_mcp.log
 .agents/
 .claude/skills/higgsfield-*/
 skills-lock.json
+.od-skills/
+
+# scratch artefacts dropped in the repo root by tooling, not part of the app
+hanan-dark-workspace.html
+hanan-dark-workspace.html.artifact.json
+
+# ⚠ Zero-byte files with names like `3`, `3,`, `o.parentId` or `!!o.seating` keep
+# appearing here. They are not a build artefact — they are shell redirections from
+# one-liners whose quoting broke (a `>` or a `|` landing in the wrong place), and
+# they have been deleted by hand twice. They are NOT ignored on purpose: an ignore
+# rule would hide the mistake instead of the mess. Write a script file rather than
+# a long inline command, and check `git status` before committing.
