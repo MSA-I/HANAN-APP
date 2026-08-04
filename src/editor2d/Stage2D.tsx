@@ -1,5 +1,6 @@
 import type Konva from 'konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
+import { X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Stage } from 'react-konva'
 import { getCatalogEntry } from '../core/catalog/registry'
@@ -29,12 +30,12 @@ import {
   isEffectivelyLocked,
   isObjectVisible,
   objectAABB,
+  subtreeAABB,
   visibleTopLevelIds,
 } from '../state/selectors'
 import { useEditorStore } from '../state/store'
 import { useElementSize } from '../lib/useElementSize'
 import { ContextMenu, type MenuEntry } from '../ui/ContextMenu'
-import { exitDesignEdit } from '../ui/DesignEditMode'
 import { strings } from '../ui/strings'
 import { BeamLayer } from './BeamLayer'
 import { clipboardHasContent, copySelection, cutSelection, pasteClipboard } from './clipboard'
@@ -138,6 +139,13 @@ function StageChips({ dropActive }: { dropActive: boolean }) {
       ? displayName(child.name, child.catalogId, undefined)
       : strings.drill.chair
   })
+  // The id the ✕ selects back to. The two selectors above compute the parent
+  // OBJECT and throw the id away; this returns a PRIMITIVE (string | null), like
+  // its neighbours, so there is no useShallow trap.
+  const parentId = useEditorStore((s) => {
+    if (s.selection.length !== 1) return null
+    return s.scene.objects[s.selection[0]]?.parentId ?? null
+  })
   const inDesignEdit = useEditorStore((s) => designEditTable(s.scene, s.designEditTableId) !== null)
   const placing = useOverlayStore((s) => s.placing)
 
@@ -150,6 +158,22 @@ function StageChips({ dropActive }: { dropActive: boolean }) {
         <span>{childLabel}</span>
         <span className="text-ink-soft">·</span>
         <span className="ltr-nums text-ink-soft">{strings.drill.escHint}</span>
+        {/* PLAN-10 §7: the drill chip has always SAID "Esc לחזרה" and never offered
+            anything to press. Esc is not discoverable and this state is the one a
+            usability tester most often felt trapped in. ⚠ `pointer-events-auto` is
+            required — the Chip wrapper is pointer-events-none precisely so the chip
+            never eats canvas clicks; this carves a ~20 px hole in the top centre,
+            the identical trade DesignEditMode's own chip makes one row down. */}
+        <button
+          type="button"
+          title={strings.drill.escHint}
+          aria-label={strings.drill.escHint}
+          data-testid="drill-exit"
+          onClick={() => parentId && select([parentId])}
+          className="pointer-events-auto rounded-full p-0.5 text-ink-soft transition-colors hover:bg-accent-tint hover:text-ink"
+        >
+          <X size={14} />
+        </button>
       </Chip>
     )
   }
@@ -200,6 +224,16 @@ export function Stage2D() {
   const panMode = spacePan || handTool
   const marqueeRef = useRef<Vec2 | null>(null)
   const midPanRef = useRef<{ pointer: Vec2; stagePos: Vec2 } | null>(null)
+  /**
+   * The viewport as it was when design-edit mode opened, so exiting puts the user
+   * back where they were looking (PLAN-10 §6).
+   *
+   * ⚠ A COMPONENT REF ON PURPOSE. It cannot reach `scene`, so it cannot be
+   * persisted into a project file and cannot spend an undo entry — which is what
+   * "where the camera was" must never do. `viewportStore` would be the second-best
+   * home; the scene is not an option at all.
+   */
+  const savedViewRef = useRef<ViewFit | null>(null)
 
   const applyView = useCallback((scale: number, pos: Vec2) => {
     const stage = stageRef.current
@@ -264,8 +298,42 @@ export function Stage2D() {
           .filter((b): b is AABB => !!b)
         if (boxes.length) fitBox(aabbUnion(boxes), 120)
       },
+      /**
+       * PLAN-10 §6: entering the mode on a table that is 70 px wide with twelve
+       * place settings on it is not something anyone can arrange. Frame it on the
+       * way in, put the view back on the way out.
+       *
+       * `subtreeAABB`, not `objectAABB` — the table PLUS its attached chairs, so
+       * the chairs that stay live inside the mode stay on screen with it.
+       */
+      frameTable: (id) => {
+        const stage = stageRef.current
+        if (!id) {
+          // ⚠ Cleared BEFORE the size guard: entering in split, switching to full
+          // 3D and exiting there would otherwise leave a stale saved view that a
+          // later exit snaps back to.
+          const v = savedViewRef.current
+          savedViewRef.current = null
+          if (stage && width > 0 && height > 0 && v) applyView(v.scale, { x: v.x, y: v.y })
+          return
+        }
+        // ⚠ In full 3D this pane is `display:none` and width/height are 0, which
+        // would make computeFit produce a negative scale clamped to ZOOM_MIN.
+        if (!stage || width <= 0 || height <= 0) return
+        // guard so a table → table re-entry cannot overwrite the ORIGINAL view
+        if (!savedViewRef.current) {
+          savedViewRef.current = { scale: stage.scaleX(), x: stage.x(), y: stage.y() }
+        }
+        const box = subtreeAABB(useEditorStore.getState().scene, id)
+        if (box) {
+          // ⚠ Load-bearing: without it the resize effect re-fits the venue and
+          // undoes this framing the moment a panel settles.
+          userTouchedViewRef.current = true
+          fitBox(box, 90)
+        }
+      },
     }),
-    [zoomAtPoint, fitBox, width, height],
+    [zoomAtPoint, fitBox, applyView, width, height],
   )
 
   useEditorShortcuts(zoomApi)
@@ -550,6 +618,27 @@ export function Stage2D() {
     }
     if (placing) return
     if (e.evt.button === 0 && e.target === stage && !panMode) {
+      const editing = useEditorStore.getState()
+      if (designEditTable(editing.scene, editing.designEditTableId)) {
+        // PLAN-10 §5: inside the mode an empty-background DRAG pans. Measured
+        // before this: dragging 600 px across empty floor cleared the mode, cleared
+        // the selection and moved the view by zero pixels — while the SAME gesture
+        // in 3D orbits the camera and keeps the mode. Two opposite answers to one
+        // movement.
+        //
+        // Reuses the middle-button pan verbatim rather than duplicating the hand
+        // tool. No marquee is lost: with the rest of the plan dimmed and deaf, a
+        // rubber band could only ever catch what the mode just put out of reach.
+        //
+        // `overlay.setPanning(true)` is deliberately NOT set — it would flash the
+        // closed hand on a press that turns out to be a plain click.
+        const pointer = stage.getPointerPosition()
+        if (pointer) {
+          userTouchedViewRef.current = true
+          midPanRef.current = { pointer, stagePos: stage.position() }
+        }
+        return
+      }
       const world = worldPointer()
       if (world) {
         marqueeRef.current = world
@@ -588,8 +677,29 @@ export function Stage2D() {
 
   const handleMouseUp = (e: KonvaEventObject<MouseEvent>) => {
     if (midPanRef.current) {
+      const start = midPanRef.current.pointer
+      const end = stageRef.current?.getPointerPosition() ?? start
       midPanRef.current = null
       overlay.setPanning(false)
+      // ⚠ SCREEN PIXELS, NOT WORLD. A pan moves the stage under a stationary
+      // pointer, so `getRelativePointerPosition()` reports the SAME world point at
+      // press and at release — the world-space `isClick` below would score every
+      // pan as a click.
+      const moved = Math.abs(end.x - start.x) >= 3 || Math.abs(end.y - start.y) >= 3
+      const editing = useEditorStore.getState()
+      if (!moved && e.evt.button === 0 && designEditTable(editing.scene, editing.designEditTableId)) {
+        // ⚠ THE MODE IS NOT CLOSED HERE, AND MUST NOT BE (the user, 2026-08-04:
+        // "it should only be cancelled by Escape or by the button"). A stray click
+        // anywhere on the floor used to end the session, which is how you lose a
+        // table you were half way through arranging without ever asking to. The
+        // ONLY ways out are now deliberate ones: Esc, `שמור וצא`, and the ✕ — all
+        // three in `ui/DesignEditMode.tsx`.
+        //
+        // The click still DESELECTS, which is what a background click means
+        // everywhere else in the plan: it steps off a place setting without
+        // stepping out of the table.
+        clearSelection()
+      }
       return
     }
     if (placing) {
@@ -603,18 +713,14 @@ export function Stage2D() {
     const world = worldPointer() ?? start
     overlay.setMarquee(null)
 
-    // Design-edit mode: the isolated table swallows its own presses, so a gesture
-    // that reached the stage started OUTSIDE it — the way out (source doc §52).
-    // It ends here whether it was a click or a marquee: with the rest of the plan
-    // dimmed and deaf, a rubber band could only have caught the objects the mode
-    // just put out of reach.
-    const editing = useEditorStore.getState()
-    if (designEditTable(editing.scene, editing.designEditTableId)) {
-      exitDesignEdit()
-      clearSelection()
-      return
-    }
-
+    // ⚠ THE DESIGN-EDIT EXIT USED TO LIVE HERE AND IS NOW UNREACHABLE — deleted
+    // rather than left to rot. Since PLAN-10 §5 an empty-background press inside
+    // the mode arms `midPanRef` instead of a marquee (handleMouseDown), so the
+    // release is always taken by the midPan branch at the top of this function,
+    // which is also the only place that can tell a click from a pan. Two exit
+    // implementations for one gesture is how the two views drifted apart in the
+    // first place. `dragController.ts`'s "exited by a click on empty canvas
+    // (Stage2D)" stays true — it just happens twenty lines higher.
     const zoom = useViewportStore.getState().zoom
     const isClick = Math.abs(world.x - start.x) * zoom < 3 && Math.abs(world.y - start.y) * zoom < 3
     if (isClick) {

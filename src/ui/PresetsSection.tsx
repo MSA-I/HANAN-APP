@@ -1060,6 +1060,7 @@ export function HallLayoutsSection() {
   // and it used to be a section of its own that rendered whatever this one did.
   return (
     <CollapsibleSection id={INSPECTOR_SECTION.hallLayouts} title={T.layouts} defaultOpen>
+      <AutoFillFooter />
       {pending ? (
         <HallLayoutOptions layout={pending} onBack={() => setOptionsFor(null)} />
       ) : (
@@ -1121,16 +1122,33 @@ export function HallLayoutsSection() {
           {T.removeLayout}
         </button>
       )}
-      <AutoFillFooter />
     </CollapsibleSection>
   )
 }
 
 /**
  * "Fill the hall with tables" IS a hall layout — an unnamed one, computed rather
- * than authored — so it is this section's footer instead of the section of its
- * own it used to have. Nothing about it changed but where it sits and the fact
- * that it now says what it did.
+ * than authored — so it belongs to this section rather than to the section of its
+ * own it used to have. Nothing about it has ever changed but where it sits.
+ *
+ * PLAN-10 §12 moved it from this section's FOOTER to its HEADER. A hall owner in
+ * testing arranged 24 dressed tables in under a minute with `מילוי אוטומטי` →
+ * `מלא אולם` → `פריסה על כל המקומות` and called it the best thing in the app — but
+ * only after being shown it. It was the LAST child of the one section that ships
+ * open, under a card grid, a saved-layouts grid, a save button and a remove
+ * button, inside a 320 px `overflow-y-auto` aside: below the fold on the first
+ * screen a hall owner ever sees.
+ *
+ * ⚠ The plan's stated cause for §12 was WRONG and was checked before this moved:
+ * lighting is fourth and ships CLOSED, and this is the only `defaultOpen` section
+ * in the panel. What the tester actually hit was a stored
+ * `localStorage['hanan.inspector.sections']` with `lighting:true` from an earlier
+ * session. So the fix is intra-section, and it is one line.
+ *
+ * ⚠ Invisible to any returning user who ever collapsed `פריסות אולם` — a stored
+ * boolean always beats `defaultOpen` (`fields.tsx`). Do NOT force it by bumping
+ * SECTIONS_KEY: that silently discards their lighting/layers/tableDesign
+ * preferences too.
  */
 function AutoFillFooter() {
   const [presetId, setPresetId] = useState(TABLE_PRESETS[0].id)

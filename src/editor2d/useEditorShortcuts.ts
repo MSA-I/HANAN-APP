@@ -3,6 +3,7 @@
  * identically under the Hebrew keyboard layout.
  */
 import { useEffect } from 'react'
+import type { Id } from '../core/model/types'
 import {
   clearSelection,
   duplicateObjects,
@@ -27,6 +28,16 @@ export interface ZoomApi {
   zoom100: () => void
   fitVenue: () => void
   fitSelection: () => void
+  /**
+   * Frame this table for design-edit (an id), or restore the view saved on entry
+   * (null) — PLAN-10 §6. ONE method does capture + fit + restore on purpose, so
+   * the "previous viewport" never becomes a field anyone can persist or undo.
+   *
+   * Deliberately NOT `fitSelection`: that reads the SELECTION, and the entry that
+   * comes from double-clicking a piece of decor (`dragController.onChildDblClick`)
+   * leaves a 36 cm place setting selected rather than the table.
+   */
+  frameTable: (id: Id | null) => void
 }
 
 export function isTypingTarget(e: KeyboardEvent): boolean {

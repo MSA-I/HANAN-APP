@@ -20,6 +20,7 @@ import type { Id } from '../core/model/types'
 import { displayName } from '../editor2d/ObjectNode'
 import { useOverlayStore } from '../editor2d/overlayStore'
 import { isTypingTarget } from '../editor2d/useEditorShortcuts'
+import { zoomApi } from '../editor2d/zoomBus'
 import { select } from '../state/actions'
 import { designEditTable } from '../state/selectors'
 import { setDesignEditTable, useEditorStore } from '../state/store'
@@ -58,6 +59,24 @@ export function DesignEditMode() {
       delete w.__designEdit
     }
   }, [])
+
+  /**
+   * Frame the table on the way in, restore the view on the way out (PLAN-10 §6).
+   *
+   * THIS IS THE RIGHT HOME, and it is what this component's header is for: it is
+   * mounted exactly ONCE, above the split, and it watches the one VALIDATED value.
+   * All five `setDesignEditTable` call sites — both 2D double-click paths, the
+   * three 3D ones — plus the dev handle and every exit funnel through it, so no
+   * entry point can be the one that forgets to zoom, and no `enterDesignEdit()`
+   * wrapper is needed.
+   *
+   * ⚠ NOT in `setDesignEditTable` (store.ts): that would bolt a viewport
+   * side-effect onto a pure state setter that three vitest suites call. Here
+   * `zoomApi()` is simply null under vitest and the effect is a no-op.
+   */
+  useEffect(() => {
+    zoomApi()?.frameTable(tableId)
+  }, [tableId])
 
   useEffect(() => {
     if (!tableId) return

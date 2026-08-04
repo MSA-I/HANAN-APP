@@ -66,6 +66,55 @@ export function rotateRingShape(outline: Outline, gapCm: number, bandCm: number)
 }
 
 /**
+ * The SHORT SIDE of a footprint, in centimetres — the one number that answers
+ * "how big is this thing" for both outline variants.
+ *
+ * A circle answers its DIAMETER, not its radius, so a ⌀180 table and a 180×120
+ * one both answer 180/120 and the rule below can be ONE rule rather than two that
+ * drift apart.
+ */
+export function outlineShortSide(outline: Outline): number {
+  return outline.kind === 'circle' ? 2 * outline.r : Math.min(outline.w, outline.h)
+}
+
+/**
+ * The ceilings ARE the constants this band shipped with, so nothing ⌀120 and up
+ * moves a micron: 180 × 0.10 = 18 → 12, 180 × 0.075 = 13.5 → 9, and 120 is the
+ * exact break-even. ⌀380, ⌀180, square-160 and knights-480 are bit-for-bit
+ * unchanged.
+ */
+export const RING_GAP_MAX_CM = 12
+export const RING_BAND_MAX_CM = 9
+
+/**
+ * Gap and band for an object of this size (PLAN-10 §8).
+ *
+ * WHY THIS EXISTS. The two numbers were fixed world centimetres, tuned for
+ * tables — this file's own header says so ("the band a TABLE is turned by"). On a
+ * ⌀180 table a 12 cm gap and a 9 cm band read as a halo 1.23× the table. On a
+ * 36 cm place setting the SAME centimetres are enormous: measured in the live
+ * viewer, the ring's world bounding box came out 110.9 × 112.7 cm around a piece
+ * 36 × 46.3 cm — **3.08× its width**, covering four neighbouring settings and the
+ * middle of the cloth. A hall owner's words: "the circle for turning should be
+ * the size of the thing".
+ *
+ * So the band is a PROPORTION with a floor and a ceiling. The ceiling keeps every
+ * table exactly as it is; the floor keeps a target a hand can still catch on a
+ * small prop.
+ *
+ * ⚠ It lives HERE, not in the renderer, for the reason stated at the top of this
+ * file: the same shape drives the Konva ring in the plan and the mesh in 3D, and
+ * deriving the size twice is precisely the drift that rule exists to prevent.
+ */
+export function rotateRingMetrics(shortSideCm: number): { gapCm: number; bandCm: number } {
+  const s = Number.isFinite(shortSideCm) && shortSideCm > 0 ? shortSideCm : 0
+  return {
+    gapCm: Math.min(RING_GAP_MAX_CM, Math.max(3, s * 0.1)),
+    bandCm: Math.min(RING_BAND_MAX_CM, Math.max(2.5, s * 0.075)),
+  }
+}
+
+/**
  * How far the ring reaches from the table's centre — its circumscribing radius.
  *
  * Exported because `isUsableRotationHit` needs exactly this number and both

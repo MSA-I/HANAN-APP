@@ -4,10 +4,9 @@ import { useShallow } from 'zustand/react/shallow'
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import { editableSlotsOf, slotColor, type Outline } from '../core/catalog/types'
 import { childSortKey, type Id } from '../core/model/types'
-import { notify } from '../state/notice'
 import {
+  canArrangeDecor,
   designEditTable,
-  isArrangeableDecor,
   isCover,
   isDesignEditMuted,
   isEffectivelyLocked,
@@ -126,6 +125,12 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
   // Validated on read, never the raw field — see `designEditTable`. A primitive,
   // so a node only re-renders when the isolated table actually changes.
   const editTableId = useEditorStore((s) => designEditTable(s.scene, s.designEditTableId))
+  // ⚠ THE SAME `canArrangeDecor` viewer3d/ObjectGroup asks of the same object — one
+  // predicate, so the plan and the viewer cannot disagree about what may be picked
+  // up (PLAN-10 §1/§4). Must be read HERE, above the early return at :168, because
+  // it is a hook. A boolean selector, like its neighbours, so the other 350 nodes
+  // do not re-render when one table opens.
+  const arrangeable = useEditorStore((s) => canArrangeDecor(s.scene, id, s.designEditTableId))
   // Live refusal naming THIS object as the piece that is in the way. A boolean
   // selector, so the other 350 nodes do not re-render when one of them is hit.
   const refused = useOverlayStore(
@@ -190,20 +195,17 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
   // children live inside the parent's Konva group and inherit both its opacity
   // and its `listening`, so muting the group mutes the whole table at once.
   const muted = !isChild && isDesignEditMuted(editTableId, id)
-  // Inside the edited table the decor IS the subject, so it is grabbable without
-  // drilling in first. Restricted to surface decor: the chairs stay on their
-  // drill-in path, or a stray press while arranging a centrepiece would drag a
-  // chair off its seat.
-  const inEditSession = isChild && editTableId !== null && obj.parentId === editTableId
-  // …with the COVER carved back out (source doc §11). `isArrangeableDecor` is the
-  // one home of that rule; viewer3d/ObjectGroup.tsx asks the same question of the
-  // same object, or a place setting would be locked here and draggable in 3D.
-  const editableDecor = inEditSession && isArrangeableDecor(obj)
-  // A cover refuses the grab by BOTH routes, not just the mode's. Double-clicking
-  // one opens the mode AND selects it (`onChildDblClick`), so `childSelected`
-  // alone would hand back the very drag the line above just took away.
+  // Inside the edited table the decor IS the subject — cover included since
+  // PLAN-10 §4 — so it is grabbable without drilling in first. The chairs never
+  // reach here: they are `kind: 'seat'` attachments and stay on their drill-in
+  // path, or a stray press while arranging a centrepiece would drag a chair off
+  // its seat.
   const cover = isCover(obj)
-  const childGrabbable = !cover && (childSelected || editableDecor)
+  // `childSelected` is the DRILL-IN path and survives outside the mode, but never
+  // for a cover: double-clicking one opens the mode AND selects it
+  // (`onChildDblClick`), so without the carve-out a cover would stay grabbable
+  // after Esc — grabbable in exactly the state §4 says it must not be.
+  const childGrabbable = arrangeable || (childSelected && !cover)
 
   return (
     <Group
@@ -217,17 +219,21 @@ export function ObjectNode({ id, isChild = false }: ObjectNodeProps) {
       draggable={isChild ? childGrabbable : !muted && !effectiveLocked}
       onMouseDown={(e) => {
         if (!isChild) return onObjectMouseDown(id, e)
-        // Say why the press did nothing. Without this the cover is a dead spot on
-        // the very table the user opened to arrange; with it, the gesture still
-        // bubbles (onChildMouseDown returns early), so it behaves exactly like a
-        // press on a chair — it moves the table, not the china.
-        if (inEditSession && cover) notify(strings.editMode.placeSettingLocked)
+        // The message AND the swallow belong to the gesture owner — the only place
+        // that can stop the bubble (PLAN-10 §2). Saying it here as well would fire
+        // it on a press the swallow has to answer for anyway, and would leave the
+        // refusal split across two files.
         onChildMouseDown(id, childGrabbable, e)
       }}
       // Hover is a TOP-LEVEL question. Konva's enter/leave do not fire again when
       // the pointer crosses from a group onto its own child, so a chair or a
-      // centrepiece keeps its table lit — which is honest, because pressing either
-      // of them selects and drags the table, not the piece.
+      // napkin or a centrepiece keeps its table lit — which is honest for those,
+      // because pressing them selects and drags the table, not the piece. ⚠ It is
+      // NO LONGER honest for a cover outside the mode: since PLAN-10 §2 that press
+      // is swallowed and answers with a toast instead of moving the table. Making
+      // it honest needs a fix in BOTH views or it just relocates the divergence —
+      // 3D can do it, Konva cannot re-fire enter/leave from a group onto its own
+      // child, so the cursor is deliberately left as it is in both.
       onMouseEnter={
         isChild
           ? undefined

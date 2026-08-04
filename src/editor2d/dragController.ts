@@ -18,8 +18,16 @@ import {
   select,
   toggleSelect,
 } from '../state/actions'
-import { isEffectivelyLocked, isTable, subtreeAABB, visibleTopLevelIds } from '../state/selectors'
+import { notify } from '../state/notice'
+import {
+  isCover,
+  isEffectivelyLocked,
+  isTable,
+  subtreeAABB,
+  visibleTopLevelIds,
+} from '../state/selectors'
 import { setDesignEditTable, useEditorStore } from '../state/store'
+import { strings } from '../ui/strings'
 import { overlay } from './overlayStore'
 import { useViewportStore } from './viewportStore'
 
@@ -232,8 +240,31 @@ export function onObjectDragEnd(_id: Id, e: KonvaEventObject<DragEvent>): void {
 
 export function onChildMouseDown(id: Id, grabbable: boolean, e: KonvaEventObject<MouseEvent>): void {
   if (e.evt.button !== 0) return
-  // Not grabbable: let it bubble, so a single click behaves like the table.
-  if (!grabbable) return
+  if (!grabbable) {
+    // ⚠ THE COVER SWALLOWS ITS OWN REFUSAL (PLAN-10 §2). Returning here used to let
+    // the press bubble to the table's Konva drag listener, so refusing to move a
+    // place setting MOVED THE WHOLE TABLE — measured x 4.94→6.24, y 20.71→20.12,
+    // and that move then raised a second, unrelated placement error. One gesture
+    // produced a refusal, an unasked-for move and a bogus error. Konva installs the
+    // parent's drag on `mousedown.konva`, so cancelling here is the same lever the
+    // grabbable branch below already relies on.
+    //
+    // Only the COVER does this. A napkin or a centrepiece outside the mode still
+    // bubbles and still travels with the table, exactly as before.
+    //
+    // ⚠ Shift is exempt: `cancelBubble` would also kill `onObjectMouseDown`'s
+    // `shiftAdded` bookkeeping, and 3D is already exempt the same way.
+    if (e.evt.shiftKey) return
+    const { scene, selection } = useEditorStore.getState()
+    const obj = scene.objects[id]
+    if (obj?.parentId && isCover(obj)) {
+      e.cancelBubble = true
+      notify(strings.editMode.placeSettingLocked)
+      // The click half is unchanged: the TABLE is still what ends up selected.
+      if (!selection.includes(obj.parentId)) select([obj.parentId])
+    }
+    return
+  }
   // A grabbable child keeps focus and starts its own drag — stop the event so
   // the parent table's mousedown doesn't reselect the table.
   e.cancelBubble = true

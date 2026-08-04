@@ -3,10 +3,12 @@ import { useEffect, useRef } from 'react'
 import { Layer, Transformer } from 'react-konva'
 import { getCatalogEntry, hasCatalogEntry } from '../core/catalog/registry'
 import { outlineAABB } from '../core/layout/bounds'
+import { outlineShortSide } from '../core/layout/rotateHandle'
 import { ROTATION_SNAP_DEG, rotationSnapsDeg, snapAngle } from '../core/rotation'
 import { beginGesture, endGesture, setPosition, setRotation, setSize } from '../state/actions'
 import { useEditorStore } from '../state/store'
 import { overlay, useOverlayStore } from './overlayStore'
+import { useViewportStore } from './viewportStore'
 
 const ACCENT = '#3056d3'
 
@@ -76,6 +78,43 @@ export function SelectionTransformer({ stageRef }: Props) {
 
   const single = selection.length === 1 ? objects[selection[0]] : null
   const entry = single && hasCatalogEntry(single.catalogId) ? getCatalogEntry(single.catalogId) : null
+
+  /**
+   * PLAN-10 §8, 2D half — the rotate handle and the anchors scale with how big the
+   * object actually IS on screen.
+   *
+   * ⚠ PIXELS, NOT CENTIMETRES. Konva's Transformer overrides `getAbsoluteTransform`
+   * to ignore the stage scale, so its anchors live in SCREEN space while the object
+   * lives in world cm — the same mismatch `boundBoxFunc` below already converts for,
+   * and the one that hid a real bug until round 4.
+   *
+   * Measured before this: at the ~0.128 px/cm the venue opens at, a single chair's
+   * box is ~28 px with a 26 px handle floating above it, and a 36 cm prop is under
+   * 5 px wide. The handle was bigger than the thing it turned.
+   *
+   * ⚠ THE ZOOM SUBSCRIPTION IS LOAD-BEARING, not decoration. This component
+   * subscribes to `selection` and `objects` and nothing else, so on a wheel zoom
+   * Konva repositions the transformer while re-reading the SAME stale anchor size.
+   * Once these props are a function of zoom, the component MUST re-render on zoom
+   * or it is worse than the constant it replaced. Every zoom path in Stage2D
+   * funnels through `applyView` → `setZoom`, so this store is a complete signal,
+   * and the `nodes()` effect does not depend on zoom, so re-rendering costs no
+   * re-attach.
+   *
+   * ⚠ ACCEPTED REGRESSION (the user's explicit decision, 2026-08-04): the ceilings
+   * are SCREEN pixels, so a ⌀180 table — 23 px at hall zoom — now lands on the
+   * FLOORS (10 / 5) and only regains today's 26 / 8 above roughly 65% zoom. That
+   * contradicts "no regression on the case that already works" as originally
+   * written, and it is deliberate: a 26 px handle on a 23 px table is the same
+   * complaint in a different costume.
+   *
+   * `Infinity` for a multi-selection, so both clamps land on their ceilings.
+   */
+  const zoom = useViewportStore((s) => s.zoom)
+  const shortSidePx =
+    entry && single ? outlineShortSide(entry.footprint(single.size).outline) * zoom : Infinity
+  const rotateOffsetPx = Math.min(26, Math.max(10, shortSidePx * 0.35))
+  const anchorPx = Math.min(8, Math.max(5, shortSidePx * 0.18))
 
   let anchors: string[] = []
   let keepRatio = false
@@ -193,11 +232,11 @@ export function SelectionTransformer({ stageRef }: Props) {
         // passthrough, which is what keeps the free case provably free.
         // Must mirror viewer3d/ObjectGroup.tsx `RotationHandle`.
         rotateEnabled
-        rotateAnchorOffset={26}
+        rotateAnchorOffset={rotateOffsetPx}
         borderStroke={ACCENT}
         anchorStroke={ACCENT}
         anchorFill="#ffffff"
-        anchorSize={8}
+        anchorSize={anchorPx}
         anchorCornerRadius={1}
         ignoreStroke
         shouldOverdrawWholeArea={false}

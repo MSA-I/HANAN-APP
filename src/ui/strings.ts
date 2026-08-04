@@ -797,13 +797,23 @@ export const strings = {
     saveAndExit: 'שמור וצא',
     autosaveHint: 'השינויים נשמרים אוטומטית',
     /**
-     * PLAN-09 item 11: "אסור שיהיה אפשר לערוך ערכות סכום". Today every
-     * `attachment.kind === 'surface'` child is editable, which catches the place
-     * setting and the napkins along with the centrepieces.
-     * ⚠ The exclusion has to land in BOTH views — `ObjectNode.tsx:158-159` and
-     * `ObjectGroup.tsx:497-499` — or 2D and 3D disagree.
+     * PLAN-09 item 11 — "אסור שיהיה אפשר לערוך ערכות סכום" — SCOPED, not cancelled
+     * (PLAN-10 §4, the user's 2026-08-02 decision: "תפתח את הערכות רק בתוך מצב
+     * עריכת שולחן"). Outside a session the cover still cannot be moved, so sorting
+     * the hall cannot nudge one by accident. Inside one it is decor like any other,
+     * which is what finally makes `hint` above a true promise.
+     *
+     * SO THIS MESSAGE NOW FIRES OUTSIDE THE MODE, NOT INSIDE IT, and it names the
+     * way in — the double-click is otherwise stated nowhere in the app, and the
+     * usability tester found it only by guessing "ככה זה בוורד".
+     *
+     * ⚠ The rule has to land in BOTH views or 2D and 3D disagree. It now does, via
+     * ONE predicate — `canArrangeDecor` (state/selectors.ts). The swallow that goes
+     * with this message is `dragController.onChildMouseDown` and
+     * `ObjectGroup`'s `SurfaceChild.handlePointerDown`. Named by SYMBOL, never by
+     * line number: the two anchors that used to be here had both rotted.
      */
-    placeSettingLocked: 'ערכת הסכו״ם אינה ניתנת להזזה',
+    placeSettingLocked: 'ערכת הסכו״ם מסודרת מתוך עריכת השולחן · דאבל־קליק על השולחן',
   },
   /**
    * The in-app replacements for `window.confirm` / `window.prompt`. Each dialog

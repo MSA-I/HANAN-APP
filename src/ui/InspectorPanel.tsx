@@ -66,6 +66,7 @@ import {
 } from '../state/actions'
 import {
   categoryOf,
+  isCover,
   isEffectivelyLocked,
   isFrozen,
   lightingOf,
@@ -74,7 +75,7 @@ import {
   type SelectionEditing,
   type SelectionSlot,
 } from '../state/selectors'
-import { useEditorStore } from '../state/store'
+import { setDesignEditTable, useEditorStore } from '../state/store'
 import { useShallow } from 'zustand/react/shallow'
 import { LIGHTING_MODES } from '../viewer3d/lightingModes'
 import {
@@ -434,7 +435,32 @@ function PlaceSettingsBlock({ obj }: { obj: SceneObject }) {
     return !!o && isEffectivelyLocked(s.scene, o)
   })
   const entries = seatItemEntries()
-  const [catalogId, setCatalogId] = useState(entries[0]?.id ?? '')
+  /**
+   * PLAN-10 §10 — WHAT IS ACTUALLY LAID, not what was last picked.
+   *
+   * This was `useState(entries[0]?.id)`, i.e. a component's memory. Two bugs fell
+   * out of it: re-selecting a table (or coming back from 3D, which unmounts the
+   * panel) showed the FIRST catalog entry whatever was really on the cloth — so
+   * there was no way to tell which set a table was dressed with; and because this
+   * block is not keyed by `obj.id`, going from table A to table B re-rendered in
+   * place and showed B the set A had picked.
+   *
+   * Deriving per-object fixes both without a remount — and a key would be worse,
+   * since it would reset the pick to `entries[0]` on every selection change.
+   *
+   * ⚠ `.catalogId` — A STRING, never the array and never the object. `seatItems()`
+   * builds a new array on every call, and a selector whose snapshot changes
+   * identity every time never settles under `useSyncExternalStore`: React
+   * re-renders, re-selects, and bails out with a WHITE SCREEN. That has already
+   * shipped once in this app, and it is why `laid` above takes `.length`.
+   */
+  const laidCoverId = useEditorStore(
+    (s) => seatItems(s.scene, obj.id).find(isCover)?.catalogId ?? '',
+  )
+  // the staged pick, which only matters on a BARE table — there is nothing laid to
+  // report yet, so the dropdown holds what the button below is about to lay
+  const [picked, setPicked] = useState('')
+  const catalogId = laidCoverId || picked || entries[0]?.id || ''
   const P = strings.presets
   if (!obj.seating || !entries.length) return null
   const seats = obj.seating.count
@@ -450,7 +476,7 @@ function PlaceSettingsBlock({ obj }: { obj: SceneObject }) {
           <select
             className="min-h-9 w-36 rounded-md border border-line bg-panel px-2 py-1.5 text-[14px] focus:border-accent focus:outline-none"
             value={catalogId}
-            onChange={(e) => setCatalogId(e.target.value)}
+            onChange={(e) => setPicked(e.target.value)}
           >
             {entries.map((entry) => (
               <option key={entry.id} value={entry.id}>
@@ -754,6 +780,31 @@ function SingleInspector({ obj }: { obj: SceneObject }) {
           popovers render, so the merge is a wrapper and not a fork. */}
       {obj.seating && (
         <Section title={T.tableStyling}>
+          {/* PLAN-10 §7 — THE ONLY VISIBLE WAY INTO DESIGN-EDIT MODE. Until this
+              button the sole entry was an undocumented DOUBLE-CLICK on the table
+              (`dragController.onObjectDblClick`): no button, no menu, no context
+              menu, and no text anywhere in the app that mentions it. A hall owner
+              found it in testing only by guessing "that is how Word works".
+
+              ⚠ A SIBLING of TableDesignBlock, never inside it: `viewer3d`'s
+              SelectionBar3D renders that block verbatim in a popover, and this
+              button inside it would fire `setDesignEditTable` from a popover with
+              no reason to close itself.
+
+              `setDesignEditTable` writes a VIEW preference outside `scene`
+              (store.ts), so "actions.ts is the only scene writer" is not breached —
+              and routing it through actions.ts would make the camera undoable.
+
+              Zoom-to-fit comes for free: group 2 hangs the framing off an OBSERVER
+              of `designEditTableId` (DesignEditMode.tsx), so every entry path gets
+              it and none can be the one that forgets. */}
+          <button
+            type="button"
+            onClick={() => setDesignEditTable(obj.id)}
+            className="flex min-h-9 w-full items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[14px] text-ink-soft transition-colors hover:border-accent hover:text-accent"
+          >
+            {strings.editMode.title}
+          </button>
           {canLayPlaceSettings(obj) && (
             <>
               <SubHeading>{strings.presets.placeSettings}</SubHeading>

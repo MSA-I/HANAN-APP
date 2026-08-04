@@ -46,8 +46,9 @@ import {
 } from '../state/actions'
 import { notify } from '../state/notice'
 import {
+  canArrangeDecor,
   designEditTable,
-  isArrangeableDecor,
+  isCover,
   isDesignEditMuted,
   isEffectivelyLocked,
   isHoverable,
@@ -617,9 +618,11 @@ function SurfaceChildren({ parentId, muted }: { parentId: Id; muted: boolean }) 
  * parent-local with elevation = the parent's height (set by the actions layer).
  *
  * It is DRAGGABLE ONLY IN DESIGN-EDIT MODE (source doc §11 + §52). Outside the
- * mode a press falls through to `handleClick`, which retargets the selection to
- * the table exactly as it always did — decor that moved on every stray drag of a
- * table would be worse than decor that cannot be moved at all.
+ * mode a press by a napkin or a centrepiece falls through to `handleClick`, which
+ * retargets the selection to the table exactly as it always did — decor that moved
+ * on every stray drag of a table would be worse than decor that cannot be moved at
+ * all. ⚠ THE COVER IS NOW THE EXCEPTION (PLAN-10 §2): its press is SWALLOWED, not
+ * passed on, because passing it on moved the whole table under a refusal.
  */
 function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: boolean }) {
   const groupRef = useRef<THREE.Group>(null)
@@ -642,16 +645,16 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
   const inEditSession = useEditorStore(
     (s) => designEditTable(s.scene, s.designEditTableId) === parentId,
   )
-  // …and separately, whether this particular piece may be moved at all. The COVER
-  // may not (source doc §11) — see `isArrangeableDecor`, which editor2d/ObjectNode
-  // asks of the same object so the plan and the render cannot disagree. Split in
-  // two rather than folded into one flag because the mode still being OPEN is what
-  // turns a refused press into a message instead of a dead pointer.
-  const arrangeable = useEditorStore((s) => {
+  // ⚠ THE SAME `canArrangeDecor` editor2d/ObjectNode asks of the same object — one
+  // predicate, so the plan and the render cannot disagree (PLAN-10 §1/§4). It folds
+  // the mode in itself, which is why there is no second flag to combine here.
+  const editable = useEditorStore((s) => canArrangeDecor(s.scene, id, s.designEditTableId))
+  // …and the cover is still the piece whose refusal is SWALLOWED and said out loud
+  // — now OUTSIDE the session rather than inside it (PLAN-10 §2/§4).
+  const cover = useEditorStore((s) => {
     const obj = s.scene.objects[id]
-    return !!obj && isArrangeableDecor(obj)
+    return !!obj && isCover(obj)
   })
-  const editable = inEditSession && arrangeable
   const placing = useOverlayStore((s) => s.placing)
 
   useLayoutEffect(() => {
@@ -766,12 +769,25 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
     suppressClick.current = false
     if (placing || e.button !== 0 || e.nativeEvent.shiftKey) return
     if (!editable) {
-      // Inside the session the only piece that gets here is the cover, and a
-      // refusal nobody can see is indistinguishable from a broken drag. The event
-      // is NOT stopped: it carries on to the table's own handler, so pressing a
-      // place setting moves the table exactly as pressing a chair does — the 2D
-      // twin of this line does the same (editor2d/ObjectNode.tsx).
-      if (inEditSession) notify(strings.editMode.placeSettingLocked)
+      // ⚠ THE COVER SWALLOWS ITS OWN REFUSAL (PLAN-10 §2); the 2D twin is
+      // `dragController.onChildMouseDown`. Letting the press carry on to the
+      // table's handler is what moved the whole table on a refused place-setting
+      // drag. Everything else still falls through, so a napkin or a centrepiece
+      // outside the mode drags the table exactly as it always did.
+      //
+      // ⚠ NOTE THE INVERSION: this message used to fire only INSIDE the mode.
+      // Since §4 the cover is arrangeable in there, so it now fires only OUTSIDE
+      // — and the 2D twin inverted in the same commit. Flipping one and not the
+      // other is the 2D/3D divergence §1 exists to kill, and no test in this
+      // node-env suite can see it.
+      if (cover) {
+        e.stopPropagation()
+        notify(strings.editMode.placeSettingLocked)
+        // Press-time parity with 2D. NOT load-bearing: `handleClick` already
+        // retargets to the parent outside the mode.
+        const state = useEditorStore.getState()
+        if (state.selection.length !== 1 || state.selection[0] !== parentId) select([parentId])
+      }
       return
     }
     const state = useEditorStore.getState()
@@ -902,8 +918,17 @@ function SurfaceChild({ id, parentId, muted }: { id: Id; parentId: Id; muted: bo
         {/* A decor item's band sits in ITS group, so it hugs the centrepiece
             rather than the table under it. `baseElevationCm` is 0 because a
             surface child's transform is already parent-local — the actions layer
-            sets its elevation to the table's height. */}
-        {canRotate && !muted && !placing && (
+            sets its elevation to the table's height.
+
+            ⚠ `editable` is the LATCH, not a cosmetic: §4 refuses rotation outside
+            the session too, and `canRotate` has no mode clause of its own while
+            `rotateObjectsBy` lets a child through with no probe — so this ring is
+            the only gate there is. A ring you can grab and are then refused is the
+            same broken promise as a `move` cursor over a dead spot. Currently
+            unreachable (exitDesignEdit re-selects the table, so a surface child
+            cannot be the selection outside a session) — it is a latch against a
+            future path, not an observable change today. */}
+        {canRotate && editable && !muted && !placing && (
           <RotateHandle
             id={id}
             outline={entry.footprint(size).outline}

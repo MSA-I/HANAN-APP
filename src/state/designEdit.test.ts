@@ -33,13 +33,16 @@ import {
   newProject,
   removeObjects,
   setLayerHidden,
+  setLayerLocked,
+  setLocked,
   setRotation,
   undo,
 } from './actions'
 import {
+  canArrangeDecor,
+  categoryOf,
   designEditIds,
   designEditTable,
-  isArrangeableDecor,
   isCover,
   isDesignEditMuted,
   isTable,
@@ -239,28 +242,37 @@ describe('the isolated group', () => {
 })
 
 /**
- * What the mode may pick up, in the user's words: "אסור שיהיה אפשר לערוך ערכות
- * סכום" (source doc §11).
+ * What the pointer may pick up, and WHEN — PLAN-10 §4, the user's 2026-08-02
+ * decision: "תפתח את הערכות רק בתוך מצב עריכת שולחן". Source doc §11 ("אסור שיהיה
+ * אפשר לערוך ערכות סכום") is SCOPED by the mode, not cancelled: outside a session
+ * a cover still cannot be moved, so sorting the hall cannot nudge one by accident.
  *
- * BOTH renderers gate the drag on `isArrangeableDecor` — editor2d/ObjectNode.tsx
- * and viewer3d/ObjectGroup.tsx's `SurfaceChild` — so this covers the plan and the
- * 3D view at once, which is the whole reason the predicate lives in selectors.
- * The ACTIONS layer is deliberately left ungated: the describe below still drags
- * a place setting through `moveObjectsBy`, because that is the path `laySeatItems`
- * and every clamp use to put one where it belongs.
+ * BOTH renderers gate the drag on `canArrangeDecor` — editor2d/ObjectNode.tsx and
+ * viewer3d/ObjectGroup.tsx's `SurfaceChild` — so proving the predicate proves the
+ * two views AGREE, which is the whole reason it lives in selectors. That agreement
+ * is otherwise untestable here: vite pins this suite to `environment: 'node'`, so
+ * nothing can render either renderer.
+ *
+ * ⚠ EVERY CASE IS ASSERTED IN BOTH MODES. A one-mode table would have passed
+ * before this change too, and the mode is now the entire rule.
+ *
+ * The ACTIONS layer is deliberately left ungated: `moveObjectsBy` must keep moving
+ * a cover, because that is the path `laySeatItems` and every clamp use to put one
+ * where it belongs.
  *
  * The premises are read off the catalog rather than assumed, since the rule IS a
  * reading of the catalog: if a napkin ever loses its `requiresHost`, this must
  * fail here rather than quietly lock the napkins along with the covers.
  */
-describe('what may be arranged inside the mode', () => {
-  it('refuses the place setting and accepts the napkin laid on it', () => {
+describe('what may be arranged, inside the mode and outside it', () => {
+  it('opens the place setting INSIDE the session and closes it outside', () => {
     expect(getCatalogEntry(SETTING).placement).toBe('seat')
     expect(getCatalogEntry(SETTING).requiresHost).toBeUndefined()
     expect(getCatalogEntry(NAPKIN).placement).toBe('seat')
     expect(getCatalogEntry(NAPKIN).requiresHost).toBe(SETTING)
 
     const table = addObject(TABLE, { x: 1000, y: 1000 })
+    const other = addObject(TABLE, { x: 3000, y: 3000 })
     const settings = addSeatItemsToTable(SETTING, table)
     const napkins = addSeatItemsToTable(NAPKIN, table)
     expect(settings.length).toBeGreaterThan(0)
@@ -268,34 +280,70 @@ describe('what may be arranged inside the mode', () => {
 
     for (const id of settings) {
       const obj = scene().objects[id]
-      // it is surface decor by attachment — which is exactly what used to make it
-      // grabbable, and is why the rule had to be the catalog and not the attachment
       expect(obj.attachment?.kind).toBe('surface')
+      // still a cover — the catalog reading did not change, only what it gates:
+      // `isCover` is now the REFUSAL gate, not the drag gate
       expect(isCover(obj)).toBe(true)
-      expect(isArrangeableDecor(obj)).toBe(false)
+      expect(canArrangeDecor(scene(), id, table)).toBe(true) // ← the §4 reversal
+      expect(canArrangeDecor(scene(), id, null)).toBe(false) // ← §11, still standing
+      // and a session on some OTHER table does not unlock this one
+      expect(canArrangeDecor(scene(), id, other)).toBe(false)
     }
     for (const id of napkins) {
       const obj = scene().objects[id]
       expect(obj.attachment?.kind).toBe('surface')
       expect(isCover(obj)).toBe(false)
-      expect(isArrangeableDecor(obj)).toBe(true)
+      expect(canArrangeDecor(scene(), id, table)).toBe(true)
+      expect(canArrangeDecor(scene(), id, null)).toBe(false)
     }
   })
 
-  it('accepts an ordinary centrepiece, and never picks up a chair', () => {
+  it('accepts an ordinary centrepiece in-session only, and never picks up a chair', () => {
     const table = addObject(TABLE, { x: 1000, y: 1000 })
     const centre = childAt(DECOR, table, { x: 0, y: 0 })
     expect(isCover(scene().objects[centre])).toBe(false)
-    expect(isArrangeableDecor(scene().objects[centre])).toBe(true)
+    expect(canArrangeDecor(scene(), centre, table)).toBe(true)
+    expect(canArrangeDecor(scene(), centre, null)).toBe(false)
 
     // a chair is a `kind: 'seat'` attachment: it stays on its drill-in path and
-    // never reaches the surface branch, before this rule and after it
+    // never reaches the surface branch, in EITHER mode
     const chair = Object.values(scene().objects).find(
       (o) => o.parentId === table && o.attachment?.kind === 'seat',
     )!
     expect(chair).toBeDefined()
     expect(isCover(chair)).toBe(false)
-    expect(isArrangeableDecor(chair)).toBe(false)
+    expect(canArrangeDecor(scene(), chair.id, table)).toBe(false)
+    expect(canArrangeDecor(scene(), chair.id, null)).toBe(false)
+  })
+
+  it('a lock closes the session too — the predicate folds `isEffectivelyLocked` in', () => {
+    const table = addObject(TABLE, { x: 1000, y: 1000 })
+    const settings = addSeatItemsToTable(SETTING, table)
+    const cover = settings[0]
+    const category = categoryOf(scene().objects[cover])!
+    expect(canArrangeDecor(scene(), cover, table)).toBe(true)
+
+    // ⚠ THE LOCK DOES NOT CASCADE, and that is the point of testing it here.
+    // `isEffectivelyLocked` asks only the object's OWN flag, its frozen state and
+    // its CATEGORY LAYER — it does not walk ancestors the way `isObjectVisible`
+    // does. So locking the TABLE leaves its covers arrangeable, and the two ways
+    // to actually stop one are the piece itself and its layer.
+    setLocked([table], true)
+    expect(canArrangeDecor(scene(), cover, table)).toBe(true) // ← not a typo
+    setLocked([table], false)
+
+    setLocked([cover], true)
+    expect(canArrangeDecor(scene(), cover, table)).toBe(false)
+    setLocked([cover], false)
+
+    // the layer route — this is the one 2D used to miss entirely: its child branch
+    // had no lock test at all while ObjectGroup's did, so a locked tableware layer
+    // stopped the drag in 3D and not in the plan. Folding the lock into the shared
+    // predicate is what closed that.
+    setLayerLocked(category, true)
+    expect(canArrangeDecor(scene(), cover, table)).toBe(false)
+    setLayerLocked(category, false)
+    expect(canArrangeDecor(scene(), cover, table)).toBe(true)
   })
 })
 

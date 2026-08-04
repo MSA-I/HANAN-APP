@@ -26,7 +26,9 @@ import {
   GRAZING_RAY_DIR_Y,
   MAX_HIT_RADIUS_FACTOR,
   isUsableRotationHit,
+  outlineShortSide,
   planAngleBetween,
+  rotateRingMetrics,
   rotateRingRadius,
   rotateRingShape,
   rotationFromDrag,
@@ -306,5 +308,52 @@ describe('which pointer hits may turn a table', () => {
     expect(isUsableRotationHit(ORIGIN, { x: Infinity, y: 0 }, R, 1)).toBe(false)
     expect(isUsableRotationHit(ORIGIN, near, 0, 1)).toBe(false)
     expect(isUsableRotationHit(ORIGIN, near, -R, 1)).toBe(false)
+  })
+})
+
+/**
+ * PLAN-10 §8 — the band has to scale with the object it hugs.
+ *
+ * ⚠ THE METRIC IS THE OUTER SPAN ACROSS THE SHORT AXIS, not `rotateRingRadius`
+ * over the short side. `rotateRingRadius` returns `rOuter` for a circle and the
+ * CORNER DIAGONAL for a rect, so the two variants are not on the same scale and no
+ * band can hold both: today's numbers already give 0.617 for the ⌀180 table and
+ * 1.00 for the cover. `1 + 2*(gap + band)/shortSide` is one expression that means
+ * the same thing for a disc and for a rounded rect.
+ *
+ * ⚠ THIS TEST WAS RED BEFORE THE FIX and was run both ways to prove it. With the
+ * shipped constants (12/9) the chair scores 1.9333 and the place setting 2.3419,
+ * both far outside the band below. After: ⌀380 1.1105 · ⌀180 1.2333 ·
+ * knights-480 1.350 · chair 1.350 · cover 1.3597.
+ */
+describe('the band scales with the object it hugs', () => {
+  const spanRatio = (catalogId: string) => {
+    const s = outlineShortSide(outlineOf(catalogId))
+    const { gapCm, bandCm } = rotateRingMetrics(s)
+    return 1 + (2 * (gapCm + bandCm)) / s
+  }
+
+  it('holds one band from a ⌀380 table down to a 36 cm cover', () => {
+    for (const id of [
+      'table.round-large',
+      'table.round',
+      'table.knights-480',
+      'chair.x-white',
+      'decor.place-setting',
+    ]) {
+      expect(spanRatio(id)).toBeGreaterThan(1.1)
+      expect(spanRatio(id)).toBeLessThan(1.37)
+    }
+  })
+
+  it('leaves every table on exactly the numbers it has today', () => {
+    // 120 cm is the exact break-even: 120 * 0.10 = 12 and 120 * 0.075 = 9
+    expect(rotateRingMetrics(180)).toEqual({ gapCm: 12, bandCm: 9 })
+    expect(rotateRingMetrics(120)).toEqual({ gapCm: 12, bandCm: 9 })
+  })
+
+  it('a circle answers its diameter, so one rule covers both outlines', () => {
+    expect(outlineShortSide({ kind: 'circle', r: 90 })).toBe(180)
+    expect(outlineShortSide({ kind: 'rect', w: 480, h: 120 })).toBe(120)
   })
 })

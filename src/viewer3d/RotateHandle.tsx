@@ -48,7 +48,9 @@ import { useThree, type ThreeEvent } from '@react-three/fiber'
 import type { Outline } from '../core/catalog/types'
 import {
   isUsableRotationHit,
+  outlineShortSide,
   planAngleBetween,
+  rotateRingMetrics,
   rotateRingRadius,
   rotateRingShape,
   rotationFromDrag,
@@ -63,9 +65,14 @@ import { useEditorStore } from '../state/store'
 import { LruCache } from './lru'
 import { SELECT_TINT } from './meshCache'
 
-/** How far outside the footprint the band's inner edge sits, and how wide it is. */
-const RING_GAP_CM = 12
-const RING_BAND_CM = 9
+/**
+ * How far outside the footprint the band's inner edge sits, and how wide it is,
+ * now lives in `core/layout/rotateHandle.ts` as `rotateRingMetrics` — a PROPORTION
+ * of the object rather than two fixed world centimetres (PLAN-10 §8). It moved
+ * there, and not into a second pair of constants here, for the reason that file's
+ * header gives: one shape drives the Konva ring and this mesh, and deriving the
+ * size twice is exactly the drift that rule forbids.
+ */
 
 /** Clear of the table top, so the band never z-fights the cloth it hovers over. */
 const RING_LIFT_CM = 2
@@ -255,10 +262,24 @@ export function RotateHandle({ id, outline, heightCm }: Props) {
   const dragRef = useRef<RotationDragState | null>(null)
   const meshRef = useRef<THREE.Mesh>(null)
 
-  const ring = useMemo(
-    () => rotateRingShape(outline, RING_GAP_CM, RING_BAND_CM),
-    [outline],
-  )
+  /**
+   * PLAN-10 §8, the whole 3D fix. The gap and band are now a function of the
+   * object's SHORT SIDE, so a ⌀180 table gets exactly the band it always had
+   * (the ceilings are the old constants) and a 36 cm place setting stops wearing
+   * a halo three times its own width.
+   *
+   * No new prop, no store read, no AABB: both call sites in ObjectGroup already
+   * hand this component `entry.footprint(size).outline`, which is the only input
+   * the size rule needs.
+   *
+   * ⚠ Known and accepted: the four heading knobs are `bandWidth * 0.85`, so on a
+   * place setting they shrink to about ⌀4 cm and stop reading as direction
+   * indicators. The BAND is the hit target, not the knobs.
+   */
+  const ring = useMemo(() => {
+    const { gapCm, bandCm } = rotateRingMetrics(outlineShortSide(outline))
+    return rotateRingShape(outline, gapCm, bandCm)
+  }, [outline])
   const geometry = useMemo(() => rotateRingGeometry(ring), [ring])
   const ringRadiusCm = useMemo(() => rotateRingRadius(ring), [ring])
 

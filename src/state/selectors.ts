@@ -135,10 +135,14 @@ export function isDesignEditMuted(editTableId: Id | null, objId: Id): boolean {
 }
 
 /**
- * A COVER — the place setting itself, the one thing on a table top the mode may
- * NOT rearrange (source doc §11, in the user's words: "אסור שיהיה אפשר לערוך
- * ערכות סכום"). It is laid one per seat by `laySeatItems`, and where it sits is
- * the seat's business, not the arranger's.
+ * A COVER — the place setting itself. It is laid one per seat by `laySeatItems`,
+ * and where it sits is the seat's business, not the arranger's.
+ *
+ * ⚠ THIS IS NO LONGER THE DRAG GATE — it is the REFUSAL gate. Since PLAN-10 §4 the
+ * cover may be rearranged INSIDE a design-edit session (`canArrangeDecor` owns
+ * that), and what this predicate now picks out is the piece whose refused press is
+ * SWALLOWED and explained OUTSIDE one. Source doc §11 ("אסור שיהיה אפשר לערוך
+ * ערכות סכום") is scoped by the mode, not cancelled.
  *
  * The CATALOG is the discriminator, never the id. Two properties say it:
  *
@@ -159,21 +163,39 @@ export function isCover(obj: SceneObject): boolean {
 }
 
 /**
- * May design-edit mode pick this table-top child up? Everything standing on the
- * top except the cover: the napkins laid on it, the centrepieces beside it.
+ * May the pointer pick this table-top child up? Everything standing on the top —
+ * the napkins, the centrepieces AND the cover — but ONLY while the mode that owns
+ * that table is open.
  *
- * ⚠ BOTH renderers ask this one question — editor2d/ObjectNode.tsx (`editableDecor`)
- * and viewer3d/ObjectGroup.tsx (`SurfaceChild`) — because a rule wired into only
- * one of them means the same place setting is locked in the plan and draggable in
- * 3D. The chairs never reach here: they are `kind: 'seat'` attachments and stay on
+ * ⚠ BOTH renderers ask this one question — editor2d/ObjectNode.tsx and
+ * viewer3d/ObjectGroup.tsx (`SurfaceChild`) — because a rule wired into only one
+ * of them means the same place setting is locked in the plan and draggable in 3D.
+ * The chairs never reach here: they are `kind: 'seat'` attachments and stay on
  * their drill-in path.
+ *
+ * THE MODE IS THE WHOLE RULE (PLAN-10 §4, the user's 2026-08-02 decision). §11 —
+ * "אסור שיהיה אפשר לערוך ערכות סכום" — was not cancelled, it was SCOPED: outside
+ * the session a cover still cannot be moved, so sorting the hall cannot nudge one
+ * by accident; inside a session, which is entered deliberately on one table with
+ * everything else dimmed, it is decor like any other. That is also what finally
+ * makes `editMode.hint` ("גררו את הקישוטים למקומם") a true promise.
+ *
+ * Takes the RAW `designEditTableId` and validates it here — the same shape
+ * `isHoverable` uses, so no caller has to remember the two-step.
  *
  * Deliberately a RENDERER gate and not an `actions.ts` one: `moveObjectsBy` must
  * keep moving a cover, because that is how `laySeatItems`, the clamps and the
  * collision tests place them in the first place.
  */
-export function isArrangeableDecor(obj: SceneObject): boolean {
-  return obj.attachment?.kind === 'surface' && !isCover(obj)
+export function canArrangeDecor(
+  scene: SceneState,
+  id: Id,
+  designEditTableId: Id | null,
+): boolean {
+  const obj = scene.objects[id]
+  if (!obj?.parentId || obj.attachment?.kind !== 'surface') return false
+  if (isEffectivelyLocked(scene, obj)) return false
+  return designEditTable(scene, designEditTableId) === obj.parentId
 }
 
 // --- category layers --------------------------------------------------------
@@ -327,7 +349,7 @@ function rootOf(scene: SceneState, id: Id): Id | null {
  * ⚠ BOTH renderers must ask THIS, not their own three conditions. A hover
  * highlight the plan draws and 3D does not is how the same locked chandelier ends
  * up looking grabbable in one view and inert in the other, and that is the bug
- * class this file exists for (see `isArrangeableDecor`).
+ * class this file exists for (see `canArrangeDecor`).
  *
  * ⚠ Unlike `isDesignEditMuted`, this takes the RAW `designEditTableId` straight
  * off the store. It has `scene` in hand, so it validates for you rather than
