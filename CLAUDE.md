@@ -18,6 +18,17 @@ Talk to the user in Hebrew. Code, filenames and commit messages in English.
 Verifying at the real UI surface: `.claude/skills/verify/SKILL.md` (headless puppeteer-core; the
 Chrome extension refuses localhost). Chrome, **not** Edge.
 
+## MCP servers
+
+`.mcp.json` declares two. Both were driven end to end on this machine, 2026-08-09.
+
+- **chrome-devtools** — `navigate_page` + `evaluate_script` against `http://127.0.0.1:<port>` work,
+  so it reaches the dev server that the Claude in Chrome extension refuses to open.
+- **context7** — live docs for three, R3F, drei, Konva, zustand. No API key needed.
+  ⚠ In v4 `resolve-library-id` requires **both** `libraryName` and `query`. Passing only
+  `libraryName` — the older signature — fails with
+  `Invalid arguments … query: expected string, received undefined`.
+
 ## Facts that have each cost a round
 
 **A table's `defaultSize` is the tablecloth hem at the floor, not the usable top.** The top is
